@@ -21,13 +21,11 @@ public abstract class DAOFactory {
                             instance = new MySqlDAOFactory();
                             break;
 
-                        case DERBY:
-                            instance = new DerbyDAOFactory();
-                            break;
+//                        case DERBY:
+//                            instance = new DerbyDAOFactory();
+//                            break;
 
-                        // case POSTGRES:
-                        //     instance = new PostgresAOFactory();
-                        //     break;
+
                         default:
                             throw new IllegalArgumentException("DBType no soportado: " + type);
                     }

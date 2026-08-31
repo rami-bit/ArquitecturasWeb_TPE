@@ -13,9 +13,9 @@ public final class MySQLConnectionManager implements ConnectionManager {
     private Connection connection; // java.sql.Connection (para SQL)
 
     // --- Configuración de conexión ---
-    private static final String URL = "jdbc:mysql://localhost:3306/ej2db?createDatabaseIfNotExist=true";
+    private static final String URL = "jdbc:mysql://localhost:3306/integrador1?createDatabaseIfNotExist=true";
     private static final String USER = "root";
-    private static final String PASSWORD = "password"; // contraseña vacía
+    private static final String PASSWORD = ""; //
 
     // --- Constructor privado ---
     private MySQLConnectionManager() {
