@@ -1,5 +1,6 @@
 package repository.mysql;
 
+import dao.ClienteDao;
 import factory.DAOFactory;
 
 import java.sql.Connection;
@@ -16,4 +17,8 @@ public class MySqlDAOFactory extends DAOFactory {
         MySQLConnectionManager.getInstance().shutdown();
     }
 
+    @Override
+    public ClienteDao create() {
+        return new MysqlDAOCliente(getConnection());
+    }
 }

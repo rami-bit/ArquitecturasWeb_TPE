@@ -3,6 +3,7 @@ package factory;
 
 //import  repository.derby.DerbyDAOFactory;
 
+import dao.ClienteDao;
 import repository.mysql.MySqlDAOFactory;
 
 import java.sql.Connection;
@@ -41,7 +42,8 @@ public abstract class DAOFactory {
         DBType type = DBType.valueOf(v.toUpperCase());
         return getInstance(type);
     }
-
+    //Daos de las entidades:
+    public abstract ClienteDao create();
 
     protected abstract Connection getConnection();
 
