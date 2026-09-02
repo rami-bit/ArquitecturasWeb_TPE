@@ -7,6 +7,7 @@
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
         <module name="TP1" />
+        <module name="ArquitecturasWeb_TPE" />
       </profile>
     </annotationProcessing>
   </component>
