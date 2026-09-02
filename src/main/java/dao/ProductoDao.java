@@ -8,4 +8,5 @@ public interface ProductoDao extends Dao<Producto>{
     List<Producto> findAll();
     void update(Producto p);
     void delete(Long id);
+    void create(Producto p);
 }
