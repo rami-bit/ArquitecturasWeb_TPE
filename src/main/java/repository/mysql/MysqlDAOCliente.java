@@ -31,10 +31,11 @@ public class MysqlDAOCliente implements ClienteDao {
 
     @Override
     public void create(Cliente c) {
-        final String sql = "INSERT INTO cliente (nombre,email) VALUES (?, ?)";
+        final String sql = "INSERT INTO cliente (idCliente, nombre,email) VALUES (?, ?, ?)";
         try (PreparedStatement ps = cn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-            ps.setString(1, c.getNombre());
-            ps.setString(2,c.getEmail());
+            ps.setLong(1, c.getId());
+            ps.setString(2, c.getNombre());
+            ps.setString(3,c.getEmail());
             ps.executeUpdate();
             try (ResultSet keys = ps.getGeneratedKeys()) {
                 if (keys.next()) c.setId(keys.getLong(1));

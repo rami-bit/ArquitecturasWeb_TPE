@@ -4,8 +4,6 @@ import entity.Cliente;
 
 import java.util.List;
 
-public interface ClienteDao {
-    void create(Cliente c);
-
+public interface ClienteDao extends Dao<Cliente>{
     List<Cliente> findAll();
 }
