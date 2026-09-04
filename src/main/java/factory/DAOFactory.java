@@ -4,6 +4,8 @@ package factory;
 //import  repository.derby.DerbyDAOFactory;
 
 import dao.ClienteDao;
+import dao.FacturaDao;
+import dao.ProductoDao;
 import repository.mysql.MySqlDAOFactory;
 
 import java.sql.Connection;
@@ -43,7 +45,9 @@ public abstract class DAOFactory {
         return getInstance(type);
     }
     //Daos de las entidades:
-    public abstract ClienteDao create();
+    public abstract ClienteDao createClienteDao();
+    public abstract ProductoDao createProductoDao();
+    public abstract FacturaDao createFacturaDao();
 
     protected abstract Connection getConnection();
 
@@ -58,5 +62,4 @@ public abstract class DAOFactory {
      * Cada fabrica concreta cierra SU gestor de conexiones.
      */
     protected abstract void doShutdown();
-
 }

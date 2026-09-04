@@ -1,8 +1,16 @@
-import dao.ClienteDao;
 import factory.DAOFactory;
 import factory.DBType;
+import seeds.DatabaseSeeder;
+
+import java.sql.SQLException;
 
 public class Main {
-    DAOFactory factory = DAOFactory.getInstance(DBType.MYSQL);
-    ClienteDao clienteDao = factory.create();
+    public static void main (String [] args) throws Exception {
+        DAOFactory factory = DAOFactory.getInstance(DBType.MYSQL);
+        new DatabaseSeeder(factory);
+        System.out.println(factory.createClienteDao().findAll().stream().findFirst());
+        System.out.println(factory.createProductoDao().findAll().stream().findFirst());
+        System.out.println(factory.createFacturaDao().getAllFacturas().stream().findFirst());
+    }
+
 }

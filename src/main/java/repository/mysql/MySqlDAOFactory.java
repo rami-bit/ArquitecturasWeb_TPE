@@ -1,6 +1,8 @@
 package repository.mysql;
 
 import dao.ClienteDao;
+import dao.FacturaDao;
+import dao.ProductoDao;
 import factory.DAOFactory;
 
 import java.sql.Connection;
@@ -18,7 +20,12 @@ public class MySqlDAOFactory extends DAOFactory {
     }
 
     @Override
-    public ClienteDao create() {
-        return new MysqlDAOCliente(getConnection());
-    }
+    public ClienteDao createClienteDao() { return new MysqlDAOCliente(getConnection()); }
+
+    @Override
+    public ProductoDao createProductoDao() { return new MySQLDAOProducto(getConnection()); }
+
+    @Override
+    public FacturaDao createFacturaDao() { return new MysqlDAOFactura(getConnection()); }
+
 }

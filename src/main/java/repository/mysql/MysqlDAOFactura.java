@@ -19,7 +19,8 @@ public class MysqlDAOFactura implements FacturaDao{
     private void crearTablaSiNoExiste() {
         final String sql = "CREATE TABLE IF NOT EXISTS Factura (" +
                 "idFactura BIGINT PRIMARY KEY AUTO_INCREMENT," +
-                "idCliente BIGINT NOT NULL" +
+                "idCliente BIGINT NOT NULL," +
+                "FOREIGN KEY (idCliente) REFERENCES cliente(idCliente)" +
                 ")";
         try (Statement st = cn.createStatement()) {
             st.execute(sql);
@@ -156,7 +157,7 @@ public class MysqlDAOFactura implements FacturaDao{
     }
     @Override
     public List<Factura> getAllFacturas() throws SQLException {
-       ArrayList<Factura> facturas = new ArrayList<>();
+        ArrayList<Factura> facturas = new ArrayList<>();
         String select = "SELECT * FROM Factura";
         PreparedStatement ps = cn.prepareStatement(select);
         ResultSet rs = ps.executeQuery();

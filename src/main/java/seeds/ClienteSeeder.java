@@ -16,10 +16,6 @@ public class ClienteSeeder extends Seeder<Cliente>{
         cliente.setId(Long.parseLong(row.get("idCliente")));
         cliente.setNombre(row.get("nombre"));
         cliente.setEmail(row.get("email"));
-        System.out.println(row.get("idCliente"));
-        System.out.println(row.get("nombre"));
-        System.out.println(row.get("email"));
         return cliente;
-
     }
 }

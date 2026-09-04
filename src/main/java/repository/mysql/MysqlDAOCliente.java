@@ -31,7 +31,8 @@ public class MysqlDAOCliente implements ClienteDao {
 
     @Override
     public void create(Cliente c) {
-        final String sql = "INSERT INTO cliente (idCliente, nombre,email) VALUES (?, ?, ?)";
+        final String sql = "INSERT INTO cliente (idCliente, nombre,email) VALUES (?, ?, ?) " +
+                "ON DUPLICATE KEY UPDATE nombre = VALUES(nombre), email = VALUES(email)";
         try (PreparedStatement ps = cn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             ps.setLong(1, c.getId());
             ps.setString(2, c.getNombre());

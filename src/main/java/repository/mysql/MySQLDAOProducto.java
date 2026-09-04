@@ -17,12 +17,32 @@ public class MySQLDAOProducto implements ProductoDao {
 
     @Override
     public void create(Producto p){
+        if (p.getId() == null){
+            createWithoutId(p);
+        }else {
+            createWithId(p);
+        }
+    }
+
+    private void createWithoutId(Producto p){
         final String sql = "INSERT INTO productos (nombre, valor) VALUES (?,?)";
         try (PreparedStatement ps = cn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             ps.setString(1, p.getNombre());
             if (p.getValor() == null) ps.setNull(2, Types.FLOAT); else ps.setFloat(2, p.getValor());
             ps.executeUpdate();
             try (ResultSet keys = ps.getGeneratedKeys()) { if (keys.next()) p.setId(keys.getLong(1)); }
+        } catch (SQLException e) { throw new RuntimeException("Error en create(producto)", e); }
+    }
+
+    private void createWithId(Producto p){
+        final String sql = "INSERT INTO productos (id, nombre, valor) VALUES (?,?,?)" +
+                "ON DUPLICATE KEY UPDATE nombre = VALUES(nombre), valor = VALUES(valor)";
+        try (PreparedStatement ps = cn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            ps.setLong(1, p.getId());
+            ps.setString(2, p.getNombre());
+            if (p.getValor() == null) ps.setNull(3, Types.FLOAT); else ps.setFloat(3, p.getValor());
+            ps.executeUpdate();
+
         } catch (SQLException e) { throw new RuntimeException("Error en create(producto)", e); }
     }
 
