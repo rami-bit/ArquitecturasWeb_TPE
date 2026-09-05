@@ -2,16 +2,18 @@ package repository.mysql;
 
 import dao.Factura_ProductoDao;
 import entity.Factura_Producto;
+import jdk.jshell.spi.ExecutionControl;
+import lombok.SneakyThrows;
 
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 
-public class MySQLDAOFactura_Producto implements Factura_ProductoDao {
+public class MySQLDAOFacturaProducto implements Factura_ProductoDao {
 
     private final Connection cn;
 
-    public MySQLDAOFactura_Producto(Connection cn) {
+    public MySQLDAOFacturaProducto(Connection cn) {
         this.cn = cn;
         crearTablaSiNoExiste();
     }
@@ -19,7 +21,7 @@ public class MySQLDAOFactura_Producto implements Factura_ProductoDao {
     public void crearTablaSiNoExiste() {
 
         final String sql = "CREATE TABLE IF NOT EXISTS factura_producto (" +
-                "idFactura INT NOT NULL," +
+                "idFactura BIGINT NOT NULL," +
                 "idProducto BIGINT NOT NULL," +
                 "cantidad INT NOT NULL," +
                 "PRIMARY KEY (idFactura, idProducto)," +
@@ -40,7 +42,8 @@ public class MySQLDAOFactura_Producto implements Factura_ProductoDao {
     public void create(Factura_Producto fp) {
 
         final String sql = "INSERT INTO factura_producto " +
-                "(idFactura, idProducto, cantidad) VALUES (?, ?, ?)";
+                "(idFactura, idProducto, cantidad) VALUES (?, ?, ?)" +
+                "ON DUPLICATE KEY UPDATE cantidad = VALUES(cantidad)";
 
         try (PreparedStatement ps = cn.prepareStatement(sql)) {
 
@@ -52,7 +55,7 @@ public class MySQLDAOFactura_Producto implements Factura_ProductoDao {
 
         } catch (SQLException e) {
             throw new RuntimeException(
-                    "Error en create(factura_producto)", e);
+                    "Error en create(factura_producto): " + fp, e);
         }
     }
 

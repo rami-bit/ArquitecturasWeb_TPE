@@ -5,6 +5,7 @@ package factory;
 
 import dao.ClienteDao;
 import dao.FacturaDao;
+import dao.Factura_ProductoDao;
 import dao.ProductoDao;
 import repository.mysql.MySqlDAOFactory;
 
@@ -48,6 +49,7 @@ public abstract class DAOFactory {
     public abstract ClienteDao createClienteDao();
     public abstract ProductoDao createProductoDao();
     public abstract FacturaDao createFacturaDao();
+    public abstract Factura_ProductoDao createFacturaProductoDao();
 
     protected abstract Connection getConnection();
 

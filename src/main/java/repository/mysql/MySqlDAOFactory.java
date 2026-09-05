@@ -2,6 +2,7 @@ package repository.mysql;
 
 import dao.ClienteDao;
 import dao.FacturaDao;
+import dao.Factura_ProductoDao;
 import dao.ProductoDao;
 import factory.DAOFactory;
 
@@ -27,5 +28,9 @@ public class MySqlDAOFactory extends DAOFactory {
 
     @Override
     public FacturaDao createFacturaDao() { return new MysqlDAOFactura(getConnection()); }
+
+    @Override
+    public Factura_ProductoDao createFacturaProductoDao() { return new MySQLDAOFacturaProducto(getConnection()); }
+
 
 }

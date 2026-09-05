@@ -11,10 +11,10 @@ public class DatabaseSeeder {
         ProductoSeeder productos = new ProductoSeeder(factory.createProductoDao());
         productos.seed("src/main/resources/csv/productos.csv");
 
-//        FacturaProductoSeeder facturaProducto = new FacturaProductoSeeder(factory.createFacturaProductoDao());
-//        facturaProducto.seed("src/main/resources/csv/facturas-productos.csv");
-
         FacturaSeeder facturas = new FacturaSeeder(factory.createFacturaDao());
-//        facturas.seed("src/main/resources/csv/facturas.csv");
+        facturas.seed("src/main/resources/csv/facturas.csv");
+
+        FacturaProductoSeeder facturaProducto = new FacturaProductoSeeder(factory.createFacturaProductoDao());
+        facturaProducto.seed("src/main/resources/csv/facturas-productos.csv");
     }
 }

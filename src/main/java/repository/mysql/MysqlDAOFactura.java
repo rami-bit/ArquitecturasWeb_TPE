@@ -31,7 +31,8 @@ public class MysqlDAOFactura implements FacturaDao{
    
     @Override
     public void create(Factura factura) {
-        String query = "INSERT INTO Factura (idFactura, idCliente) VALUES (?, ?)";
+        String query = "INSERT INTO Factura (idFactura, idCliente) VALUES (?, ?)" +
+                "ON DUPLICATE KEY UPDATE idCliente = VALUES(idCliente)";
         try (PreparedStatement ps = cn.prepareStatement(query)) {
             ps.setInt(1, factura.getIdFactura());
             ps.setInt(2, factura.getIdCliente());
@@ -39,9 +40,8 @@ public class MysqlDAOFactura implements FacturaDao{
             if (rowsAffected == 0) {
                 throw new SQLException("No se pudo insertar la factura.");
             }
-            cn.commit();
         } catch (SQLException e) {
-            throw new RuntimeException("Error al insertar la factura", e);
+            throw new RuntimeException("Error al insertar la factura: " + factura, e);
         } 
     }
     @Override 
