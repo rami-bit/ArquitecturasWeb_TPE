@@ -134,6 +134,7 @@ public class MySQLDAOProducto implements ProductoDao {
         } catch (SQLException e) {
             throw new RuntimeException("Error en getProductoMasRecaudo", e);
         }
+    }
    @Override
     public Producto findProductoQueMasRecaudo() {
         final String sql = "SELECT p.id, p.nombre, p.valor, (SUM(fp.cantidad) * p.valor) AS recaudacion " +

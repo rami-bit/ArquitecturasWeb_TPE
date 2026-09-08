@@ -15,7 +15,6 @@ public class Main {
         System.out.println(factory.createFacturaProductoDao().findAll().stream().findFirst());
 
         System.out.println(factory.createProductoDao().getProductoMasRecaudo());
-        System.out.println(factory.createFacturaProductoDao());
 
         System.out.println("=== Productos que mas recaudo ===");
         System.out.println(factory.createProductoDao().findProductoQueMasRecaudo());

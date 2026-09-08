@@ -2,8 +2,6 @@ package repository.mysql;
 
 import dao.Factura_ProductoDao;
 import entity.Factura_Producto;
-import jdk.jshell.spi.ExecutionControl;
-import lombok.SneakyThrows;
 
 import java.sql.*;
 import java.util.ArrayList;
