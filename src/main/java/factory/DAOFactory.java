@@ -7,6 +7,7 @@ import dao.ClienteDao;
 import dao.FacturaDao;
 import dao.Factura_ProductoDao;
 import dao.ProductoDao;
+import dao.Factura_ProductoDao;
 import repository.mysql.MySqlDAOFactory;
 
 import java.sql.Connection;

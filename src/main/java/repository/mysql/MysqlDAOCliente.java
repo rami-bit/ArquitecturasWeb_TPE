@@ -68,4 +68,35 @@ public class MysqlDAOCliente implements ClienteDao {
         c.setEmail(rs.getString("email"));
         return c;
     }
+
+    public List<Cliente> findAllOrderedByFacturas() {
+
+        final String sql = "SELECT c.idCliente, c.nombre, c.email, " +
+                "SUM(p.valor * fp.cantidad) as totalFacturado " +
+                "FROM cliente c " +
+                "LEFT JOIN Factura f ON c.idCliente = f.idCliente " +
+                "LEFT JOIN factura_producto fp ON f.idFactura = fp.idFactura " +
+                "LEFT JOIN productos p ON fp.idProducto = p.id " +
+                "GROUP BY c.idCliente " +  // ← espacio al final
+                "ORDER BY totalFacturado DESC";
+
+        List<Cliente> out = new ArrayList<>();
+
+        try (PreparedStatement ps = cn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+
+            while (rs.next()) {
+                Cliente c = new Cliente();
+                c.setId(rs.getLong("idCliente"));
+                c.setNombre(rs.getString("nombre"));
+                c.setEmail(rs.getString("email"));
+                out.add(c);
+            }
+
+        } catch (SQLException e) {
+            throw new RuntimeException("Error en findAllOrderedByFacturas", e);
+        }
+
+        return out;
+    }
 }
