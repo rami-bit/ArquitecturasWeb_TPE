@@ -73,11 +73,11 @@ public class MysqlDAOCliente implements ClienteDao {
 
         final String sql = "SELECT c.idCliente, c.nombre, c.email, " +
                 "SUM(p.valor * fp.cantidad) as totalFacturado " +
-                "FROM cliente c " +
-                "LEFT JOIN Factura f ON c.idCliente = f.idCliente " +
-                "LEFT JOIN factura_producto fp ON f.idFactura = fp.idFactura " +
-                "LEFT JOIN productos p ON fp.idProducto = p.id " +
-                "GROUP BY c.idCliente, c.nombre, c.email " +
+                "FROM integrador1.cliente c " +
+                "LEFT JOIN integrador1.Factura f ON c.idCliente = f.idCliente " +
+                "LEFT JOIN integrador1.factura_producto fp ON f.idFactura = fp.idFactura " +
+                "LEFT JOIN integrador1.productos p ON fp.idProducto = p.id " +
+                "GROUP BY c.idCliente" +
                 "ORDER BY totalFacturado DESC";
 
         List<Cliente> out = new ArrayList<>();

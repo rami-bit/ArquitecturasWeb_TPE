@@ -3,7 +3,7 @@ package dao;
 import entity.Producto;
 import java.util.List;
 
-public interfaProductoDao extends Dao<Producto>{
+public interface ProductoDao extends Dao<Producto>{
     Producto findById(Long id);
     List<Producto> findAll();
 
