@@ -14,6 +14,9 @@ public class Main {
         System.out.println(factory.createFacturaDao().getAllFacturas().stream().findFirst());
         System.out.println(factory.createFactura_ProductoDao());
 
+        System.out.println("=== Productos que mas recaudo ===");
+        System.out.println(factory.createProductoDao().findProductoQueMasRecaudo());
+
         System.out.println("=== Clientes ordenados por facturas ===");
         System.out.println(factory.createClienteDao().findAllOrderedByFacturas());
    
