@@ -11,6 +11,4 @@ public interface ProductoDao extends Dao<Producto>{
     void delete(Long id);
     void create(Producto p);
     Producto getProductoMasRecaudo();
-
-    Producto findProductoQueMasRecaudo();
 }

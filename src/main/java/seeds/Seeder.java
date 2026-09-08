@@ -29,7 +29,7 @@ public abstract class Seeder <T> {
             this.dao.create(entity);
         }
         } catch (Exception e){
-            System.out.println(e);
+            throw new RuntimeException("Error al cargar datos desde " + fileName, e);
         }
     }
 

@@ -135,22 +135,4 @@ public class MySQLDAOProducto implements ProductoDao {
             throw new RuntimeException("Error en getProductoMasRecaudo", e);
         }
     }
-   @Override
-    public Producto findProductoQueMasRecaudo() {
-        final String sql = "SELECT p.id, p.nombre, p.valor, (SUM(fp.cantidad) * p.valor) AS recaudacion " +
-               "FROM productos p " +
-               "JOIN factura_producto fp ON p.id = fp.idProducto " +
-               "GROUP BY p.id, p.nombre, p.valor " +
-               "ORDER BY recaudacion DESC " +
-               "LIMIT 1";
-       try (PreparedStatement ps = cn.prepareStatement(sql);
-            ResultSet rs = ps.executeQuery()) {
-           if (rs.next()) {
-               return map(rs);
-           }
-           return null;
-       } catch (SQLException e) {
-           throw new RuntimeException("Error en getProductoMasRecaudo", e);
-       }
-    }
 }

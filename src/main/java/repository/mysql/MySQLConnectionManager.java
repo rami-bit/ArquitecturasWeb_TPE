@@ -28,11 +28,9 @@ public final class MySQLConnectionManager implements ConnectionManager {
             System.out.println("Conexión establecida correctamente con MySQL.");
 
         } catch (ClassNotFoundException e) {
-            System.err.println("Error: No se encontró el driver de MySQL.");
-            e.printStackTrace();
+            throw new RuntimeException("Error: No se encontro el driver de MySQL.", e);
         } catch (SQLException e) {
-            System.err.println("Error al conectar con la base de datos.");
-            e.printStackTrace();
+            throw new RuntimeException("Error al conectar con la base de datos.", e);
         }
     }
 

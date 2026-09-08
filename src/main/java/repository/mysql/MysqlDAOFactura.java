@@ -47,19 +47,15 @@ public class MysqlDAOFactura implements FacturaDao{
     @Override 
     public int insertFactura(int idFactura, int idCliente) throws SQLException {
         String query = "INSERT INTO Factura (idFactura, idCliente) VALUES ( ?, ?)";
-        PreparedStatement ps = cn.prepareStatement(query);
-        try{
+        try (PreparedStatement ps = cn.prepareStatement(query)) {
             ps.setInt(1, idFactura);
             ps.setInt(2, idCliente);
             if (ps.executeUpdate() == 0) {
-                throw new Exception("No se pudo insertar");
+                throw new SQLException("No se pudo insertar la factura.");
             }
         } catch (SQLException e) {
-            e.printStackTrace();
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("Error al insertar la factura con id " + idFactura, e);
         } finally {
-            ps.close();
             cn.commit();
         }
         return 0;
@@ -93,7 +89,7 @@ public class MysqlDAOFactura implements FacturaDao{
                 System.out.println("La factura con id " + factura.getIdFactura() + " no existe.");
             }
         }catch (SQLException e) {
-            e.printStackTrace();
+            throw new RuntimeException("Error al actualizar la factura: " + factura, e);
         } finally {
             // cerrar ResultSet y PreparedStatement
              if(rs != null) rs.close();
@@ -147,22 +143,25 @@ public class MysqlDAOFactura implements FacturaDao{
     @Override
     public Factura getFactura(int idFactura) throws SQLException {
         String select = "SELECT * FROM Factura WHERE idFactura = ?";
-        PreparedStatement ps = cn.prepareStatement(select);
-        ps.setInt(1, idFactura);
-        ResultSet rs = ps.executeQuery();
-        if(rs.next()){
-            return new Factura(rs.getInt("idFactura"), rs.getInt("idCliente"));
+        try (PreparedStatement ps = cn.prepareStatement(select)) {
+            ps.setInt(1, idFactura);
+            try (ResultSet rs = ps.executeQuery()) {
+                if(rs.next()){
+                    return new Factura(rs.getInt("idFactura"), rs.getInt("idCliente"));
+                }
+                return null;
+            }
         }
-        else return null;
     }
     @Override
     public List<Factura> getAllFacturas() throws SQLException {
         ArrayList<Factura> facturas = new ArrayList<>();
         String select = "SELECT * FROM Factura";
-        PreparedStatement ps = cn.prepareStatement(select);
-        ResultSet rs = ps.executeQuery();
-        while(rs.next()){
-            facturas.add(new Factura(rs.getInt("idFactura"), rs.getInt("idCliente")));
+        try (PreparedStatement ps = cn.prepareStatement(select);
+             ResultSet rs = ps.executeQuery()) {
+            while(rs.next()){
+                facturas.add(new Factura(rs.getInt("idFactura"), rs.getInt("idCliente")));
+            }
         }
         return facturas;
     }
