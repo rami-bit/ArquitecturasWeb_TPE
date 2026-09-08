@@ -55,8 +55,6 @@ public class MysqlDAOFactura implements FacturaDao{
             }
         } catch (SQLException e) {
             throw new RuntimeException("Error al insertar la factura con id " + idFactura, e);
-        } finally {
-            cn.commit();
         }
         return 0;
     }
@@ -95,7 +93,6 @@ public class MysqlDAOFactura implements FacturaDao{
              if(rs != null) rs.close();
             if(psSelect != null) psSelect.close();
             if(psUpdate != null) psUpdate.close();
-            cn.commit();
         }
     
     }
@@ -137,7 +134,6 @@ public class MysqlDAOFactura implements FacturaDao{
             if(rs != null) rs.close();
             if(psSelect != null) psSelect.close();
             if(psDelete != null) psDelete.close();
-            cn.commit();
         }
     }
     @Override
