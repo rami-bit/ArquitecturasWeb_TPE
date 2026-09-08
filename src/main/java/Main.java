@@ -1,8 +1,9 @@
+
 import factory.DAOFactory;
 import factory.DBType;
 import seeds.DatabaseSeeder;
 
-import java.sql.SQLException;
+//import java.sql.SQLException;
 
 public class Main {
     public static void main (String [] args) throws Exception {
@@ -11,6 +12,11 @@ public class Main {
         System.out.println(factory.createClienteDao().findAll().stream().findFirst());
         System.out.println(factory.createProductoDao().findAll().stream().findFirst());
         System.out.println(factory.createFacturaDao().getAllFacturas().stream().findFirst());
+
+
+        System.out.println("=== Clientes ordenados por facturas ===");
+        System.out.println(factory.createClienteDao().findAllOrderedByFacturas());
+   
     }
 
 }

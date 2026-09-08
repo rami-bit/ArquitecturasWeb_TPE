@@ -15,6 +15,8 @@ public class MySQLDAOProducto implements ProductoDao {
         CreateTable();
     }
 
+
+
     @Override
     public void create(Producto p){
         if (p.getId() == null){
