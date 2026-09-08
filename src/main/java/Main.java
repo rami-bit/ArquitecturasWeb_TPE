@@ -10,9 +10,9 @@ public class Main {
         DAOFactory factory = DAOFactory.getInstance(DBType.MYSQL);
         new DatabaseSeeder(factory);
         System.out.println(factory.createClienteDao().findAll().stream().findFirst());
-        System.out.println(factory.createProductoDao().findAll().stream().findFirst());
+       System.out.println(factory.createProductoDao().findAll().stream().findFirst());
         System.out.println(factory.createFacturaDao().getAllFacturas().stream().findFirst());
-
+        System.out.println(factory.createFactura_ProductoDao());
 
         System.out.println("=== Clientes ordenados por facturas ===");
         System.out.println(factory.createClienteDao().findAllOrderedByFacturas());

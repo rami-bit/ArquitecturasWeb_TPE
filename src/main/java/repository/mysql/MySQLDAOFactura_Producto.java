@@ -19,7 +19,7 @@ public class MySQLDAOFactura_Producto implements Factura_ProductoDao {
     public void crearTablaSiNoExiste() {
 
         final String sql = "CREATE TABLE IF NOT EXISTS factura_producto (" +
-                "idFactura INT NOT NULL," +
+                "idFactura  BIGINT NOT NULL," +
                 "idProducto BIGINT NOT NULL," +
                 "cantidad INT NOT NULL," +
                 "PRIMARY KEY (idFactura, idProducto)," +
