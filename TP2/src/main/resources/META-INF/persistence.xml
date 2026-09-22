@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<persistence version="2.1"
+	xmlns="http://xmlns.jcp.org/xml/ns/persistence" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/persistence http://xmlns.jcp.org/xml/ns/persistence/persistence_2_1.xsd">
+
+	<!-- Tp2: Base de datos equiposEj3 -->
+	<persistence-unit name="Tp2">
+		<provider>org.hibernate.jpa.HibernatePersistenceProvider</provider>
+
+		<class>tp2.ej3.entity.Equipo</class>
+		<class>tp2.ej3.entity.Jugador</class>
+		<class>tp2.ej3.entity.Torneo</class>
+		<class>tp2.ej3.entity.DirectorTecnico</class>
+		<class>tp2.ej3.entity.Encuentro</class>
+		<class>tp2.ej3.entity.Gol</class>
+		<class>tp2.ej3.entity.Incidencia</class>
+
+		<properties>
+			<property name="javax.persistence.jdbc.driver" value="com.mysql.cj.jdbc.Driver"/>
+			<property name="javax.persistence.jdbc.url" value="jdbc:mysql://localhost:3306/equiposEj3"/>
+			<property name="javax.persistence.jdbc.user" value="root"/>
+			<property name="javax.persistence.jdbc.password" value="root"/>
+			<property name="hibernate.hbm2ddl.auto" value="update"/>
+			<property name="hibernate.dialect" value="org.hibernate.dialect.MySQL8Dialect"/>
+			<property name="hibernate.show_sql" value="true"/>
+			<property name="hibernate.format_sql" value="true"/>
+			<property name="hibernate.use_sql_comments" value="true"/>
+		</properties>
+	</persistence-unit>
+
+</persistence>
