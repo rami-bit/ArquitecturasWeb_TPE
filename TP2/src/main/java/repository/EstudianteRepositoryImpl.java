@@ -20,14 +20,24 @@ public class EstudianteRepositoryImpl implements EstudianteRepository {
     // punto a)
     @Override
     public void addEstudiante(Estudiante estudiante) {
+        EntityManager em = null;
         try {
-            EntityManager em = JPAutil.getEntityManager();
+            em = JPAutil.getEntityManager();
             em.getTransaction().begin();
-            em.persist(estudiante);
+
+            if (!em.contains(estudiante)) {em.persist(estudiante);
+            }else {em.merge(estudiante);}
+
             em.getTransaction().commit();
-            em.close();
         } catch (Exception e) {
+            if (em != null && em.getTransaction().isActive()) {
+                em.getTransaction().rollback();
+            }
             throw new RuntimeException("error al cargar el estudiante", e);
+        } finally {
+            if (em != null && em.isOpen()) {
+                em.close();
+            }
         }
     }
 
@@ -40,10 +50,11 @@ public class EstudianteRepositoryImpl implements EstudianteRepository {
         }
 
         EntityManager em = JPAutil.getEntityManager();
-        String jpql = "SELECT new EstudianteDTO(e.dni, e.nombre, e.apellido, e.edad, e.genero, e.ciudad, e.nroLibreta) "
+        String orden = campo.equals("ciudad") ? "ciudadResidencia" : campo;
+        String jpql = "SELECT new dto.EstudianteDTO(e.dni, e.nombre, e.apellido, e.edad, e.genero, e.ciudadResidencia, e.numeroLibreta) "
                 +
                 "FROM Estudiante e " +
-                "ORDER BY LOWER(e." + campo + ")";
+                "ORDER BY LOWER(e." + orden + ")";
 
         List<EstudianteDTO> estudiantes = em.createQuery(jpql, EstudianteDTO.class)
                 .getResultList();
@@ -57,10 +68,10 @@ public class EstudianteRepositoryImpl implements EstudianteRepository {
     public EstudianteDTO getEstudianteLU(int nroLibreta) {
         try {
             EntityManager em = JPAutil.getEntityManager();
-            String jpql = "SELECT new EstudianteDTO(e.dni,e.nombre,e.apellido,e.edad,e.genero,e.ciudad,e.nroLibreta) "
+            String jpql = "SELECT new dto.EstudianteDTO(e.dni,e.nombre,e.apellido,e.edad,e.genero,e.ciudadResidencia,e.numeroLibreta) "
                     +
                     "FROM Estudiante e " +
-                    "WHERE e.nroLibreta=:nroLibreta";
+                    "WHERE e.numeroLibreta=:nroLibreta";
             EstudianteDTO estudiante = em.createQuery(jpql, EstudianteDTO.class).setParameter("nroLibreta", nroLibreta)
                     .getSingleResult();
             em.close();
@@ -76,7 +87,7 @@ public class EstudianteRepositoryImpl implements EstudianteRepository {
     @Override
     public List<EstudianteDTO> getEstudiantesByGenero(String genero) {
         EntityManager em = JPAutil.getEntityManager();
-        String jpql = "SELECT new EstudianteDTO(e.dni,e.nombre,e.apellido,e.edad,e.genero,e.ciudad,e.nroLibreta) "
+        String jpql = "SELECT new dto.EstudianteDTO(e.dni,e.nombre,e.apellido,e.edad,e.genero,e.ciudadResidencia,e.numeroLibreta) "
                 +
                 "FROM Estudiante e " +
                 "WHERE LOWER(e.genero) = LOWER(:genero)";
@@ -94,16 +105,23 @@ public class EstudianteRepositoryImpl implements EstudianteRepository {
     // Cargar estudiantes csv
     @Override
     public void addEstudiantes(List<Estudiante> estudiantes) {
+        EntityManager em = null;
         try {
-            EntityManager em = JPAutil.getEntityManager();
+            em = JPAutil.getEntityManager();
             em.getTransaction().begin();
             for (Estudiante estudiante : estudiantes) {
                 em.persist(estudiante);
             }
             em.getTransaction().commit();
-            em.close();
         } catch (Exception e) {
+            if (em != null && em.getTransaction().isActive()) {
+                em.getTransaction().rollback();
+            }
             throw new RuntimeException("error al cargar los estudiantes", e);
+        } finally {
+            if (em != null && em.isOpen()) {
+                em.close();
+            }
         }
     }
 
@@ -111,11 +129,11 @@ public class EstudianteRepositoryImpl implements EstudianteRepository {
     @Override
     public List<EstudianteDTO> getEstudiantesByCarreraAndCiudad(String carrera, String ciudad) {
         EntityManager em = JPAutil.getEntityManager();
-        String jpql = "SELECT new EstudianteDTO(e.dni,e.nombre,e.apellido,e.edad,e.genero,e.ciudad,e.nroLibreta) "
+        String jpql = "SELECT new dto.EstudianteDTO(e.dni,e.nombre,e.apellido,e.edad,e.genero,e.ciudadResidencia,e.numeroLibreta) "
                 +
-                "FROM Estudiante e JOIN e.listCarreras m " +
+                "FROM Estudiante e JOIN e.inscripciones m " +
                 "JOIN m.carrera c " +
-                "WHERE LOWER(c.nombre) = LOWER(:carrera) AND LOWER(e.ciudad) = LOWER(:ciudad)";
+                "WHERE LOWER(c.carrera) = LOWER(:carrera) AND LOWER(e.ciudadResidencia) = LOWER(:ciudad)";
         List<EstudianteDTO> estudiantes = em.createQuery(jpql, EstudianteDTO.class)
                 .setParameter("carrera", carrera)
                 .setParameter("ciudad", ciudad)

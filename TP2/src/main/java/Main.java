@@ -1,22 +1,9 @@
-import entity.Carrera;
 import entity.Estudiante;
-import entity.Inscripcion;
-import repository.RepositoryCarrera;
-import repository.RepositoryEstudiante;
-import repository.RepositoryInscripcion;
-import repository.CarreraRepositoryImpl;
-import repository.EstudianteRepositoryImpl;
-import repository.EstudianteCarreraRepositoryImpl;
-import repository.EstudianteCarreraRepository;
+import repository.*;
 import dto.EstudianteDTO;
 import utils.CargarDatos;
 import java.util.List;
 import java.util.Scanner;
-
-
-import javax.persistence.EntityManager;
-import javax.persistence.EntityManagerFactory;
-import javax.persistence.Persistence;
 
 public class Main {
     public static void main(String[] args) {
@@ -24,7 +11,8 @@ public class Main {
         cd.run();
         CarreraRepository cr = new CarreraRepositoryImpl();
         EstudianteRepository er = new EstudianteRepositoryImpl();
-        EstudianteCarreraRepository ecr = new EstudianteCarreraRepositoryImpl(); 
+        EstudianteCarreraRepository ecr = new EstudianteCarreraRepositoryImpl();
+        Scanner scanner = new Scanner(System.in);
         boolean condicion = true;
         while(condicion){
             System.out.println("1. Dar de alta un estudiante");
@@ -38,28 +26,47 @@ public class Main {
             System.out.println("9. Salir");
             System.out.println("\n");
             System.out.print("Ingrese una opción: ");
-            Scanner scanner = new Scanner(System.in);
             int opcion = scanner.nextInt();
             switch (opcion) {
                 case 1:
                     // Dar de alta un estudiante
+                    scanner.nextLine(); // consumir el salto de linea que dejo nextInt del menu
                     System.out.println("Ingrese los datos del estudiante:");
                     System.out.println("Nombre: ");
-                    String nombre = scanner.next();
+                    String nombre = scanner.nextLine().trim();
                     System.out.println("Apellido: ");
-                    String apellido = scanner.next();
+                    String apellido = scanner.nextLine().trim();
                     System.out.println("DNI: ");
-                    Long dni = scanner.nextLong();
-                    System.out.println("Edad: ");
-                    int edad = scanner.nextInt();
+                    String dniLinea = scanner.nextLine().trim();
+                    while (!dniLinea.matches("\\d+")) {
+                        System.out.println("DNI inválido, ingrese solo dígitos: ");
+                        dniLinea = scanner.nextLine().trim();
+                    }
+                    Long dni = Long.parseLong(dniLinea);
+                    int edad;
+                    try {
+                        System.out.println("Edad: ");
+                        edad = Integer.parseInt(scanner.nextLine().trim());
+                    } catch (NumberFormatException e) {
+                        System.out.println("Edad inválida, alta cancelada.");
+                        System.out.println("\n");
+                        break;
+                    }
                     System.out.println("Genero: ");
-                    String genero = scanner.next();
+                    String genero = scanner.nextLine().trim();
                     System.out.println("Ciudad: ");
-                    String ciudad = scanner.next();
-                    System.out.println("Nro Libreta: ");
-                    int nroLibreta = scanner.nextInt();
-                    
-                    Estudiante estudiante = new Estudiante(dni, nombre, apellido, edad, genero, ciudad, nroLibreta);
+                    String ciudad = scanner.nextLine().trim();
+                    int nroLibreta;
+                    try {
+                        System.out.println("Nro Libreta: ");
+                        nroLibreta = Integer.parseInt(scanner.nextLine().trim());
+                    } catch (NumberFormatException e) {
+                        System.out.println("Nro de libreta inválido, alta cancelada.");
+                        System.out.println("\n");
+                        break;
+                    }
+
+                    Estudiante estudiante = new Estudiante(dni,nroLibreta, nombre, apellido, edad, genero, ciudad);
                     er.addEstudiante(estudiante);
                     System.out.println("Estudiante agregado: " + estudiante);
                     System.out.println("\n");
@@ -97,35 +104,43 @@ public class Main {
                     break;
                 case 5:
                     // Recuperar todos los estudiantes, en base a su género
-                    System.out.println("Ingrese el género de los estudiantes a buscar: ");
-                    String generoBuscar = scanner.next();
-                    List<EstudianteDTO> estudiantesGenero = er.getEstudiantesByGenero(generoBuscar);
-                    if (estudiantesGenero != null) {
-                        System.out.println("Estudiantes de género " + generoBuscar + ": ");
-                        for (EstudianteDTO estGenero : estudiantesGenero) {
-                            System.out.println(estGenero);
+                    try {
+                        System.out.println("Ingrese el género de los estudiantes a buscar: ");
+                        String generoBuscar = scanner.next();
+                        List<EstudianteDTO> estudiantesGenero = er.getEstudiantesByGenero(generoBuscar);
+                        if (estudiantesGenero != null) {
+                            System.out.println("Estudiantes de género " + generoBuscar + ": ");
+                            for (EstudianteDTO estGenero : estudiantesGenero) {
+                                System.out.println(estGenero);
+                            }
+                        } else {
+                            System.out.println("No se encontraron estudiantes de ese género.");
                         }
-                    } else {
-                        System.out.println("No se encontraron estudiantes de ese género.");
+                    } catch (Exception e) {
+                        System.out.println("Error al consultar los estudiantes: " + e.getMessage());
                     }
                     System.out.println("\n");
                     break;
                 case 7:
                     // Recuperar los estudiantes de una determinada carrera, filtrado por ciudad de
                     // residencia
-                    System.out.println("Ingrese el nombre de la carrera: ");
-                    String nombreCarrera = scanner.next();
-                    System.out.println("Ingrese la ciudad de residencia: ");
-                    String ciudadResidencia = scanner.next();
-                    List<EstudianteDTO> estudiantesCarrera = er.getEstudiantesByCarreraAndCiudad(nombreCarrera,ciudadResidencia);
-                    if (estudiantesCarrera != null) {
-                        System.out.println("Estudiantes de la carrera " + nombreCarrera + " y ciudad "
-                                + ciudadResidencia + ": ");
-                        for (EstudianteDTO estCarrera : estudiantesCarrera) {
-                            System.out.println(estCarrera);
+                    try {
+                        System.out.println("Ingrese el nombre de la carrera: ");
+                        String nombreCarrera = scanner.next();
+                        System.out.println("Ingrese la ciudad de residencia: ");
+                        String ciudadResidencia = scanner.next();
+                        List<EstudianteDTO> estudiantesCarrera = er.getEstudiantesByCarreraAndCiudad(nombreCarrera,ciudadResidencia);
+                        if (estudiantesCarrera != null && !estudiantesCarrera.isEmpty()) {
+                            System.out.println("Estudiantes de la carrera " + nombreCarrera + " y ciudad "
+                                    + ciudadResidencia + ": ");
+                            for (EstudianteDTO estCarrera : estudiantesCarrera) {
+                                System.out.println(estCarrera);
+                            }
+                        } else {
+                            System.out.println("No se encontraron estudiantes para esa carrera y ciudad.");
                         }
-                    } else {
-                        System.out.println("No se encontraron estudiantes para esa carrera y ciudad.");
+                    } catch (Exception e) {
+                        System.out.println("Error al consultar los estudiantes: " + e.getMessage());
                     }
                     System.out.println("\n");
                 break;

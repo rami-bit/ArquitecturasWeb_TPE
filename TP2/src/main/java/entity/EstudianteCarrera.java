@@ -3,15 +3,13 @@ package entity;
 import javax.persistence.*;
 import lombok.*;
 
-@AllArgsConstructor
 @NoArgsConstructor
 @Getter
 @ToString
 
-@Entity(name="EstudianteCarrera")
-public class Inscripcion {
+@Entity
+public class EstudianteCarrera {
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @ManyToOne
@@ -30,7 +28,16 @@ public class Inscripcion {
     private int graduacion;
 
 
-    public Inscripcion(Estudiante estudiante, Carrera carrera, int inscripcion, int antiguedad, int graduacion) {
+    public EstudianteCarrera(Long id, Estudiante estudiante, Carrera carrera, int inscripcion, int graduacion, int antiguedad) {
+        this.id = id;
+        this.estudiante = estudiante;
+        this.carrera = carrera;
+        this.inscripcion = inscripcion;
+        this.graduacion = graduacion;
+        this.antiguedad = antiguedad;
+    }
+
+    public EstudianteCarrera(Estudiante estudiante, Carrera carrera, int inscripcion, int antiguedad, int graduacion) {
         this.estudiante = estudiante;
         this.carrera = carrera;
         this.inscripcion = inscripcion;

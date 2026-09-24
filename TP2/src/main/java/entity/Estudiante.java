@@ -18,7 +18,7 @@ public class Estudiante {
     private Long dni;
 
     @Column(unique = true)
-    private String numeroLibreta;
+    private int numeroLibreta;
 
     @Column
     private String nombre;
@@ -36,9 +36,9 @@ public class Estudiante {
     private String ciudadResidencia;
 
     @OneToMany(mappedBy = "estudiante")
-    private List<Inscripcion> inscripciones;
+    private List<EstudianteCarrera> inscripciones;
 
-    public Estudiante(Long dni,String numeroLibreta, String nombre, String apellido, int edad, String genero, String ciudadResidencia) {
+    public Estudiante(Long dni,int numeroLibreta, String nombre, String apellido, int edad, String genero, String ciudadResidencia) {
         this.dni = dni;
         this.numeroLibreta = numeroLibreta;
         this.nombre = nombre;

@@ -8,7 +8,7 @@
 		<provider>org.hibernate.jpa.HibernatePersistenceProvider</provider>
 		<class>entity.Estudiante</class>
 		<class>entity.Carrera</class>
-		<class>entity.Inscripcion</class>
+		<class>entity.EstudianteCarrera</class>
 
 
 

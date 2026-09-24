@@ -13,7 +13,6 @@ import java.util.List;
 @Entity
 public class Carrera {
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @Column(nullable = false)
@@ -28,6 +27,12 @@ public class Carrera {
     }
 
     @OneToMany(mappedBy = "carrera")
-    private List<Inscripcion> inscripciones;
+    private List<EstudianteCarrera> inscripciones;
+
+    public Carrera(Long id, String carrera, int duracion) {
+        this.id = id;
+        this.carrera = carrera;
+        this.duracion = duracion;
+    }
 
 }
