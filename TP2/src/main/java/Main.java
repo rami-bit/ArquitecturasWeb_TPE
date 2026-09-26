@@ -72,6 +72,35 @@ public class Main {
                     System.out.println("\n");
                 break; 
              
+                case 2:
+                    // Matricular un estudiante en una carrera
+                    System.out.println("Ingrese el número de dni del estudiante: ");
+                    long dniEstudiante = scanner.nextInt();
+
+                    System.out.println("Ingrese el ID de la carrera: ");
+                    int carreraMatricula = scanner.nextInt();
+
+                    System.out.println("Ingrese el año de inscripcion: ");
+                    int inscripcion = scanner.nextInt();
+
+                    System.out.println("Ingrese la antiguedad: ");
+                    int antiguedad = scanner.nextInt();
+
+                    System.out.println("Ingrese el año de graduacion (0 si no se graduo): ");
+                    int graduacion = scanner.nextInt();
+
+                    try {
+                        ecr.matricularEstudiante(dniEstudiante, carreraMatricula, inscripcion, antiguedad, graduacion);
+
+                    System.out.println("Estudiante matriculado correctamente.");
+
+                    } catch (RuntimeException e) {
+                        System.out.println(e.getMessage());
+                    }
+
+                    System.out.println("\n");
+                    break;
+
                 case 3:
                       // Recuperar todos los estudiantes, y especificar algún criterio de ordenamiento
                     // simple
@@ -87,7 +116,8 @@ public class Main {
                     } catch (Exception e) {
                         System.out.println("Criterio de ordenamiento no válido.");
                     }
-                   
+
+
                     System.out.println("\n");
                 break;
                 case 4:
