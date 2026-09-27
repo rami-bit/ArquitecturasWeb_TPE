@@ -62,7 +62,7 @@ public class EstudianteCarreraRepositoryImpl implements EstudianteCarreraReposit
             nuevoId++;
         }
 
-        EstudianteCarrera nuevaInscripcion = new EstudianteCarrera(nuevoId, e, c, inscripcion, antiguedad, graduacion);
+        EstudianteCarrera nuevaInscripcion = new EstudianteCarrera(nuevoId, e, c, inscripcion, graduacion, antiguedad);
 
         em.getTransaction().begin();
 
