@@ -1,3 +1,4 @@
+import dto.CarreraInscriptos;
 import entity.Estudiante;
 import repository.*;
 import dto.EstudianteDTO;
@@ -151,6 +152,9 @@ public class Main {
                     }
                     System.out.println("\n");
                     break;
+                case 6:
+                    RecuperarInscriptosOrdenados(cr);
+                    break;
                 case 7:
                     // Recuperar los estudiantes de una determinada carrera, filtrado por ciudad de
                     // residencia
@@ -181,13 +185,14 @@ public class Main {
                     break;
                 default:
                     System.out.println("Opción no válida");
-
+            }
         }
-      
-        
-        
-
-
     }
+
+    private static void RecuperarInscriptosOrdenados(CarreraRepository cr) {
+        List<CarreraInscriptos> carrerasConInscriptos = cr.getCarrerasConInscriptos();
+        for (CarreraInscriptos carreraConInscriptos: carrerasConInscriptos) {
+            System.out.println(carreraConInscriptos.getCarrera() + " - " + carreraConInscriptos.getCantidadInscriptos() + " inscriptos." );
+        }
     }
 }

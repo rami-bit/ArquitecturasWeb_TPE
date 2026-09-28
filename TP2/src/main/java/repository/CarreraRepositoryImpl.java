@@ -1,5 +1,6 @@
 package repository;
 
+import dto.CarreraInscriptos;
 import entity.Carrera;
 import factory.JPAutil;
 import javax.persistence.EntityManager;
@@ -35,5 +36,15 @@ public class CarreraRepositoryImpl implements CarreraRepository {
         em.close();
         return carrera;
     }
-    
+
+    @Override
+    public List<CarreraInscriptos> getCarrerasConInscriptos() {
+        EntityManager em = JPAutil.getEntityManager();
+        List<CarreraInscriptos> carrerasConInscriptos = em.createQuery("SELECT new dto.CarreraInscriptos(ec.carrera.carrera, COUNT(*))" +
+                " FROM EstudianteCarrera ec GROUP BY ec.carrera ORDER BY COUNT(*) DESC"
+                , CarreraInscriptos.class).getResultList();
+        em.close();
+        return carrerasConInscriptos;
+    }
+
 }
