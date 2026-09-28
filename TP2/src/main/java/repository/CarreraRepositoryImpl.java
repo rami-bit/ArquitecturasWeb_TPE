@@ -39,11 +39,18 @@ public class CarreraRepositoryImpl implements CarreraRepository {
 
     @Override
     public List<CarreraInscriptos> getCarrerasConInscriptos() {
-        EntityManager em = JPAutil.getEntityManager();
-        List<CarreraInscriptos> carrerasConInscriptos = em.createQuery("SELECT new dto.CarreraInscriptos(ec.carrera.carrera, COUNT(*))" +
-                " FROM EstudianteCarrera ec GROUP BY ec.carrera ORDER BY COUNT(*) DESC"
-                , CarreraInscriptos.class).getResultList();
-        em.close();
+        EntityManager em = null;
+        List<CarreraInscriptos> carrerasConInscriptos = null;
+        try{
+            em = JPAutil.getEntityManager();
+            carrerasConInscriptos = em.createQuery("SELECT new dto.CarreraInscriptos(ec.carrera.carrera, COUNT(*))" +
+                    " FROM EstudianteCarrera ec GROUP BY ec.carrera ORDER BY COUNT(*) DESC"
+                    , CarreraInscriptos.class).getResultList();
+        } finally {
+            if (em != null){
+                em.close();
+            }
+        }
         return carrerasConInscriptos;
     }
 

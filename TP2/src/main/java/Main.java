@@ -191,8 +191,10 @@ public class Main {
 
     private static void RecuperarInscriptosOrdenados(CarreraRepository cr) {
         List<CarreraInscriptos> carrerasConInscriptos = cr.getCarrerasConInscriptos();
-        for (CarreraInscriptos carreraConInscriptos: carrerasConInscriptos) {
-            System.out.println(carreraConInscriptos.getCarrera() + " - " + carreraConInscriptos.getCantidadInscriptos() + " inscriptos." );
+        if (carrerasConInscriptos != null && !carrerasConInscriptos.isEmpty()){
+            for (CarreraInscriptos carreraConInscriptos: carrerasConInscriptos) {
+                System.out.println(carreraConInscriptos.getCarrera() + " - " + carreraConInscriptos.getCantidadInscriptos() + " inscriptos." );
+            }
         }
     }
 }
