@@ -2,6 +2,7 @@ import dto.CarreraInscriptos;
 import entity.Estudiante;
 import repository.*;
 import dto.EstudianteDTO;
+
 import utils.CargarDatos;
 import java.util.List;
 import java.util.Scanner;
@@ -178,6 +179,10 @@ public class Main {
                     }
                     System.out.println("\n");
                 break;
+                case 8:
+                    cr.getReporteCarreras();
+                    System.out.println("\n");
+                    break;
                 case 9:
                     scanner.close();
                     System.out.println("Saliendo...");
@@ -197,4 +202,6 @@ public class Main {
             }
         }
     }
+
+
 }

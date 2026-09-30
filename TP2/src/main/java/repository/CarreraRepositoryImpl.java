@@ -1,5 +1,5 @@
 package repository;
-
+import dto.ReporteCarreraDTO;
 import dto.CarreraInscriptos;
 import entity.Carrera;
 import factory.JPAutil;
@@ -54,4 +54,43 @@ public class CarreraRepositoryImpl implements CarreraRepository {
         return carrerasConInscriptos;
     }
 
+    @Override
+    public void getReporteCarreras() {
+        EntityManager em = null;
+        try {
+            em = JPAutil.getEntityManager();
+            List<ReporteCarreraDTO> reporte = em.createQuery(
+                            "SELECT new dto.ReporteCarreraDTO(" +
+                                    "  c.carrera, " +
+                                    "  ec.inscripcion, " +
+                                    "  COUNT(ec), " +
+                                    "  SUM(CASE WHEN ec.graduacion > 0 THEN 1L ELSE 0L END)) " +
+                                    "FROM Carrera c LEFT JOIN EstudianteCarrera ec ON ec.carrera = c " +
+                                    "GROUP BY c.carrera, ec.inscripcion " +
+                                    "ORDER BY c.carrera ASC, ec.inscripcion ASC",
+                            ReporteCarreraDTO.class)
+                    .getResultList();
+
+            imprimirReporte(reporte);   // se invoca acá, al final de la consulta
+        } finally {
+            if (em != null) em.close();
+        }
+    }
+
+    private void imprimirReporte(List<ReporteCarreraDTO> reporte) {
+        String carreraActual = "";
+        for (ReporteCarreraDTO fila : reporte) {
+            if (!fila.getCarrera().equals(carreraActual)) {
+                System.out.println("\nCarrera: " + fila.getCarrera());
+                carreraActual = fila.getCarrera();
+            }
+            if (fila.getAnio() == null) {
+                System.out.println("  Sin inscriptos");
+            } else {
+                System.out.println("  Año " + fila.getAnio() +
+                        " | Inscriptos: " + fila.getInscriptos() +
+                        " | Egresados: " + fila.getEgresados());
+            }
+        }
+    }
 }
