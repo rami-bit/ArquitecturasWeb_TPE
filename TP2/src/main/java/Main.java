@@ -160,10 +160,11 @@ public class Main {
                     // Recuperar los estudiantes de una determinada carrera, filtrado por ciudad de
                     // residencia
                     try {
+                        scanner.nextLine(); // consumir el salto de línea que dejó nextInt del menú
                         System.out.println("Ingrese el nombre de la carrera: ");
-                        String nombreCarrera = scanner.next();
+                        String nombreCarrera = scanner.nextLine().trim();
                         System.out.println("Ingrese la ciudad de residencia: ");
-                        String ciudadResidencia = scanner.next();
+                        String ciudadResidencia = scanner.nextLine().trim();
                         List<EstudianteDTO> estudiantesCarrera = er.getEstudiantesByCarreraAndCiudad(nombreCarrera,ciudadResidencia);
                         if (estudiantesCarrera != null && !estudiantesCarrera.isEmpty()) {
                             System.out.println("Estudiantes de la carrera " + nombreCarrera + " y ciudad "
