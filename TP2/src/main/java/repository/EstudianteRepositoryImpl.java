@@ -8,6 +8,7 @@ import factory.JPAutil;
 import entity.Estudiante;
 
 import javax.persistence.EntityManager;
+import javax.persistence.NoResultException;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -50,57 +51,65 @@ public class EstudianteRepositoryImpl implements EstudianteRepository {
             throw new IllegalArgumentException("el campo a ordenar no existe");
         }
 
-        EntityManager em = JPAutil.getEntityManager();
-        String orden = campoNormalizado.equals("ciudad") ? "ciudadResidencia" : campoNormalizado;
-        String jpql = "SELECT new dto.EstudianteDTO(e.dni, e.nombre, e.apellido, e.edad, e.genero, e.ciudadResidencia, e.numeroLibreta) "
-                +
-                "FROM Estudiante e " +
-                "ORDER BY LOWER(e." + orden + ")";
+        EntityManager em = null;
+        try {
+            em = JPAutil.getEntityManager();
+            String orden = campoNormalizado.equals("ciudad") ? "ciudadResidencia" : campoNormalizado;
+            String jpql = "SELECT new dto.EstudianteDTO(e.dni, e.nombre, e.apellido, e.edad, e.genero, e.ciudadResidencia, e.numeroLibreta) "
+                    +
+                    "FROM Estudiante e " +
+                    "ORDER BY LOWER(e." + orden + ")";
 
-        List<EstudianteDTO> estudiantes = em.createQuery(jpql, EstudianteDTO.class)
-                .getResultList();
-        em.close();
-
-        return estudiantes;
+            return em.createQuery(jpql, EstudianteDTO.class).getResultList();
+        } finally {
+            if (em != null && em.isOpen()) {
+                em.close();
+            }
+        }
     }
 
     // PUNTO d
     @Override
     public EstudianteDTO getEstudianteLU(int nroLibreta) {
+        EntityManager em = null;
         try {
-            EntityManager em = JPAutil.getEntityManager();
+            em = JPAutil.getEntityManager();
             String jpql = "SELECT new dto.EstudianteDTO(e.dni,e.nombre,e.apellido,e.edad,e.genero,e.ciudadResidencia,e.numeroLibreta) "
                     +
                     "FROM Estudiante e " +
                     "WHERE e.numeroLibreta=:nroLibreta";
-            EstudianteDTO estudiante = em.createQuery(jpql, EstudianteDTO.class).setParameter("nroLibreta", nroLibreta)
+            return em.createQuery(jpql, EstudianteDTO.class).setParameter("nroLibreta", nroLibreta)
                     .getSingleResult();
-            em.close();
-
-            return estudiante;
-        } catch (Exception e) {
+        } catch (NoResultException e) {
             System.err.println("no se encontro el estudiante con nroLibreta: " + nroLibreta);
             return null;
+        } finally {
+            if (em != null && em.isOpen()) {
+                em.close();
+            }
         }
     }
 
     // PUNTO e)
     @Override
     public List<EstudianteDTO> getEstudiantesByGenero(String genero) {
-        EntityManager em = JPAutil.getEntityManager();
-        String jpql = "SELECT new dto.EstudianteDTO(e.dni,e.nombre,e.apellido,e.edad,e.genero,e.ciudadResidencia,e.numeroLibreta) "
-                +
-                "FROM Estudiante e " +
-                "WHERE LOWER(e.genero) = LOWER(:genero)";
-        List<EstudianteDTO> estudiantes = em.createQuery(jpql, EstudianteDTO.class).setParameter("genero", genero)
-                .getResultList();
-        em.close();
+        EntityManager em = null;
+        try {
+            em = JPAutil.getEntityManager();
+            String jpql = "SELECT new dto.EstudianteDTO(e.dni,e.nombre,e.apellido,e.edad,e.genero,e.ciudadResidencia,e.numeroLibreta) "
+                    +
+                    "FROM Estudiante e " +
+                    "WHERE LOWER(e.genero) = LOWER(:genero)";
+            List<EstudianteDTO> estudiantes = em.createQuery(jpql, EstudianteDTO.class)
+                    .setParameter("genero", genero)
+                    .getResultList();
 
-        if (estudiantes.isEmpty()) {
-            return null;
+            return estudiantes.isEmpty() ? null : estudiantes;
+        } finally {
+            if (em != null && em.isOpen()) {
+                em.close();
+            }
         }
-
-        return estudiantes;
     }
 
     // Cargar estudiantes csv
@@ -129,27 +138,37 @@ public class EstudianteRepositoryImpl implements EstudianteRepository {
     // PUNTO g)
     @Override
     public List<EstudianteDTO> getEstudiantesByCarreraAndCiudad(String carrera, String ciudad) {
-        EntityManager em = JPAutil.getEntityManager();
-        String jpql = "SELECT new dto.EstudianteDTO(e.dni,e.nombre,e.apellido,e.edad,e.genero,e.ciudadResidencia,e.numeroLibreta) "
-                +
-                "FROM Estudiante e JOIN e.inscripciones m " +
-                "JOIN m.carrera c " +
-                "WHERE LOWER(c.carrera) = LOWER(:carrera) AND LOWER(e.ciudadResidencia) = LOWER(:ciudad)";
-        List<EstudianteDTO> estudiantes = em.createQuery(jpql, EstudianteDTO.class)
-                .setParameter("carrera", carrera)
-                .setParameter("ciudad", ciudad)
-                .getResultList();
-        em.close();
-        return estudiantes;
+        EntityManager em = null;
+        try {
+            em = JPAutil.getEntityManager();
+            String jpql = "SELECT new dto.EstudianteDTO(e.dni,e.nombre,e.apellido,e.edad,e.genero,e.ciudadResidencia,e.numeroLibreta) "
+                    +
+                    "FROM Estudiante e JOIN e.inscripciones m " +
+                    "JOIN m.carrera c " +
+                    "WHERE LOWER(c.carrera) = LOWER(:carrera) AND LOWER(e.ciudadResidencia) = LOWER(:ciudad)";
+            return em.createQuery(jpql, EstudianteDTO.class)
+                    .setParameter("carrera", carrera)
+                    .setParameter("ciudad", ciudad)
+                    .getResultList();
+        } finally {
+            if (em != null && em.isOpen()) {
+                em.close();
+            }
+        }
     }
 
     // Buscar estudiante por id
     @Override
     public Estudiante findById(long id) {
-        EntityManager em = JPAutil.getEntityManager();        
-        Estudiante estudiante = em.find(Estudiante.class, id);
-        em.close();
-        return estudiante;
+        EntityManager em = null;
+        try {
+            em = JPAutil.getEntityManager();
+            return em.find(Estudiante.class, id);
+        } finally {
+            if (em != null && em.isOpen()) {
+                em.close();
+            }
+        }
     }
 
 }

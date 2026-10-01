@@ -35,10 +35,15 @@ public class CarreraRepositoryImpl implements CarreraRepository {
 
     @Override
     public Carrera findById(int id) {
-        EntityManager em = JPAutil.getEntityManager();
-        Carrera carrera = em.find(Carrera.class, (long) id);
-        em.close();
-        return carrera;
+        EntityManager em = null;
+        try {
+            em = JPAutil.getEntityManager();
+            return em.find(Carrera.class, (long) id);
+        } finally {
+            if (em != null && em.isOpen()) {
+                em.close();
+            }
+        }
     }
 
     @Override
