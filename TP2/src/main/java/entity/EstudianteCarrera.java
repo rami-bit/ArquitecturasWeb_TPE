@@ -8,14 +8,22 @@ import lombok.*;
 @ToString
 
 @Entity
+@Table(
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_estudiante_carrera",
+                columnNames = {"estudiante_dni", "carrera_id"}
+        )
+)
 public class EstudianteCarrera {
     @Id
     private Long id;
 
-    @ManyToOne
+    @ManyToOne(optional = false)
+    @JoinColumn(name = "estudiante_dni", nullable = false)
     private Estudiante estudiante;
 
-    @ManyToOne
+    @ManyToOne(optional = false)
+    @JoinColumn(name = "carrera_id", nullable = false)
     private Carrera carrera;
 
     @Column

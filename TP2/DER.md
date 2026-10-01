@@ -38,5 +38,6 @@ erDiagram
 - **Cardinalidades**: un estudiante puede tener 0..N matrículas; una carrera puede tener 0..N inscriptos; cada matrícula corresponde a exactamente 1 estudiante y 1 carrera.
 - `Estudiante.ciudadResidencia`, `Carrera.carrera` y `Carrera.duracion` son **NOT NULL**.
 - `Estudiante.numeroLibreta` tiene restricción **UNIQUE**.
-- Los FK de la asociativa (`estudiante_dni`, `carrera_id`) son **obligatorios** en la aplicación (una matrícula sin estudiante o sin carrera no es válida).
+- Los FK de la asociativa (`estudiante_dni`, `carrera_id`) son **obligatorios** en el esquema (una matrícula sin estudiante o sin carrera no es válida).
+- El par (`estudiante_dni`, `carrera_id`) tiene una restricción **UNIQUE** para impedir que un estudiante se matricule dos veces en la misma carrera.
 - `EstudianteCarrera.graduacion = 0` significa **en curso** (aún no graduado).
