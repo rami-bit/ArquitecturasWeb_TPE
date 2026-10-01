@@ -8,14 +8,13 @@ import factory.JPAutil;
 import entity.Estudiante;
 
 import javax.persistence.EntityManager;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 public class EstudianteRepositoryImpl implements EstudianteRepository {
     // Lista de campos de ordenamiento por el metodo obtenerEstudiantesOrdenados
-    private final ArrayList<String> camposOrdenados = new ArrayList<>(
-            Arrays.asList("nombre", "apellido", "dni", "edad", "genero", "ciudad"));
+    private final Set<String> camposOrdenados = Set.of("nombre", "apellido", "genero", "ciudad");
 
     // punto a)
     @Override
@@ -44,13 +43,15 @@ public class EstudianteRepositoryImpl implements EstudianteRepository {
     // PUNTO c)
     @Override
     public List<EstudianteDTO> getEstudiantesSorted(String campo) {
+        String campoNormalizado = campo == null ? "" : campo.toLowerCase(Locale.ROOT);
+
         // si el campo no existe en camposOrdenados lanzar excepcion
-        if (!camposOrdenados.contains(campo.toLowerCase())) {
+        if (!camposOrdenados.contains(campoNormalizado)) {
             throw new IllegalArgumentException("el campo a ordenar no existe");
         }
 
         EntityManager em = JPAutil.getEntityManager();
-        String orden = campo.equals("ciudad") ? "ciudadResidencia" : campo;
+        String orden = campoNormalizado.equals("ciudad") ? "ciudadResidencia" : campoNormalizado;
         String jpql = "SELECT new dto.EstudianteDTO(e.dni, e.nombre, e.apellido, e.edad, e.genero, e.ciudadResidencia, e.numeroLibreta) "
                 +
                 "FROM Estudiante e " +
