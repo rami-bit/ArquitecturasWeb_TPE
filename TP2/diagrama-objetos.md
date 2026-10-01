@@ -40,7 +40,7 @@ classDiagram
 
 ## Notas
 
-- **Cardinalidades**: 1 estudiante → 0..* matrículas; 1 carrera → 0..* inscriptos; cada matrícula → exactamente 1 estudiante y 1 carrera (derivable de `@OneToMany(mappedBy)` + `@ManyToOne`).
+- **Cardinalidades**: 1 estudiante → 0..* matrículas; 1 carrera → 0..* inscriptos; cada matrícula → exactamente 1 estudiante y 1 carrera (derivable de `@OneToMany(mappedBy)` + `@ManyToOne(optional = false)`).
 - **`EstudianteCarrera`** es la entidad asociativa de la relación N:N Estudiante–Carrera; sus atributos (`inscripcion`, `graduacion`, `antiguedad`) son los datos propios de la inscripción.
 - Atributos visibles como `private` (los accesos son vía Lombok `@Getter`).
 - Las colecciones `inscripciones` del lado inverso (`mappedBy`) no se dibujan: están representadas por los enlaces.

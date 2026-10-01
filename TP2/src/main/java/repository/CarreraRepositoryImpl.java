@@ -4,7 +4,11 @@ import dto.CarreraInscriptos;
 import entity.Carrera;
 import factory.JPAutil;
 import javax.persistence.EntityManager;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 
 public class CarreraRepositoryImpl implements CarreraRepository {
     @Override
@@ -31,10 +35,15 @@ public class CarreraRepositoryImpl implements CarreraRepository {
 
     @Override
     public Carrera findById(int id) {
-        EntityManager em = JPAutil.getEntityManager();
-        Carrera carrera = em.find(Carrera.class, (long) id);
-        em.close();
-        return carrera;
+        EntityManager em = null;
+        try {
+            em = JPAutil.getEntityManager();
+            return em.find(Carrera.class, (long) id);
+        } finally {
+            if (em != null && em.isOpen()) {
+                em.close();
+            }
+        }
     }
 
     @Override
@@ -59,21 +68,67 @@ public class CarreraRepositoryImpl implements CarreraRepository {
         EntityManager em = null;
         try {
             em = JPAutil.getEntityManager();
-            List<ReporteCarreraDTO> reporte = em.createQuery(
-                            "SELECT new dto.ReporteCarreraDTO(" +
-                                    "  c.carrera, " +
-                                    "  ec.inscripcion, " +
-                                    "  COUNT(ec), " +
-                                    "  SUM(CASE WHEN ec.graduacion > 0 THEN 1L ELSE 0L END)) " +
-                                    "FROM Carrera c LEFT JOIN EstudianteCarrera ec ON ec.carrera = c " +
-                                    "GROUP BY c.carrera, ec.inscripcion " +
-                                    "ORDER BY c.carrera ASC, ec.inscripcion ASC",
-                            ReporteCarreraDTO.class)
+            List<Object[]> carreras = em.createQuery(
+                            "SELECT c.id, c.carrera FROM Carrera c ORDER BY c.carrera ASC, c.id ASC",
+                            Object[].class)
+                    .getResultList();
+            List<Object[]> inscriptosPorAnio = em.createQuery(
+                            "SELECT ec.carrera.id, ec.inscripcion, COUNT(ec) " +
+                                    "FROM EstudianteCarrera ec " +
+                                    "GROUP BY ec.carrera.id, ec.inscripcion",
+                            Object[].class)
+                    .getResultList();
+            List<Object[]> egresadosPorAnio = em.createQuery(
+                            "SELECT ec.carrera.id, ec.graduacion, COUNT(ec) " +
+                                    "FROM EstudianteCarrera ec " +
+                                    "WHERE ec.graduacion > 0 " +
+                                    "GROUP BY ec.carrera.id, ec.graduacion",
+                            Object[].class)
                     .getResultList();
 
-            imprimirReporte(reporte);   // se invoca acá, al final de la consulta
+            Map<Long, String> nombresCarreras = new LinkedHashMap<>();
+            Map<Long, TreeMap<Integer, long[]>> totalesPorCarreraYAnio = new LinkedHashMap<>();
+
+            for (Object[] carrera : carreras) {
+                Long carreraId = (Long) carrera[0];
+                nombresCarreras.put(carreraId, (String) carrera[1]);
+                totalesPorCarreraYAnio.put(carreraId, new TreeMap<>());
+            }
+
+            acumularTotales(inscriptosPorAnio, totalesPorCarreraYAnio, 0);
+            acumularTotales(egresadosPorAnio, totalesPorCarreraYAnio, 1);
+
+            List<ReporteCarreraDTO> reporte = new ArrayList<>();
+            for (Map.Entry<Long, String> carrera : nombresCarreras.entrySet()) {
+                TreeMap<Integer, long[]> totalesPorAnio = totalesPorCarreraYAnio.get(carrera.getKey());
+                if (totalesPorAnio.isEmpty()) {
+                    reporte.add(new ReporteCarreraDTO(carrera.getValue(), null, 0L, 0L));
+                    continue;
+                }
+
+                for (Map.Entry<Integer, long[]> totalAnual : totalesPorAnio.entrySet()) {
+                    long[] totales = totalAnual.getValue();
+                    reporte.add(new ReporteCarreraDTO(
+                            carrera.getValue(), totalAnual.getKey(), totales[0], totales[1]));
+                }
+            }
+
+            imprimirReporte(reporte);
         } finally {
             if (em != null) em.close();
+        }
+    }
+
+    private void acumularTotales(List<Object[]> filas,
+                                 Map<Long, TreeMap<Integer, long[]>> totalesPorCarreraYAnio,
+                                 int posicionTotal) {
+        for (Object[] fila : filas) {
+            Long carreraId = (Long) fila[0];
+            Integer anio = (Integer) fila[1];
+            Long cantidad = (Long) fila[2];
+            long[] totales = totalesPorCarreraYAnio.get(carreraId)
+                    .computeIfAbsent(anio, clave -> new long[2]);
+            totales[posicionTotal] = cantidad;
         }
     }
 
