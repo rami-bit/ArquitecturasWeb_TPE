@@ -1,0 +1,56 @@
+package org.example.tp3.model;
+
+
+import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
+
+import java.util.ArrayList;
+import java.util.List;
+
+
+@NoArgsConstructor
+@Getter
+@ToString
+
+
+@Entity
+public class Estudiante {
+    @Id
+    private Long dni;
+
+    @Column(unique = true)
+    private int numeroLibreta;
+
+    @Column
+    private String nombre;
+
+    @Column
+    private String apellido;
+
+    @Column
+    private int edad;
+
+    @Column
+    private String genero;
+
+    @Column(nullable = false)
+    private String ciudadResidencia;
+
+    @OneToMany(mappedBy = "estudiante")
+    private List<EstudianteCarrera> inscripciones;
+
+    public Estudiante(Long dni, int numeroLibreta, String nombre, String apellido, int edad, String genero, String ciudadResidencia) {
+        this.dni = dni;
+        this.numeroLibreta = numeroLibreta;
+        this.nombre = nombre;
+        this.apellido = apellido;
+        this.edad = edad;
+        this.genero = genero;
+        this.ciudadResidencia = ciudadResidencia;
+        this.inscripciones = new ArrayList<>();
+    }
+
+
+}

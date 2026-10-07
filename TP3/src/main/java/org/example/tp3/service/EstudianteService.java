@@ -1,0 +1,39 @@
+package org.example.tp3.service;
+
+import org.example.tp3.dto.EstudianteDTO;
+import org.example.tp3.model.Estudiante;
+import org.example.tp3.repository.EstudianteRepository;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+
+@Service
+public class EstudianteService {
+    private final EstudianteRepository repository;
+
+    public EstudianteService(EstudianteRepository repository) {
+        this.repository = repository;
+    }
+
+    @Transactional(readOnly = true)
+    public List<EstudianteDTO> findAll() {
+        return repository.findAll().stream()
+                .map(EstudianteDTO::from)
+                .toList();
+    }
+
+    @Transactional
+    public EstudianteDTO save(EstudianteDTO dto) {
+        Estudiante estudiante = new Estudiante(
+                dto.getDni(),
+                dto.getNroLibreta(),
+                dto.getNombre(),
+                dto.getApellido(),
+                dto.getEdad(),
+                dto.getGenero(),
+                dto.getCiudad()
+        );
+        return EstudianteDTO.from(repository.save(estudiante));
+    }
+}
