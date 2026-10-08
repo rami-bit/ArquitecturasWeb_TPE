@@ -22,6 +22,10 @@ public class EstudianteController {
         return service.findAll();
     }
 
+    @GetMapping("/orden")
+    public List<EstudianteDTO> ordenar(@RequestParam String orden) {
+        return service.findAllOrderBy(orden);
+    }
 
     @GetMapping("/{id}")
     public ResponseEntity<?>getOne(@PathVariable Long id){

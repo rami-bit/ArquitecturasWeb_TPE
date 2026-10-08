@@ -3,6 +3,7 @@ package org.example.tp3.service;
 import org.example.tp3.dto.EstudianteDTO;
 import org.example.tp3.model.Estudiante;
 import org.example.tp3.repository.EstudianteRepository;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,7 +26,19 @@ public class EstudianteService {
     }
 
     @Transactional
-    public EstudianteDTO findById(Long id) throws Exception {
+    public List<EstudianteDTO> findAllOrderBy(String orden) {
+        if (!orden.equals("nombre") && !orden.equals("dni")&& !orden.equals("apellido")&& !orden.equals("edad")) {
+            orden = "dni";
+        }
+        Sort sort = Sort.by(orden);
+        return repository.findAll(sort).stream()
+                .map(EstudianteDTO::from)
+                .toList();
+
+    }
+
+    @Transactional
+    public EstudianteDTO findById(Long id){
         Optional<Estudiante> estudiante = repository.findById(id);
         return estudiante
                 .map(EstudianteDTO::from)
