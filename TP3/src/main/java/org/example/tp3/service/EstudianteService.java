@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class EstudianteService {
@@ -21,6 +22,17 @@ public class EstudianteService {
         return repository.findAll().stream()
                 .map(EstudianteDTO::from)
                 .toList();
+    }
+
+    @Transactional
+    public EstudianteDTO findById(Long id) throws Exception {
+        Optional<Estudiante> estudiante = repository.findById(id);
+        return estudiante
+                .map(EstudianteDTO::from)
+                .orElseThrow(() -> new RuntimeException(
+                        "No se encuentra el Estudiante con el id: " + id
+                ));
+
     }
 
     @Transactional

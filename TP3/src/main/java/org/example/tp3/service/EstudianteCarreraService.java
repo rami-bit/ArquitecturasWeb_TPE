@@ -17,7 +17,7 @@ import java.util.List;
 @Service
 public class EstudianteCarreraService {
     private final EstudianteCarreraRepository repository;
-    private final Est   udianteRepository estudianteRepository;
+    private final EstudianteRepository estudianteRepository;
     private final CarreraRepository carreraRepository;
 
     public EstudianteCarreraService(EstudianteCarreraRepository repository,
