@@ -2,6 +2,7 @@ package repository;
 import factory.JPAutil;
 
 import javax.persistence.EntityManager;
+import javax.persistence.Query;
 
 import entity.Carrera;
 import entity.Estudiante;
@@ -67,8 +68,22 @@ public class EstudianteCarreraRepositoryImpl implements EstudianteCarreraReposit
         try {
             em = JPAutil.getEntityManager();
             em.getTransaction().begin();
+            Query upsert = em.createNativeQuery(
+                    "INSERT INTO EstudianteCarrera " +
+                            "(estudiante_dni, carrera_id, inscripcion, antiguedad, graduacion) " +
+                            "VALUES (:dni, :carreraId, :inscripcion, :antiguedad, :graduacion) " +
+                            "ON DUPLICATE KEY UPDATE " +
+                            "inscripcion = VALUES(inscripcion), " +
+                            "antiguedad = VALUES(antiguedad), " +
+                            "graduacion = VALUES(graduacion)"
+            );
             for(EstudianteCarrera estudianteCarrera:estudiantesCarrera){
-                em.persist(estudianteCarrera);
+                upsert.setParameter("dni", estudianteCarrera.getEstudiante().getDni());
+                upsert.setParameter("carreraId", estudianteCarrera.getCarrera().getId());
+                upsert.setParameter("inscripcion", estudianteCarrera.getInscripcion());
+                upsert.setParameter("antiguedad", estudianteCarrera.getAntiguedad());
+                upsert.setParameter("graduacion", estudianteCarrera.getGraduacion());
+                upsert.executeUpdate();
             }
             em.getTransaction().commit();
         }catch (Exception e){
