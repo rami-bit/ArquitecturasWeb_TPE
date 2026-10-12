@@ -72,7 +72,7 @@ curl http://localhost:8080/inscripciones
 | --- | --- | --- |
 | `GET` | `/estudiantes` | Recupera todos los estudiantes. |
 | `GET` | `/estudiantes/orden?orden=apellido` | Recupera estudiantes ordenados por `nombre`, `apellido`, `edad` o `dni`. |
-| `GET` | `/estudiantes/{dni}` | Recupera un estudiante por DNI. |
+| `GET` | `/estudiantes/{numeroLibreta}` | Recupera un estudiante por numero de libreta universitaria. |
 | `POST` | `/estudiantes` | Da de alta un estudiante. |
 | `GET` | `/inscripciones` | Recupera todas las inscripciones. |
 | `POST` | `/inscripciones` | Matricula un estudiante en una carrera. |

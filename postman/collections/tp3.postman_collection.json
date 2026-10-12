@@ -54,21 +54,21 @@
           "response": []
         },
         {
-          "name": "Buscar estudiante por DNI",
+          "name": "Buscar estudiante por numero de libreta",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/estudiantes/{{dni_consulta}}",
+              "raw": "{{base_url}}/estudiantes/{{numero_libreta_consulta}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "estudiantes",
-                "{{dni_consulta}}"
+                "{{numero_libreta_consulta}}"
               ]
             },
-            "description": "El endpoint actual busca por la clave primaria DNI, aunque la consigna pide buscar por numero de libreta."
+            "description": "Recupera un estudiante por su numero de libreta universitaria."
           },
           "response": []
         },
@@ -176,8 +176,8 @@
       "type": "string"
     },
     {
-      "key": "dni_consulta",
-      "value": "71779527",
+      "key": "numero_libreta_consulta",
+      "value": "34978",
       "type": "string"
     },
     {

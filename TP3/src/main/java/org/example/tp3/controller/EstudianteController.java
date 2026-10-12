@@ -27,10 +27,10 @@ public class EstudianteController {
         return service.findAllOrderBy(orden);
     }
 
-    @GetMapping("/{id}")
-    public ResponseEntity<?>getOne(@PathVariable Long id){
+    @GetMapping("/{numeroLibreta}")
+    public ResponseEntity<?> getOne(@PathVariable int numeroLibreta){
         try{
-            return ResponseEntity.status(HttpStatus.OK).body(service.findById(id));
+            return ResponseEntity.status(HttpStatus.OK).body(service.findByNumeroLibreta(numeroLibreta));
         }catch (Exception e){
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body("{\"error\":\"Error. No se encuentra el objeto buscado" +
                     ".\"}");

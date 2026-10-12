@@ -48,6 +48,17 @@ public class EstudianteService {
 
     }
 
+    @Transactional(readOnly = true)
+    public EstudianteDTO findByNumeroLibreta(int numeroLibreta){
+        Optional<Estudiante> estudiante = repository.findByNumeroLibreta(numeroLibreta);
+        return estudiante
+                .map(EstudianteDTO::from)
+                .orElseThrow(() -> new RuntimeException(
+                        "No se encuentra el estudiante con numero de libreta: " + numeroLibreta
+                ));
+
+    }
+
     @Transactional
     public EstudianteDTO save(EstudianteDTO dto) {
         Estudiante estudiante = new Estudiante(
