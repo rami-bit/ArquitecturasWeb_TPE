@@ -1,0 +1,17 @@
+$kind: http-request
+description: Matricula al estudiante y carrera indicados por las variables matricula_*. Ambos deben existir previamente. Un año de graduacion igual a 0 representa que todavía no se graduó.
+url: "{{base_url}}/inscripciones"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "dni": {{matricula_dni}},
+      "idCarrera": {{matricula_carrera_id}},
+      "inscripcion": {{matricula_anio_inscripcion}},
+      "antiguedad": {{matricula_antiguedad}},
+      "graduacion": {{matricula_anio_graduacion}}
+    }
+order: 2000

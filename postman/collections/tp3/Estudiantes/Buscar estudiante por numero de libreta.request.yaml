@@ -1,0 +1,5 @@
+$kind: http-request
+description: Recupera un estudiante por su numero de libreta universitaria.
+url: "{{base_url}}/estudiantes/{{numero_libreta_consulta}}"
+method: GET
+order: 3000

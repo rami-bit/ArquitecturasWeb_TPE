@@ -1,0 +1,19 @@
+$kind: http-request
+description: Crea un estudiante usando los valores configurados en las variables nuevo_estudiante_*.
+url: "{{base_url}}/estudiantes"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "dni": {{nuevo_estudiante_dni}},
+      "nombre": "{{nuevo_estudiante_nombre}}",
+      "apellido": "{{nuevo_estudiante_apellido}}",
+      "edad": {{nuevo_estudiante_edad}},
+      "genero": "{{nuevo_estudiante_genero}}",
+      "ciudad": "{{nuevo_estudiante_ciudad}}",
+      "nroLibreta": {{nuevo_estudiante_libreta}}
+    }
+order: 4000

@@ -1,0 +1,9 @@
+$kind: http-request
+description: Recupera todos los estudiantes ordenados según la variable orden_estudiantes.
+url: "{{base_url}}/estudiantes/orden?orden={{orden_estudiantes}}"
+method: GET
+queryParams:
+  - key: orden
+    value: "{{orden_estudiantes}}"
+    description: "Valores admitidos: nombre, apellido, edad o dni."
+order: 2000

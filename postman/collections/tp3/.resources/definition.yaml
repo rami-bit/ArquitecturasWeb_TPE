@@ -1,0 +1,18 @@
+$kind: collection
+description: Coleccion inicial para probar los endpoints REST implementados en TP3. Los datos configurables se encuentran en las variables de la coleccion.
+variables:
+  base_url: http://localhost:8080
+  orden_estudiantes: apellido
+  numero_libreta_consulta: "34978"
+  nuevo_estudiante_dni: "88888888"
+  nuevo_estudiante_nombre: Juan
+  nuevo_estudiante_apellido: Perez
+  nuevo_estudiante_edad: "25"
+  nuevo_estudiante_genero: Male
+  nuevo_estudiante_ciudad: Tandil
+  nuevo_estudiante_libreta: "88888"
+  matricula_dni: "71779527"
+  matricula_carrera_id: "1"
+  matricula_anio_inscripcion: "2024"
+  matricula_antiguedad: "1"
+  matricula_anio_graduacion: "0"

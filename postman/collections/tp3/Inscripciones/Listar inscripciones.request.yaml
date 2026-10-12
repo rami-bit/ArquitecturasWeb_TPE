@@ -1,0 +1,5 @@
+$kind: http-request
+description: Recupera todas las inscripciones existentes.
+url: "{{base_url}}/inscripciones"
+method: GET
+order: 1000
