@@ -16,6 +16,7 @@ import lombok.*;
 )
 public class EstudianteCarrera {
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @ManyToOne(optional = false)

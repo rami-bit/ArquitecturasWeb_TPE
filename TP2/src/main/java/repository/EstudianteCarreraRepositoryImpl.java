@@ -39,14 +39,8 @@ public class EstudianteCarreraRepositoryImpl implements EstudianteCarreraReposit
                 throw new RuntimeException("El estudiante ya está inscripto en dicha carrera");
             }
 
-            Long nuevoId = em.createQuery(
-                    "SELECT MAX(ec.id) FROM EstudianteCarrera ec",
-                    Long.class
-            ).getSingleResult();
-            nuevoId = nuevoId == null ? 1L : nuevoId + 1;
-
             EstudianteCarrera nuevaInscripcion = new EstudianteCarrera(
-                    nuevoId, estudiante, carrera, inscripcion, graduacion, antiguedad);
+                    estudiante, carrera, inscripcion, antiguedad, graduacion);
 
             try {
                 em.getTransaction().begin();

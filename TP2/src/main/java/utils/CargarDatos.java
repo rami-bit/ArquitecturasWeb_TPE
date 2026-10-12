@@ -82,12 +82,11 @@ public class CargarDatos {
                 Carrera carrera = cr.findById(Integer.parseInt(registro.get(2)));
                 Estudiante estudiante = er.findById(Long.parseLong(registro.get(1)));
                 EstudianteCarrera matricula = new EstudianteCarrera(
-                        Long.parseLong(registro.get("id")),
                         estudiante,
                         carrera,
                         Integer.parseInt(registro.get("inscripcion")),
-                        Integer.parseInt(registro.get("graduacion")),
-                        Integer.parseInt(registro.get("antiguedad"))
+                        Integer.parseInt(registro.get("antiguedad")),
+                        Integer.parseInt(registro.get("graduacion"))
 
                 );
                 matriculas.add(matricula);
