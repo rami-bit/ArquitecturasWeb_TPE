@@ -73,22 +73,28 @@ curl http://localhost:8080/inscripciones
 | `GET` | `/estudiantes` | Recupera todos los estudiantes. |
 | `GET` | `/estudiantes/orden?orden=apellido` | Recupera estudiantes ordenados por `nombre`, `apellido`, `edad` o `dni`. |
 | `GET` | `/estudiantes/{numeroLibreta}` | Recupera un estudiante por numero de libreta universitaria. |
+| `GET` | `/estudiantes/genero/{genero}` | Recupera estudiantes filtrados por genero. |
 | `POST` | `/estudiantes` | Da de alta un estudiante. |
 | `GET` | `/inscripciones` | Recupera todas las inscripciones. |
 | `POST` | `/inscripciones` | Matricula un estudiante en una carrera. |
-TODO: items e, f, g, h
+| `GET` | `/carreras/inscriptos` | Recupera las carreras con inscriptos, ordenadas por cantidad. |
+| `GET` | `/inscripciones/estudiantes/{carrera}?ciudad={ciudad}` | Recupera estudiantes de una carrera filtrados por ciudad de residencia. |
+| `GET` | `/inscripciones/carrera` | Genera el reporte de inscriptos y egresados por carrera y anio. |
 
 ## Probar con Postman
 
-Importar la coleccion:
+La coleccion local en formato Postman v3 se encuentra en:
 
 ```text
-postman/collections/tp3.postman_collection.json
+postman/collections/tp3
 ```
 
 La coleccion incluye la variable `base_url`, configurada inicialmente como
 `http://localhost:8080`, y variables para los estudiantes, el ordenamiento y
-las matriculas de prueba.
+las matriculas de prueba. Tambien contiene consultas para los filtros por
+genero, carrera y ciudad, el listado de carreras por cantidad de inscriptos y
+el reporte anual.
+
 
 ## Detener el entorno
 
