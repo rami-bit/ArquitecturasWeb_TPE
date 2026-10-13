@@ -1,5 +1,6 @@
 package org.example.tp3.service;
 
+import org.example.tp3.dto.CarreraInscriptosDTO;
 import org.example.tp3.dto.ReporteAnioDTO;
 import org.example.tp3.dto.ReporteCarreraDTO;
 import org.example.tp3.model.Carrera;

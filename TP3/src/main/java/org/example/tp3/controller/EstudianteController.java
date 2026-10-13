@@ -38,7 +38,7 @@ public class EstudianteController {
     }
     @GetMapping("/genero/{genero}")
     public ResponseEntity<List<EstudianteDTO>> getByGenero(@PathVariable String genero) {
-        return ResponseEntity.ok(estudianteService.getByGenero(genero));
+        return ResponseEntity.ok(service.getByGenero(genero));
     }
 
     @PostMapping

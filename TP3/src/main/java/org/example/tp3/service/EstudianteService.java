@@ -73,9 +73,9 @@ public class EstudianteService {
         return EstudianteDTO.from(repository.save(estudiante));
     }
     public List<EstudianteDTO> getByGenero(String genero) {
-    return estudianteRepository.findByGeneroIgnoreCase(genero)
+    return repository.findByGenero(genero)//ignoreCase
             .stream()
-            .map(this::convertToDTO)
+            .map(this::convertToDTO)//??
             .toList();
     }
 }
