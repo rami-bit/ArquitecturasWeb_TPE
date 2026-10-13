@@ -4,7 +4,7 @@ import org.example.tp3.dto.EstudianteCarreraDTO;
 import org.example.tp3.service.EstudianteCarreraService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
-
+import org.example.tp3.dto.ReporteCarreraDTO;
 import java.util.List;
 
 @RestController
@@ -26,4 +26,16 @@ public class EstudianteCarreraController {
     public EstudianteCarreraDTO matricular(@RequestBody EstudianteCarreraDTO dto) {
         return service.matricular(dto);
     }
+
+    @GetMapping("/carrera/{carrera}/estudiantes")
+    public List<EstudianteDTO> getByCarreraYCiudad(@PathVariable String carrera,
+                                                   @RequestParam String ciudad) {
+        return service.findEstudiantesByCarreraAndCiudad(carrera, ciudad);
+    }
+
+    @GetMapping("/reporte")
+    public List<ReporteCarreraDTO> getReporteCarreras() {
+        return service.getReporteCarreras();
+    }
+
 }
