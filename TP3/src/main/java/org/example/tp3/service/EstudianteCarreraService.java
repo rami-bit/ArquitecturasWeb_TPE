@@ -1,6 +1,7 @@
 package org.example.tp3.service;
 
 import org.example.tp3.dto.EstudianteCarreraDTO;
+import org.example.tp3.dto.EstudianteDTO;
 import org.example.tp3.model.Carrera;
 import org.example.tp3.model.Estudiante;
 import org.example.tp3.model.EstudianteCarrera;
@@ -17,7 +18,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
-import java.util.List;
 
 @Service
 public class EstudianteCarreraService {

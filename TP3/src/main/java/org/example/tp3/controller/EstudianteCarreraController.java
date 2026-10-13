@@ -1,6 +1,7 @@
 package org.example.tp3.controller;
 
 import org.example.tp3.dto.EstudianteCarreraDTO;
+import org.example.tp3.dto.EstudianteDTO;
 import org.example.tp3.service.EstudianteCarreraService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
