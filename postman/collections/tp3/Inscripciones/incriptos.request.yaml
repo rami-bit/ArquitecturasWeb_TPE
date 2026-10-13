@@ -1,0 +1,3 @@
+name: Listar carreras ordenadas por inscriptos
+method: GET
+url: "{{base_url}}/carreras/inscriptos"

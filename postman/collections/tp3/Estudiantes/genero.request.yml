@@ -1,0 +1,3 @@
+name: Buscar estudiantes por genero
+method: GET
+url: "{{base_url}}/estudiantes/genero/Femenino"

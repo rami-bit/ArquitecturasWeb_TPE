@@ -36,6 +36,10 @@ public class EstudianteController {
                     ".\"}");
         }
     }
+    @GetMapping("/genero/{genero}")
+    public ResponseEntity<List<EstudianteDTO>> getByGenero(@PathVariable String genero) {
+        return ResponseEntity.ok(estudianteService.getByGenero(genero));
+    }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
