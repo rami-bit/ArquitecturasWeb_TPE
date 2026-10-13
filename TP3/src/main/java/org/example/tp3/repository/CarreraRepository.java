@@ -9,7 +9,7 @@ import java.util.List;
 public interface CarreraRepository extends RepoBase<Carrera, Long> {
 
     // 2.f Carreras con estudiantes inscriptos, ordenadas por cantidad de inscriptos
-   @Query("SELECT new org.example.tp3.dto.CarreraInscriptosDTO(ec.carrera.id, ec.carrera.carrera, COUNT(ec.estudiante)) " +
+   @Query("SELECT new org.example.tp3.dto.CarreraInscriptosDTO(ec.carrera.carrera, COUNT(ec.estudiante)) " +
            "FROM EstudianteCarrera ec " +
            "GROUP BY ec.carrera.id, ec.carrera.carrera " +
            "HAVING COUNT(ec.estudiante) > 0 " +

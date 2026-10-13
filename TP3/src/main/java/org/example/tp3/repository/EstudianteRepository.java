@@ -10,6 +10,6 @@ public interface EstudianteRepository extends RepoBase<Estudiante, Long> {
     List<Estudiante> findAll(Sort sort);
     Optional<Estudiante> findByNumeroLibreta(int numeroLibreta);
     //2.e Recuperar estudiantes por genero
-    List<Estudiante> findByGenero(String genero);
+    List<Estudiante> findByGeneroIgnoreCase(String genero);
     
 }

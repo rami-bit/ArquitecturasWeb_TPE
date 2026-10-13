@@ -1,3 +1,6 @@
+$kind: http-request
+description: Recupera estudiantes segun su genero.
 name: Buscar estudiantes por genero
 method: GET
-url: "{{base_url}}/estudiantes/genero/Femenino"
+url: "{{base_url}}/estudiantes/genero/{{genero_consulta}}"
+order: 3000

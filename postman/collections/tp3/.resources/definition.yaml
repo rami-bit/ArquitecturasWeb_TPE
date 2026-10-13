@@ -16,3 +16,4 @@ variables:
   matricula_anio_inscripcion: "2024"
   matricula_antiguedad: "1"
   matricula_anio_graduacion: "0"
+  genero_consulta: "femenino"

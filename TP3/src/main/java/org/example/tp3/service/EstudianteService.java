@@ -72,10 +72,11 @@ public class EstudianteService {
         );
         return EstudianteDTO.from(repository.save(estudiante));
     }
+    @Transactional(readOnly = true)
     public List<EstudianteDTO> getByGenero(String genero) {
-    return repository.findByGenero(genero)//ignoreCase
-            .stream()
-            .map(this::convertToDTO)//??
-            .toList();
+        return repository.findByGeneroIgnoreCase(genero)
+                .stream()
+                .map(EstudianteDTO::from)
+                .toList();
     }
 }
