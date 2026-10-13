@@ -28,13 +28,13 @@ public class EstudianteCarreraController {
         return service.matricular(dto);
     }
 
-    @GetMapping("/carrera/{carrera}/estudiantes")
+    @GetMapping("/estudiantes/{carrera}")
     public List<EstudianteDTO> getByCarreraYCiudad(@PathVariable String carrera,
                                                    @RequestParam String ciudad) {
         return service.findEstudiantesByCarreraAndCiudad(carrera, ciudad);
     }
 
-    @GetMapping("/reporte")
+    @GetMapping("/carrera")
     public List<ReporteCarreraDTO> getReporteCarreras() {
         return service.getReporteCarreras();
     }

@@ -1,0 +1,9 @@
+$kind: http-request
+url: "{{base_url}}/inscripciones/estudiantes/{{carrera_consulta}}?ciudad={{ciudad_consulta}}"
+method: GET
+queryParams:
+  - key: ciudad
+    value: "{{ciudad_consulta}}"
+    disabled: false
+    description: ""
+order: 5000
