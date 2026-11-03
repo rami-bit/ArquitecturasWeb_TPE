@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ticketya_catalog}
+      POSTGRES_USER: ${POSTGRES_USER:-ticketya}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ticketya}
+    volumes:
+      - catalog-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - ticketya
+
+  catalog-service:
+    build:
+      context: ./services/catalog-service
+    environment:
+      SERVER_PORT: 8081
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-ticketya_catalog}
+      DB_USER: ${POSTGRES_USER:-ticketya}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-ticketya}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/actuator/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 15s
+    networks:
+      - ticketya
+
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+    environment:
+      SERVER_PORT: 8080
+      CATALOG_SERVICE_URL: http://catalog-service:8081
+    depends_on:
+      catalog-service:
+        condition: service_healthy
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 15s
+    networks:
+      - ticketya
+
+networks:
+  ticketya:
+
+volumes:
+  catalog-postgres-data:

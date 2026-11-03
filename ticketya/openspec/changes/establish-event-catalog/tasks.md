@@ -2,15 +2,15 @@
 
 ## 1. Base de la solución
 
-- [ ] 1.1 Crear el POM agregador y los proyectos independientes `api-gateway` y `catalog-service`, fijar Java 19 y versiones compatibles de Spring Boot/Spring Cloud, y verificar que el build raíz y cada build individual ejecuten `mvn verify`.
-- [ ] 1.2 Crear Dockerfiles independientes para `api-gateway` y `catalog-service`, y verificar que cada imagen se construye desde su directorio sin rutas personales ni artefactos externos no declarados.
-- [ ] 1.3 Crear el `docker-compose.yml` central en la raíz con Gateway, Catalog Service y una imagen oficial versionada de PostgreSQL, y verificar que `docker compose up --build` levanta el incremento completo.
-- [ ] 1.4 Elegir y documentar el mecanismo mínimo de creación de esquema —SQL, JPA o migrador justificado— y verificar que una base PostgreSQL vacía queda lista para usar de forma reproducible.
-- [ ] 1.5 Implementar respuestas `application/problem+json` y propagación de `X-Correlation-Id` en Catalog Service, y verificar con pruebas de integración los campos y encabezados devueltos.
+- [x] 1.1 Crear el POM agregador y los proyectos independientes `api-gateway` y `catalog-service`, fijar Java 19 y versiones compatibles de Spring Boot/Spring Cloud, y verificar que el build raíz y cada build individual ejecuten `mvn verify`.
+- [x] 1.2 Crear Dockerfiles independientes para `api-gateway` y `catalog-service`, y verificar que cada imagen se construye desde su directorio sin rutas personales ni artefactos externos no declarados.
+- [x] 1.3 Crear el `docker-compose.yml` central en la raíz con Gateway, Catalog Service y una imagen oficial versionada de PostgreSQL, y verificar que `docker compose up --build` levanta el incremento completo.
+- [x] 1.4 Elegir y documentar el mecanismo mínimo de creación de esquema —SQL, JPA o migrador justificado— y verificar que una base PostgreSQL vacía queda lista para usar de forma reproducible.
+- [x] 1.5 Implementar respuestas `application/problem+json` y propagación de `X-Correlation-Id` en Catalog Service, y verificar con pruebas de integración los campos y encabezados devueltos.
 
 ## 2. US-E1-01 - Gestión de lugares
 
-- [ ] 2.1 Implementar el modelo y esquema de lugares, sectores numerados, asientos y sectores de admisión general con sus constraints, y verificar invariantes y unicidad mediante pruebas unitarias y de persistencia.
+- [x] 2.1 Implementar el modelo y esquema de lugares, sectores numerados, asientos y sectores de admisión general con sus constraints, y verificar invariantes y unicidad mediante pruebas unitarias y de persistencia.
 - [ ] 2.2 Implementar los casos de uso administrativos para crear y modificar lugares, y verificar con pruebas que `ADMIN` puede operar y `ORGANIZER`/`CLIENT` reciben rechazo sin cambios parciales.
 - [ ] 2.3 Implementar consultas paginadas de lugares para `ORGANIZER` y `ADMIN`, y verificar resultados, paginación y denegación a `CLIENT` mediante pruebas de endpoint.
 - [ ] 2.4 Documentar endpoints, requests, responses y errores de lugares en OpenAPI, y verificar que el documento generado contiene ejemplos para sectores numerados y generales.
