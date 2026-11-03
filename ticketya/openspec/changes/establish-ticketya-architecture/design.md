@@ -8,6 +8,8 @@ Este documento es un mock arquitectónico general: fija límites, responsabilida
 
 Java 19 y Maven son restricciones del proyecto. Ningún artefacto versionado debe contener rutas personales de JDK o configuración local.
 
+El proyecto es didáctico. El PDF define el piso obligatorio y la arquitectura debe privilegiar comprensión, correctitud y facilidad de prueba. La performance de un entorno productivo, la escala extrema y la sofisticación operativa no son drivers salvo en la prueba de carga y los casos de concurrencia exigidos.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -17,6 +19,7 @@ Java 19 y Maven son restricciones del proyecto. Ningún artefacto versionado deb
 - Resolver desde el diseño los riesgos de doble venta, reintentos de pago, expiración, devolución y uso duplicado de QR.
 - Mostrar con claridad qué se construye en Entrega 1 y qué se agrega en Entrega 2.
 - Servir como mapa de dependencias para refinar épicas verticales con OpenSpec.
+- Llegar a una solución que el equipo pueda explicar, ejecutar y mantener sin infraestructura innecesaria.
 
 **Non-Goals:**
 
@@ -24,19 +27,32 @@ Java 19 y Maven son restricciones del proyecto. Ningún artefacto versionado deb
 - Reemplazar las specs funcionales, OpenAPI o diagramas ER detallados de cada épica.
 - Crear proyectos Spring Boot, contenedores, bases o infraestructura ejecutable.
 - Fijar prematuramente detalles de algoritmos de recomendación o política de fila virtual que no afecten los límites de servicios.
+- Diseñar para tráfico, disponibilidad o operación de escala productiva no requeridos por la evaluación.
+- Adoptar herramientas sólo porque son habituales en arquitecturas empresariales.
 
 ## Decisions
 
 ### 1. Principios arquitectónicos
 
-1. Todo cliente externo entra por API Gateway.
-2. Cada microservicio es dueño exclusivo de sus datos y se construye por separado.
-3. Las decisiones críticas se confirman en la base autoritativa, nunca sólo en memoria o cache.
-4. REST síncrono se usa cuando el usuario necesita una respuesta inmediata.
-5. Mensajería se usa para efectos secundarios, proyecciones y procesos masivos.
-6. Toda operación crítica es idempotente y trazable mediante `correlationId`.
-7. Los eventos publicados, órdenes y tickets conservan snapshots históricos; no dependen de datos maestros mutables.
-8. Los datos copiados entre servicios se relacionan por IDs, nunca por foreign keys entre bases.
+1. Implementar primero la solución más simple que cumpla el PDF.
+2. Todo cliente externo entra por API Gateway.
+3. Cada microservicio implementado es dueño exclusivo de sus datos y se construye por separado.
+4. No crear un microservicio sin responsabilidad, datos y necesidad de evolución claramente separados.
+5. Las decisiones críticas se confirman en la base autoritativa, nunca sólo en memoria o cache.
+6. Preferir REST síncrono; introducir comunicación asíncrona sólo cuando una historia demuestre el beneficio.
+7. Toda operación crítica es idempotente y trazable mediante `correlationId`.
+8. Los eventos publicados, órdenes y tickets conservan snapshots históricos; no dependen de datos maestros mutables.
+9. Los datos copiados entre servicios se relacionan por IDs, nunca por foreign keys entre bases.
+10. No agregar cache, broker, service discovery, migrador de esquema o tracing distribuido sin una justificación revisada por el equipo.
+
+Antes de incorporar una tecnología o patrón, la épica debe responder:
+
+- ¿Qué requisito obligatorio satisface o qué problema observado resuelve?
+- ¿Cuál es la alternativa más simple?
+- ¿Qué costo agrega al desarrollo, testing y ejecución local?
+- ¿Cómo se verificará que aporta valor?
+
+Si estas preguntas no tienen una respuesta concreta, la tecnología queda fuera del alcance.
 
 ### 2. Contexto del sistema
 
@@ -76,7 +92,7 @@ Actores y roles:
 
 Entrega 1 usa encabezados de identidad. Entrega 2 reemplaza ese mecanismo por JWT; los servicios mantienen sus reglas de autorización de dominio.
 
-### 3. Arquitectura objetivo por contenedores
+### 3. Arquitectura lógica general
 
 ```mermaid
 flowchart TB
@@ -86,45 +102,28 @@ flowchart TB
     end
 
     Gateway[API Gateway]
-    Identity[Identity Service]
     Catalog[Catalog Service]
     Inventory[Inventory Service]
     Purchase[Purchase Service]
-    Payment[Payment Service / Mock]
     Ticket[Ticket & Access Service]
-    Queue[Virtual Queue Service]
-    Engagement[Engagement Service]
-    Notify[Notification Service]
-    Reporting[Reporting Service]
-    Broker[(RabbitMQ)]
+    Payment[Pasarela simulada]
+    Delivery2[Capacidades Entrega 2 a refinar:<br/>JWT, fila virtual, preferencias,<br/>notificaciones y reportes]
 
     Apps --> Gateway
     Scan --> Gateway
-    Gateway --> Identity
     Gateway --> Catalog
-    Gateway --> Queue
     Gateway --> Purchase
     Gateway --> Ticket
-    Gateway --> Engagement
-    Gateway --> Reporting
+    Gateway -.-> Delivery2
 
     Purchase --> Inventory
     Purchase --> Payment
     Purchase --> Ticket
     Inventory --> Catalog
-    Payment --> PSP[Pasarela externa]
-    Notify --> Providers[Email / Push]
-
-    Catalog <--> Broker
-    Purchase <--> Broker
-    Payment <--> Broker
-    Ticket <--> Broker
-    Engagement <--> Broker
-    Notify <--> Broker
-    Reporting <--> Broker
+    Payment -. versión futura .-> PSP[Pasarela externa]
 ```
 
-Los servicios de dominio no quedan expuestos directamente a clientes. El Gateway enruta, aplica controles transversales y valida JWT en Entrega 2, pero no contiene reglas de negocio.
+Los servicios de dominio no quedan expuestos directamente a clientes. El Gateway enruta y aplica controles transversales, pero no contiene reglas de negocio. Las capacidades de Entrega 2 se separarán en nuevos servicios sólo si su refinamiento demuestra ownership o despliegue independiente; el diagrama no obliga a crear un servicio por capacidad.
 
 ### 4. Alcance incremental
 
@@ -155,48 +154,49 @@ La integración entre publicación e inventario evoluciona en dos pasos:
 
 #### Entrega 2 - plataforma completa
 
-Se incorporan Identity, Virtual Queue, Engagement, Notification y Reporting, RabbitMQ, MongoDB, Redis, JWT, observabilidad centralizada, resiliencia, cache y despliegue completo con Docker Compose.
+Se incorporan JWT, una base NoSQL en al menos una capacidad, fila virtual, preferencias/recomendaciones, notificaciones, reportes, resiliencia, cache justificada, logs centralizados y despliegue completo con Docker Compose. La cantidad final de servicios y las tecnologías concretas se deciden al refinar cada épica.
 
 ### 5. Responsabilidades y límites
 
 | Servicio | Responsabilidad | Fuera de su responsabilidad |
 |---|---|---|
 | API Gateway | Entrada única, routing, rate limiting, correlation ID y validación JWT | Reglas de compra o inventario |
-| Identity | Usuarios, roles, credenciales y emisión/renovación de JWT | Preferencias y recomendaciones |
 | Catalog | Lugares, sectores plantilla, eventos, participantes, precios publicados y búsqueda | Disponibilidad, compras y tickets |
 | Inventory | Inventario por evento, holds temporales, expiración y confirmación de venta | Cobro, precio maestro y QR |
 | Purchase | Órdenes, límite por cliente, saga de compra, devoluciones y cancelación comercial | Modificar inventario o capturar QR directamente |
-| Payment | Adaptar pasarela, intentos, idempotencia, consulta y reintegros | Decidir reglas de devolución |
+| Payment Mock | Simular aprobación, rechazo, consulta y reintegro | Decidir reglas de devolución o transformarse necesariamente en microservicio productivo |
 | Ticket & Access | Emisión, QR, vigencia, revocación y uso único en acceso | Cobro y selección de asientos |
-| Virtual Queue | Orden de llegada, posición, tandas y tokens de admisión | Reservar o vender inventario |
-| Engagement | Preferencias, favoritos, historial derivado y recomendaciones | Fuente autoritativa de órdenes |
-| Notification | Plantillas y entrega de email/push con reintentos | Bloquear la compra por una falla de envío |
-| Reporting | Proyecciones de ventas, devoluciones, ocupación y recaudación | Ejecutar operaciones transaccionales |
+
+Capacidades de Entrega 2 todavía no fijadas como servicios independientes:
+
+| Capacidad | Responsabilidad mínima |
+|---|---|
+| Identidad/JWT | Autenticar y representar roles; puede resolverse con servicio propio o componente existente |
+| Fila virtual | Preservar orden y habilitar tandas sin garantizar inventario |
+| Preferencias/recomendaciones | Guardar preferencias en NoSQL y producir sugerencias simples |
+| Notificaciones | Entregar email/push sin bloquear una compra confirmada |
+| Reportes | Calcular ventas, devoluciones, ocupación y recaudación desde datos disponibles |
 
 **Alternativas consideradas:**
 
 - Un servicio por entidad: descartado por fragmentar transacciones sin aportar autonomía.
-- Un único Sales Service con inventario, órdenes y tickets: simplifica Entrega 1, pero impide escalar y razonar separadamente sobre doble venta, pagos y acceso.
+- Un único Sales Service con inventario, órdenes y tickets: puede simplificar demasiado las responsabilidades exigidas por el PDF; se mantienen límites lógicos, sin sumar servicios de soporte innecesarios.
 - Separar Ticket y Access: se mantienen juntos para que la validación de uso único sea una operación atómica sobre la base dueña del ticket.
 
 ### 6. Ownership y persistencia
 
 | Servicio | Datos autoritativos | Persistencia objetivo | Copias permitidas |
 |---|---|---|---|
-| Identity | Usuario, credenciales, rol, estado | PostgreSQL | Otros servicios conservan sólo `userId` y datos históricos mínimos |
 | Catalog | Venue, sector plantilla, asiento plantilla, evento, participante, snapshot publicado y precio | PostgreSQL | Inventory y Purchase copian IDs/layout/precio necesarios para operar |
-| Inventory | Inventario por evento, unidad/asiento, stock de zona, reserva y expiración | PostgreSQL; Redis sólo como acelerador | Layout inicial copiado desde snapshot de Catalog |
+| Inventory | Inventario por evento, unidad/asiento, stock de zona, reserva y expiración | Base relacional | Layout inicial copiado desde snapshot de Catalog |
 | Purchase | Orden, ítem, intento de saga, límite por cliente y solicitud de devolución | PostgreSQL | Snapshot de descripción y precio al comprar |
-| Payment | Operación de pago, proveedor, estado, clave idempotente y reintegro | PostgreSQL | Referencia `orderId`, nunca datos completos de la orden |
+| Payment Mock | Resultado simulado e idempotencia mínima | A decidir; puede ser almacenamiento simple | Referencia `orderId`, nunca datos completos de la orden |
 | Ticket & Access | Ticket, QR hash, estado, propietario y uso | PostgreSQL | Snapshot mínimo del evento para validación y visualización |
-| Virtual Queue | Cola, posición, sesión y token de admisión | Redis | `eventId` y ventana de venta |
-| Engagement | Preferencias, favoritos y señales de recomendación | MongoDB | Historial derivado de eventos de compra |
-| Notification | Entrega, canal, plantilla y estado de reintento | PostgreSQL o cola durable | Payload mínimo del evento de dominio |
-| Reporting | Proyecciones de venta, devolución, ocupación y recaudación | PostgreSQL | Read models reconstruibles desde eventos |
+| Preferencias/recomendaciones | Preferencias, favoritos y señales simples | Base NoSQL a seleccionar | Historial derivado de compras |
 
-MongoDB en Engagement satisface el requisito NoSQL: preferencias y señales varían por usuario y evolucionan sin joins transaccionales con ventas. Catálogo permanece relacional por sus invariantes y relaciones estructuradas.
+La capacidad de preferencias/recomendaciones es la candidata inicial para satisfacer el requisito NoSQL, porque sus documentos varían por usuario y no requieren joins transaccionales con ventas. MongoDB es una opción, no una decisión tomada. Catálogo permanece relacional por sus invariantes y relaciones estructuradas.
 
-Redis nunca es la autoridad para impedir doble venta. Una pérdida de cache no puede liberar ni vender un asiento.
+Si una épica propone Redis u otro cache, nunca será la autoridad para impedir doble venta. Una pérdida de cache no puede liberar ni vender un asiento.
 
 ### 7. Relaciones de datos entre servicios
 
@@ -221,7 +221,7 @@ flowchart LR
 
 No existe foreign key entre estas bases. Cada referencia remota se valida por contrato y se guarda como valor. Los snapshots preservan la semántica histórica aun si el dato maestro cambia.
 
-### 8. Comunicación síncrona y asíncrona
+### 8. Comunicación síncrona por defecto
 
 REST síncrono:
 
@@ -231,7 +231,7 @@ REST síncrono:
 - Emisión idempotente de tickets cuando la respuesta debe volver al comprador.
 - Validación QR en el acceso.
 
-RabbitMQ asíncrono en Entrega 2:
+Interacciones que podrían volverse asíncronas en Entrega 2:
 
 | Evento | Productor | Consumidores típicos |
 |---|---|---|
@@ -243,13 +243,13 @@ RabbitMQ asíncrono en Entrega 2:
 | `TicketIssued` | Ticket | Notification, Reporting |
 | `TicketUsed` | Ticket | Reporting |
 
-Los productores usan Transactional Outbox y los consumidores Inbox/idempotencia. La entrega es al menos una vez; ningún consumidor presupone exactly-once.
+La primera opción sigue siendo REST o un proceso batch persistido. Un broker se incorpora sólo si existen múltiples consumidores, desacople temporal o reintentos durables que justifiquen operarlo. Si se elige mensajería, productores y consumidores deberán tolerar duplicados; Outbox/Inbox son patrones candidatos, no requisitos automáticos.
 
-RabbitMQ se elige sobre Kafka por menor complejidad operativa y porque el volumen académico no requiere retención masiva ni replay distribuido de alto throughput. Reporting debe poder reconstruirse con eventos almacenados o una herramienta de reproceso controlada.
+RabbitMQ y Kafka quedan fuera de la baseline. Si una épica demuestra que necesita un broker, deberá comparar al menos esa opción con REST, tareas programadas y una tabla de trabajo simple.
 
-### 9. Saga orquestada de compra
+### 9. Orquestación persistida de compra
 
-Purchase Service orquesta la operación porque posee el estado de negocio de la orden y puede decidir compensaciones.
+Purchase Service orquesta la operación porque posee el estado de negocio de la orden y puede decidir compensaciones. Este flujo puede describirse como Saga, pero no requiere un framework ni un motor especializado: estados persistidos y llamadas REST idempotentes son suficientes para la versión didáctica.
 
 ```mermaid
 sequenceDiagram
@@ -335,7 +335,7 @@ WHERE event_id = :eventId
   AND capacity - sold - reserved >= :quantity;
 ```
 
-Confirmar exige estado `HELD`, mismo `reservationId` y `expires_at > now`. La expiración se procesa mediante job y también de forma lazy al intentar reservar. Redis puede mantener TTLs y acelerar el barrido, pero PostgreSQL decide el resultado final.
+Confirmar exige estado `HELD`, mismo `reservationId` y `expires_at > now`. La expiración puede resolverse mediante una tarea programada y también de forma lazy al intentar reservar. No se agrega Redis mientras esta solución sea suficiente.
 
 La prueba obligatoria ejecuta muchas solicitudes simultáneas contra el mismo asiento o último cupo, incluyendo más de una instancia de Inventory Service, y verifica exactamente un éxito.
 
@@ -380,18 +380,18 @@ No se libera inventario para reventa hasta confirmar el reintegro y revocar el t
 
 Cancelación de evento:
 
-1. Catalog cambia el estado a `CANCELLED` y publica `EventCancelled` mediante outbox.
-2. Purchase crea reintegros idempotentes para órdenes afectadas, procesados por lotes.
+1. Catalog cambia el estado a `CANCELLED`.
+2. Purchase recibe una solicitud idempotente y crea reintegros para órdenes afectadas, procesados por lotes simples.
 3. Ticket revoca entradas.
 4. Inventory cierra o libera inventario según política; no vuelve a vender un evento cancelado.
 5. Notification informa a compradores.
 6. Reporting actualiza sus proyecciones.
 
-El proceso es eventual, observable y reanudable; no intenta una transacción distribuida única.
+El proceso es eventual, observable y reanudable; no intenta una transacción distribuida única. Puede comenzar con REST y jobs persistidos; mensajería queda como evolución justificada.
 
 ### 13. Fila virtual
 
-Virtual Queue Service usa Redis para preservar orden y manejar alta concurrencia.
+La fila virtual puede implementarse como servicio o módulo separado según lo que se defina en su épica. Su almacenamiento inicial puede ser relacional; Redis se evaluará sólo si simplifica claramente la cola o si las pruebas muestran una necesidad.
 
 ```mermaid
 flowchart LR
@@ -404,7 +404,7 @@ flowchart LR
     Purchase --> Inventory[Inventory Service]
 ```
 
-La cola habilita tandas y emite un token de admisión de corta duración ligado a cliente y evento. El token permite intentar comprar, pero no garantiza inventario. Inventory sigue siendo la autoridad. Una versión simplificada puede usar sorted sets de Redis y polling de posición.
+La cola habilita tandas y emite un token de admisión de corta duración ligado a cliente y evento. El token permite intentar comprar, pero no garantiza inventario. Inventory sigue siendo la autoridad. La versión didáctica puede usar una tabla ordenada y polling de posición.
 
 ### 14. Tickets y control de acceso
 
@@ -424,33 +424,33 @@ Sólo una operación obtiene una fila actualizada. Reintentos posteriores respon
 
 ### 15. Preferencias, recomendaciones, notificaciones y reportes
 
-Engagement Service guarda en MongoDB preferencias explícitas —tipos, artistas, ciudad— y señales derivadas de `PurchaseConfirmed`. La primera versión recomienda por afinidad simple y co-compra; no requiere machine learning.
+La capacidad de preferencias/recomendaciones guarda en una base NoSQL a seleccionar preferencias explícitas —tipos, artistas, ciudad— y señales derivadas de compras. La primera versión recomienda por afinidad simple y co-compra; no requiere machine learning ni un servicio separado si un módulo con ownership claro resulta suficiente.
 
-Notification Service consume eventos y entrega email/push. Sus fallas nunca revierten una compra confirmada. Usa reintentos con backoff, dead-letter queue e idempotencia por `eventId + recipient + template`.
+La capacidad de notificaciones entrega email/push y sus fallas nunca revierten una compra confirmada. Puede comenzar con un adaptador simple y reintentos controlados; un servicio independiente, broker o dead-letter queue requieren justificación adicional.
 
-Reporting Service mantiene read models por evento y sector para ventas, devoluciones, ocupación y recaudación. Sus datos son eventualmente consistentes y no participan del flujo transaccional de compra.
+Los reportes pueden calcularse consultando los servicios dueños o mediante una proyección simple. Un Reporting Service y read models separados sólo se incorporarán si reducen complejidad frente a la consulta síncrona requerida por el TPE.
 
 ### 16. Cache
 
 | Dato | Cache | Política |
 |---|---|---|
-| Catálogo y detalle publicado | Redis en Entrega 2 | TTL corto e invalidación por cambios de evento |
-| Resultados de búsqueda frecuentes | Redis opcional | Clave por filtros/página, TTL corto |
-| Preferencias/recomendaciones | Cache opcional | TTL moderado, invalidación por actualización |
+| Catálogo y detalle publicado | Sin cache por defecto | Agregar cache sólo con medición o requisito demostrado |
+| Resultados de búsqueda | Sin cache por defecto | Priorizar índices y consultas simples |
+| Preferencias/recomendaciones | Sin cache por defecto | Evaluar únicamente si la implementación lo necesita |
 | Disponibilidad de asientos | No como respuesta autoritativa | Consultar Inventory Service |
 | Estado de orden, pago o ticket | No para decisiones | Consultar servicio dueño |
 
-Un cache miss sólo afecta rendimiento. Una cache stale nunca debe permitir vender, devolver o validar incorrectamente.
+El TPE pide definir la estrategia de cache; “no cachear” es una decisión válida cuando se justifica por escala didáctica y simplicidad. Si se incorpora cache, un miss sólo afecta rendimiento y un dato stale nunca debe permitir vender, devolver o validar incorrectamente.
 
 ### 17. Resiliencia
 
 - Timeouts explícitos en toda llamada REST.
-- Circuit breaker en pasarela de pagos y proveedores de notificación.
-- Reintentos con backoff y jitter sólo para operaciones idempotentes.
-- Bulkheads para que fallas externas no agoten threads o conexiones.
+- Reintentos acotados sólo para operaciones idempotentes.
+- Fallback explícito para pagos o notificaciones, tal como exige el PDF.
 - Pago incierto produce estado `PENDING`, seguido de consulta/reconciliación; nunca cobro duplicado.
-- Notificación se procesa asíncronamente y usa DLQ.
-- Health checks distinguen liveness y readiness.
+- La notificación no revierte una compra; su mecanismo de reintento se mantiene simple salvo evidencia contraria.
+
+Timeout, retry y fallback son comportamientos obligatorios. Circuit breakers, bulkheads, jitter, DLQ y librerías como Resilience4j son alternativas posibles, no decisiones preestablecidas.
 
 ### 18. Seguridad
 
@@ -462,19 +462,7 @@ El Gateway valida firma y expiración; cada servicio valida autorización y owne
 
 El Gateway acepta o genera `X-Correlation-Id`; todos los servicios lo propagan en REST, mensajes y logs. Cada request registra endpoint, usuario, estado HTTP y duración. Compra, devolución, cancelación y acceso generan logs de auditoría estructurados.
 
-Objetivo de Entrega 2:
-
-```mermaid
-flowchart LR
-    Services[Microservicios] -->|logs JSON| Loki[Loki]
-    Services -->|metrics| Prometheus[Prometheus]
-    Services -->|trace/correlation| Collector[OTel Collector]
-    Loki --> Grafana[Grafana]
-    Prometheus --> Grafana
-    Collector --> Grafana
-```
-
-Para la entrega académica puede simplificarse el stack, pero el `correlationId` debe permitir seguir una operación completa aun sin tracing distribuido avanzado.
+La implementación mínima debe centralizar o reunir logs de forma consultable y conservar el `correlationId`. Puede resolverse con salida JSON y herramientas simples del entorno de ejecución. Loki, Prometheus, Grafana u OpenTelemetry sólo se agregarán si el equipo puede justificar y operar ese stack; no son parte de la baseline.
 
 ### 20. Despliegue
 
@@ -493,10 +481,8 @@ flowchart TB
     Compose --> GatewayC[Gateway container]
     Compose --> ServiceC[Un container por microservicio]
     Compose --> PgC[Un container/base por ownership]
-    Compose --> MongoC[MongoDB]
-    Compose --> RedisC[Redis]
-    Compose --> RabbitC[RabbitMQ]
-    Compose --> ObsC[Observabilidad]
+    Compose --> NoSqlC[Base NoSQL seleccionada]
+    Compose -. opcional .-> ExtraC[Infraestructura adicional justificada]
 ```
 
 Docker DNS resuelve servicios dentro de la red; no se agrega Eureka mientras Docker Compose sea el único orquestador. Cada servicio debe poder construirse y ejecutarse por separado, aunque el repositorio use un POM agregador.
@@ -523,11 +509,11 @@ ARCH-00 establish-ticketya-architecture
 
    +-- E2-01 add-jwt-and-role-security
    +-- E2-02 add-virtual-queue
-   +-- E2-03 add-messaging-and-notifications
+   +-- E2-03 add-notifications-and-evaluate-async
    +-- E2-04 add-preferences-and-recommendations
    +-- E2-05 add-qr-access-control
    +-- E2-06 add-organizer-reporting
-   +-- E2-07 add-cache-resilience-observability-and-compose
+   +-- E2-07 add-resilience-logging-and-compose
    +-- E2-08 execute-security-integration-and-load-tests
 ```
 
@@ -535,10 +521,11 @@ Cada épica puede ajustar detalles internos, pero un cambio de ownership, servic
 
 ## Risks / Trade-offs
 
-- **[Demasiados servicios para el tamaño del equipo]** -> Implementar por épicas, combinar Ticket/Access y Engagement, y no crear servicios vacíos antes de necesitarlos.
+- **[Demasiados servicios para el tamaño del equipo]** -> Mantener sólo los límites core y decidir en cada épica si una capacidad de soporte merece servicio propio.
+- **[Sobreingeniería por patrones y herramientas]** -> Exigir problema, alternativa simple, costo y verificación antes de incorporar cualquier tecnología no obligatoria.
 - **[La saga aumenta estados y reconciliación]** -> Centralizar la orquestación en Purchase, persistir cada transición y diseñar compensaciones idempotentes.
-- **[Eventos duplicados o fuera de orden]** -> Outbox/Inbox, claves idempotentes, versionado y consumidores tolerantes a repetición.
-- **[Redis se interpreta como autoridad]** -> Documentar y probar que Inventory PostgreSQL decide toda venta y confirmación.
+- **[Mensajería futura produce duplicados o desorden]** -> Si se adopta, exigir idempotencia y orden suficiente; no incorporar broker de forma preventiva.
+- **[Un cache se interpreta como autoridad]** -> Documentar y probar que Inventory y su base relacional deciden toda venta y confirmación.
 - **[Reporting queda temporalmente desactualizado]** -> Exponer fecha de última actualización y mantenerlo fuera de decisiones transaccionales.
 - **[El blueprint se vuelve rígido]** -> Tratarlo como baseline revisable; las épicas aportan evidencia y deben actualizar decisiones globales cuando corresponda.
 - **[Java 19 no es LTS]** -> Fijar versiones de toolchain y dependencias compatibles, usar la misma versión en CI y contenedores y no registrar rutas locales.
@@ -556,6 +543,7 @@ Este cambio no tiene despliegue ni rollback técnico porque sólo agrega planifi
 
 ## Open Questions
 
-- Elegir en la épica de observabilidad si se despliega el stack completo Loki/Prometheus/OTel o una variante reducida que conserve logs centralizados y correlation IDs.
-- Definir en la épica de fila virtual el tamaño de tanda, frecuencia de admisión y política ante abandono; no cambia el límite del servicio.
-- Definir en la épica de recomendaciones la fórmula inicial de afinidad y co-compra; MongoDB y el consumo de señales permanecen iguales.
+- Elegir en la épica correspondiente la solución mínima para centralizar logs y correlation IDs.
+- Definir en la épica de fila virtual el almacenamiento, tamaño de tanda, frecuencia de admisión y política ante abandono.
+- Seleccionar y justificar la base NoSQL y la fórmula inicial de recomendaciones.
+- Evaluar comunicación asíncrona únicamente cuando se refine cancelación masiva o notificaciones.
