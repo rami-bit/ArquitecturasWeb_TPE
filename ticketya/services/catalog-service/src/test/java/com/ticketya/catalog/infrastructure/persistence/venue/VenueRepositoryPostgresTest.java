@@ -3,6 +3,8 @@ package com.ticketya.catalog.infrastructure.persistence.venue;
 import com.ticketya.catalog.domain.venue.SeatPosition;
 import com.ticketya.catalog.domain.venue.SectorType;
 import com.ticketya.catalog.domain.venue.Venue;
+import com.ticketya.catalog.domain.event.Event;
+import com.ticketya.catalog.infrastructure.persistence.event.EventRepository;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,6 +43,9 @@ class VenueRepositoryPostgresTest {
 
     @Autowired
     private VenueRepository repository;
+
+    @Autowired
+    private EventRepository eventRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -94,6 +99,39 @@ class VenueRepositoryPostgresTest {
         assertThatThrownBy(() -> jdbcTemplate.update(
                 "INSERT INTO venue_sectors (id, venue_id, name, sector_type, general_capacity) VALUES (?, ?, ?, ?, ?)",
                 UUID.randomUUID(), venue.getId(), "Campo", "GENERAL_ADMISSION", 0))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void persistsEventParticipantsAndDecimalOfferingsAndEnforcesEventConstraints() {
+        Venue venue = venue();
+        var sector = venue.addGeneralAdmissionSector("Campo", 100);
+        venue = repository.saveAndFlush(venue);
+        UUID venueId = venue.getId();
+        Event event = new Event("Festival", "Music festival", "MUSIC",
+                java.time.OffsetDateTime.parse("2030-01-01T20:00:00-03:00"), UUID.randomUUID(), venue);
+        event.replaceParticipants(List.of("Band"));
+        event.replaceOfferings(java.util.Map.of(sector.getId(), new BigDecimal("1250.50")));
+        UUID eventId = eventRepository.saveAndFlush(event).getId();
+        entityManager.clear();
+        Event persisted = eventRepository.findById(eventId).orElseThrow();
+        assertThat(persisted.getStatus().name()).isEqualTo("DRAFT");
+        assertThat(persisted.getParticipants()).extracting("name").containsExactly("Band");
+        assertThat(persisted.getOfferings()).singleElement().satisfies(o ->
+                assertThat(o.getPrice()).isEqualByComparingTo("1250.50"));
+
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                "INSERT INTO event_sector_offerings (id,event_id,venue_sector_id,price) VALUES (?,?,?,?)",
+                UUID.randomUUID(), eventId, sector.getId(), new BigDecimal("0.00")))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void databaseRejectsUnsupportedEventStatus() {
+        Venue venue = repository.saveAndFlush(venue());
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                "INSERT INTO events (id,name,description,event_type,starts_at,organizer_id,venue_id,status) VALUES (?,?,?,?,?,?,?,?)",
+                UUID.randomUUID(), "Invalid", "Invalid", "MUSIC", java.time.OffsetDateTime.now(), UUID.randomUUID(), venue.getId(), "UNKNOWN"))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 

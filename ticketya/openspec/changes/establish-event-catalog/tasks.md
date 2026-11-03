@@ -17,11 +17,11 @@
 
 ## 3. US-E1-02 y US-E1-03 - Borradores y ofertas
 
-- [ ] 3.1 Implementar el modelo y esquema de eventos, participantes y ofertas de sectores con precios decimales, y verificar foreign keys, precios positivos y estados admitidos con pruebas de persistencia.
-- [ ] 3.2 Implementar creación de borradores para organizadores y administradores, y verificar ownership, asignación de `DRAFT` y rechazo de creación para terceros mediante pruebas unitarias y de integración.
-- [ ] 3.3 Implementar edición de datos, participantes, lugar y ofertas mientras el evento está en `DRAFT`, y verificar sectores ajenos, precios inválidos y permisos sobre borradores propios y ajenos.
-- [ ] 3.4 Implementar listado y detalle de gestión filtrados por ownership, y verificar que un organizador no observa eventos ajenos mientras un administrador puede consultar todos.
-- [ ] 3.5 Documentar los contratos de gestión de borradores y ofertas en OpenAPI, y verificar ejemplos exitosos y errores `400`, `403`, `404` y `409` en el documento generado.
+- [x] 3.1 Implementar el modelo y esquema de eventos, participantes y ofertas de sectores con precios decimales, y verificar foreign keys, precios positivos y estados admitidos con pruebas de persistencia.
+- [x] 3.2 Implementar creación de borradores para organizadores y administradores, y verificar ownership, asignación de `DRAFT` y rechazo de creación para terceros mediante pruebas unitarias y de integración.
+- [x] 3.3 Implementar edición de datos, participantes, lugar y ofertas mientras el evento está en `DRAFT`, y verificar sectores ajenos, precios inválidos y permisos sobre borradores propios y ajenos.
+- [x] 3.4 Implementar listado y detalle de gestión filtrados por ownership, y verificar que un organizador no observa eventos ajenos mientras un administrador puede consultar todos.
+- [x] 3.5 Documentar los contratos de gestión de borradores y ofertas en OpenAPI, y verificar ejemplos exitosos y errores `400`, `403`, `404` y `409` en el documento generado.
 
 ## 4. US-E1-04 - Publicación y estados administrativos
 

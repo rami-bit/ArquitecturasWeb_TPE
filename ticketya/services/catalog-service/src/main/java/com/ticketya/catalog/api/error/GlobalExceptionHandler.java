@@ -33,6 +33,11 @@ public class GlobalExceptionHandler {
         return problem(HttpStatus.BAD_REQUEST, "Invalid request", exception.getMessage(), request);
     }
 
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ProblemDetail> handleIllegalArgument(IllegalArgumentException exception, HttpServletRequest request) {
+        return problem(HttpStatus.BAD_REQUEST, "Invalid request", exception.getMessage(), request);
+    }
+
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ProblemDetail> handleResourceNotFound(
             NoResourceFoundException exception,

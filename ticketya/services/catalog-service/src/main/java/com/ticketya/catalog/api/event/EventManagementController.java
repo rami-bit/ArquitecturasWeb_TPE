@@ -1,0 +1,27 @@
+package com.ticketya.catalog.api.event;
+import com.ticketya.catalog.application.event.EventManagementService; import com.ticketya.catalog.domain.event.*;
+import jakarta.validation.Valid; import jakarta.validation.constraints.*; import org.springframework.http.HttpStatus; import org.springframework.web.bind.annotation.*;
+import io.swagger.v3.oas.annotations.Operation; import io.swagger.v3.oas.annotations.media.*; import io.swagger.v3.oas.annotations.responses.ApiResponse; import io.swagger.v3.oas.annotations.tags.Tag;
+import java.math.BigDecimal; import java.time.OffsetDateTime; import java.util.*;
+
+@RestController @RequestMapping("/api/management/events") @Tag(name="Event management",description="Create and configure event drafts")
+public class EventManagementController {
+ private final EventManagementService service; public EventManagementController(EventManagementService s){service=s;}
+ @PostMapping @ResponseStatus(HttpStatus.CREATED)
+ @Operation(summary="Create an event draft",description="ORGANIZER creates for its own identity; ADMIN provides organizerId.",responses={@ApiResponse(responseCode="201",description="Draft created",content=@Content(examples=@ExampleObject(value="{\"id\":\"e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b\",\"status\":\"DRAFT\"}"))),@ApiResponse(responseCode="400",description="Invalid request"),@ApiResponse(responseCode="403",description="Invalid role or ownership")})
+ public EventResponse create(@RequestHeader(value="X-User-Id",required=false)String user,@RequestHeader(value="X-User-Role",required=false)String role,@Valid @RequestBody EventRequest r){return EventResponse.from(service.create(user,role,r.name(),r.description(),r.eventType(),r.startsAt(),r.organizerId(),r.venueId(),r.participants(),prices(r.offerings())));}
+ @PutMapping("/{id}") @Operation(summary="Edit a draft",responses={@ApiResponse(responseCode="400",description="Invalid data or sector configuration"),@ApiResponse(responseCode="403",description="Not owner"),@ApiResponse(responseCode="404",description="Event or venue not found"),@ApiResponse(responseCode="409",description="Event is not a draft")})
+ public EventResponse update(@RequestHeader(value="X-User-Id",required=false)String user,@RequestHeader(value="X-User-Role",required=false)String role,@PathVariable UUID id,@Valid @RequestBody EventRequest r){return EventResponse.from(service.update(user,role,id,r.name(),r.description(),r.eventType(),r.startsAt(),r.venueId(),r.participants()));}
+ @PutMapping("/{id}/offerings") @Operation(summary="Replace sector offerings",responses={@ApiResponse(responseCode="400",description="Sector does not belong to venue or price is invalid"),@ApiResponse(responseCode="403",description="Not owner"),@ApiResponse(responseCode="404",description="Event not found"),@ApiResponse(responseCode="409",description="Event is not a draft")})
+ public EventResponse offerings(@RequestHeader(value="X-User-Id",required=false)String user,@RequestHeader(value="X-User-Role",required=false)String role,@PathVariable UUID id,@Valid @RequestBody OfferingsRequest r){return EventResponse.from(service.offerings(user,role,id,prices(r.offerings())));}
+ @GetMapping @Operation(summary="List manageable events",description="Organizers only see their own events; administrators see all.",responses={@ApiResponse(responseCode="403",description="Role is not permitted")})
+ public List<EventResponse> list(@RequestHeader(value="X-User-Id",required=false)String user,@RequestHeader(value="X-User-Role",required=false)String role){return service.list(user,role).stream().map(EventResponse::from).toList();}
+ @GetMapping("/{id}") @Operation(summary="Get a manageable event",responses={@ApiResponse(responseCode="403",description="Not owner"),@ApiResponse(responseCode="404",description="Event not found")})
+ public EventResponse get(@RequestHeader(value="X-User-Id",required=false)String user,@RequestHeader(value="X-User-Role",required=false)String role,@PathVariable UUID id){return EventResponse.from(service.get(user,role,id));}
+ private Map<UUID,BigDecimal> prices(List<OfferingRequest> values){if(values==null)return null;Map<UUID,BigDecimal> result=new LinkedHashMap<>();for(var v:values)if(result.put(v.sectorId(),v.price())!=null)throw new IllegalArgumentException("A sector may be offered only once");return result;}
+ public record EventRequest(@NotBlank String name,@NotBlank String description,@NotBlank String eventType,@NotNull OffsetDateTime startsAt,@NotNull UUID venueId,UUID organizerId,List<@NotBlank String> participants,List<@Valid OfferingRequest> offerings){}
+ public record OfferingRequest(@NotNull UUID sectorId,@NotNull @DecimalMin(value="0.01") BigDecimal price){}
+ public record OfferingsRequest(@NotNull List<@Valid OfferingRequest> offerings){}
+ public record OfferingResponse(UUID sectorId,BigDecimal price){}
+ public record EventResponse(UUID id,String name,String description,String eventType,OffsetDateTime startsAt,UUID organizerId,UUID venueId,EventStatus status,List<String> participants,List<OfferingResponse> offerings){static EventResponse from(Event e){return new EventResponse(e.getId(),e.getName(),e.getDescription(),e.getEventType(),e.getStartsAt(),e.getOrganizerId(),e.getVenue().getId(),e.getStatus(),e.getParticipants().stream().map(EventParticipant::getName).toList(),e.getOfferings().stream().map(o->new OfferingResponse(o.getVenueSectorId(),o.getPrice())).toList());}}
+}

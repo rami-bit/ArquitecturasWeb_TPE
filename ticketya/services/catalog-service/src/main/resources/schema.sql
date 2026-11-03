@@ -44,3 +44,39 @@ CREATE TABLE IF NOT EXISTS venue_seats (
     CONSTRAINT ck_venue_seat_number CHECK (seat_number > 0),
     CONSTRAINT uk_venue_seat_position UNIQUE (venue_sector_id, row_label, seat_number)
 );
+
+CREATE TABLE IF NOT EXISTS events (
+    id UUID PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    description TEXT NOT NULL,
+    event_type VARCHAR(80) NOT NULL,
+    starts_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    organizer_id UUID NOT NULL,
+    venue_id UUID NOT NULL,
+    status VARCHAR(24) NOT NULL DEFAULT 'DRAFT',
+    CONSTRAINT fk_event_venue FOREIGN KEY (venue_id) REFERENCES venues(id),
+    CONSTRAINT ck_event_name CHECK (CHAR_LENGTH(TRIM(name)) > 0),
+    CONSTRAINT ck_event_description CHECK (CHAR_LENGTH(TRIM(description)) > 0),
+    CONSTRAINT ck_event_type CHECK (CHAR_LENGTH(TRIM(event_type)) > 0),
+    CONSTRAINT ck_event_status CHECK (status IN ('DRAFT','PUBLISHED','SUSPENDED','SOLD_OUT','CANCELLED','FINISHED'))
+);
+
+CREATE TABLE IF NOT EXISTS event_participants (
+    id UUID PRIMARY KEY,
+    event_id UUID NOT NULL,
+    name VARCHAR(200) NOT NULL,
+    CONSTRAINT fk_event_participant_event FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
+    CONSTRAINT ck_event_participant_name CHECK (CHAR_LENGTH(TRIM(name)) > 0),
+    CONSTRAINT uk_event_participant UNIQUE (event_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS event_sector_offerings (
+    id UUID PRIMARY KEY,
+    event_id UUID NOT NULL,
+    venue_sector_id UUID NOT NULL,
+    price NUMERIC(12,2) NOT NULL,
+    CONSTRAINT fk_offering_event FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
+    CONSTRAINT fk_offering_sector FOREIGN KEY (venue_sector_id) REFERENCES venue_sectors(id),
+    CONSTRAINT ck_offering_price CHECK (price > 0),
+    CONSTRAINT uk_event_offering UNIQUE (event_id, venue_sector_id)
+);
