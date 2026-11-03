@@ -11,9 +11,9 @@
 ## 2. US-E1-01 - Gestión de lugares
 
 - [x] 2.1 Implementar el modelo y esquema de lugares, sectores numerados, asientos y sectores de admisión general con sus constraints, y verificar invariantes y unicidad mediante pruebas unitarias y de persistencia.
-- [ ] 2.2 Implementar los casos de uso administrativos para crear y modificar lugares, y verificar con pruebas que `ADMIN` puede operar y `ORGANIZER`/`CLIENT` reciben rechazo sin cambios parciales.
-- [ ] 2.3 Implementar consultas paginadas de lugares para `ORGANIZER` y `ADMIN`, y verificar resultados, paginación y denegación a `CLIENT` mediante pruebas de endpoint.
-- [ ] 2.4 Documentar endpoints, requests, responses y errores de lugares en OpenAPI, y verificar que el documento generado contiene ejemplos para sectores numerados y generales.
+- [x] 2.2 Implementar los casos de uso administrativos para crear y modificar lugares, y verificar con pruebas que `ADMIN` puede operar y `ORGANIZER`/`CLIENT` reciben rechazo sin cambios parciales.
+- [x] 2.3 Implementar consultas paginadas de lugares para `ORGANIZER` y `ADMIN`, y verificar resultados, paginación y denegación a `CLIENT` mediante pruebas de endpoint.
+- [x] 2.4 Documentar endpoints, requests, responses y errores de lugares en OpenAPI, y verificar que el documento generado contiene ejemplos para sectores numerados y generales.
 
 ## 3. US-E1-02 y US-E1-03 - Borradores y ofertas
 
@@ -54,3 +54,6 @@
 
 - Archivar `establish-event-catalog` después de la revisión del equipo y de completar todas las tareas.
 - Verificar que las cuatro capacidades queden consolidadas bajo `openspec/specs/` luego del archivado.
+
+
+

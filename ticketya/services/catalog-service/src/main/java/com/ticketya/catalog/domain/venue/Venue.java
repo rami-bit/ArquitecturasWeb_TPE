@@ -70,10 +70,37 @@ public class Venue {
         return sector;
     }
 
+    public void updateDetails(String name, String address, String city, BigDecimal latitude, BigDecimal longitude) {
+        String validatedName = required(name, "Venue name");
+        String validatedAddress = required(address, "Venue address");
+        String validatedCity = required(city, "Venue city");
+        BigDecimal validatedLatitude = coordinate(latitude, MIN_LATITUDE, MAX_LATITUDE, "Latitude");
+        BigDecimal validatedLongitude = coordinate(longitude, MIN_LONGITUDE, MAX_LONGITUDE, "Longitude");
+        this.name = validatedName;
+        this.address = validatedAddress;
+        this.city = validatedCity;
+        this.latitude = validatedLatitude;
+        this.longitude = validatedLongitude;
+    }
+
     public VenueSector addGeneralAdmissionSector(String name, int capacity) {
         VenueSector sector = VenueSector.generalAdmission(this, name, capacity);
         sectors.add(sector);
         return sector;
+    }
+
+    public void replaceSectors(Collection<SectorDefinition> definitions) {
+        if (definitions == null) throw new IllegalArgumentException("Sectors are required");
+        List<SectorDefinition> validated = List.copyOf(definitions);
+        List<VenueSector> replacement = new ArrayList<>();
+        for (SectorDefinition definition : validated) {
+            VenueSector sector = definition.type() == SectorType.NUMBERED
+                    ? VenueSector.numbered(this, definition.name(), definition.seats())
+                    : VenueSector.generalAdmission(this, definition.name(), definition.capacity());
+            replacement.add(sector);
+        }
+        sectors.clear();
+        sectors.addAll(replacement);
     }
 
     public UUID getId() {
