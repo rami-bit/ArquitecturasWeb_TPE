@@ -6,6 +6,8 @@ El repositorio todavía no contiene implementación. La Entrega 1 exige microser
 
 Java 19 y Maven son estándares del proyecto. Las rutas personales de JDK no se guardarán en archivos versionados. La Entrega 1 identifica temporalmente al usuario mediante encabezados y difiere JWT para la Entrega 2.
 
+Este diseño aplica las guidelines de `establish-ticketya-architecture`: se elige primero la solución más simple que cumpla las specs y ninguna herramienta se vuelve obligatoria sólo por ser habitual en un entorno productivo.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -14,6 +16,7 @@ Java 19 y Maven son estándares del proyecto. Las rutas personales de JDK no se 
 - Entregar un flujo completo a través del Gateway: administrar lugares, preparar un evento, publicarlo y descubrirlo públicamente.
 - Mantener una única autoridad para los datos de catálogo y producir snapshots adecuados para inicializar inventario en una épica posterior.
 - Definir contratos, errores, trazabilidad básica y pruebas suficientes para evolucionar sin romper clientes.
+- Mantener una solución didáctica que el equipo pueda ejecutar, explicar y probar localmente.
 
 **Non-Goals:**
 
@@ -22,6 +25,7 @@ Java 19 y Maven son estándares del proyecto. Las rutas personales de JDK no se 
 - Implementar cancelación, finalización, cambios posteriores a publicación o notificaciones.
 - Introducir JWT, mensajería, Redis, MongoDB, cache, service discovery o Elasticsearch.
 - Contener rutas locales de herramientas o configuración personal del equipo.
+- Optimizar para escala o performance productiva no exigida por los escenarios de esta épica.
 
 ## Decisions
 
@@ -74,7 +78,9 @@ Las APIs responderán errores con `application/problem+json`, incluyendo al meno
 
 ### 4. PostgreSQL relacional y ownership exclusivo
 
-Catalog Service tendrá una base PostgreSQL propia y la administrará con Flyway. Ningún otro servicio accederá directamente a sus tablas. Las relaciones dentro del bounded context sí usarán foreign keys y restricciones de unicidad.
+Catalog Service tendrá una base PostgreSQL propia. Ningún otro servicio accederá directamente a sus tablas. Las relaciones dentro del bounded context sí usarán foreign keys y restricciones de unicidad.
+
+El esquema debe poder crearse de forma reproducible desde una base vacía. El equipo elegirá el mecanismo mínimo que pueda mantener con claridad —scripts SQL, inicialización de JPA o una herramienta de migraciones— y documentará la elección. Flyway no es un requisito de esta épica.
 
 Modelo lógico abreviado:
 
@@ -155,7 +161,7 @@ Catalog Service resolverá filtros y ordenamientos en PostgreSQL. La consulta si
 - Relevancia: búsqueda textual de PostgreSQL sobre nombre, descripción y participantes; requiere texto de consulta.
 - Paginación: page/size con límite máximo documentado y metadata total.
 
-La implementación podrá usar `tsvector` y un índice GIN. No se cacheará disponibilidad ni se incorporará Elasticsearch.
+La baseline usa consultas SQL simples, filtros indexados y una relevancia determinística sobre nombre, descripción y participantes. `tsvector`, índices GIN u otras capacidades full-text se evaluarán sólo si la solución simple no permite cumplir los escenarios. No se incorporará Elasticsearch.
 
 **Alternativa considerada:** Elasticsearch. Se descarta por costo operativo y duplicación de datos desproporcionados para Entrega 1.
 
@@ -189,7 +195,7 @@ Cada endpoint y esquema de error se documentará con springdoc-openapi, incluyen
 Estrategia de pruebas:
 
 - Unitarias: validaciones de sectores, permisos, estado e invariantes de publicación.
-- Persistencia: repositorios, constraints, snapshot y queries de búsqueda contra PostgreSQL real con Testcontainers.
+- Persistencia: repositorios, constraints, snapshot y queries de búsqueda contra PostgreSQL real. Puede usarse la instancia local/de Docker del equipo o Testcontainers si esta última opción simplifica efectivamente las pruebas.
 - Integración de Catalog Service: endpoints, errores, ownership y rollback de publicación.
 - Integración a través del Gateway: routing, propagación de identidad y `correlationId`.
 - Contrato: OpenAPI generado y ejemplos principales ejecutables desde Postman.
@@ -200,15 +206,16 @@ Estrategia de pruebas:
 - **[Encabezados de rol pueden falsificarse]** -> Aceptarlo sólo como mecanismo de Entrega 1, mantener autorización en dominio y reemplazarlo por JWT en Entrega 2.
 - **[El snapshot duplica datos]** -> Aceptar la duplicación deliberada para garantizar estabilidad histórica; constraints y transacción evitan copias incompletas.
 - **[Búsqueda textual puede degradarse]** -> Indexar filtros y texto, medir planes de consulta y mantener paginación y tamaño máximo.
+- **[Una herramienta de infraestructura domina la épica]** -> Mantener schema y tests reproducibles con el mecanismo más simple; adoptar migrador o Testcontainers sólo con justificación.
 - **[Cambios en lugares pueden confundir borradores]** -> Revalidar toda referencia y copiar la versión vigente exclusivamente al publicar.
 - **[No hay inventario al publicar]** -> El snapshot queda preparado como contrato de entrada; la inicialización de inventario se implementará en la próxima épica sin exponer disponibilidad falsa.
 
 ## Migration Plan
 
 1. Crear la estructura Maven y los dos proyectos independientes.
-2. Levantar PostgreSQL de catálogo y aplicar migraciones Flyway desde un esquema vacío.
+2. Levantar PostgreSQL de catálogo y crear el esquema completo desde una base vacía con el mecanismo seleccionado.
 3. Implementar y verificar Catalog Service antes de publicar rutas externas.
 4. Configurar Gateway y validar todos los flujos exclusivamente por `/api`.
 5. Cargar datos de prueba y publicar la colección Postman.
 
-Como el proyecto parte sin datos productivos, no se requiere migración histórica. El rollback consiste en detener Gateway y Catalog Service y eliminar únicamente la base local de desarrollo creada para esta épica; las migraciones aplicadas no se revertirán destructivamente en entornos compartidos.
+Como el proyecto parte sin datos productivos, no se requiere migración histórica. El rollback consiste en detener Gateway y Catalog Service y eliminar únicamente la base local de desarrollo creada para esta épica; no se definen procedimientos complejos para entornos productivos inexistentes.
