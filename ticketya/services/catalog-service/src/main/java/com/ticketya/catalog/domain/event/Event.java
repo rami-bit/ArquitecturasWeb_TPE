@@ -18,6 +18,7 @@ public class Event {
     @Enumerated(EnumType.STRING) @Column(nullable=false,length=24) private EventStatus status=EventStatus.DRAFT;
     @OneToMany(mappedBy="event",cascade=CascadeType.ALL,orphanRemoval=true) @OrderBy("name ASC") private List<EventParticipant> participants=new ArrayList<>();
     @OneToMany(mappedBy="event",cascade=CascadeType.ALL,orphanRemoval=true) private List<EventSectorOffering> offerings=new ArrayList<>();
+    @OneToOne(mappedBy="event", fetch=FetchType.LAZY, cascade=CascadeType.ALL, orphanRemoval=true) private EventSnapshot snapshot;
     protected Event() {}
     public Event(String name,String description,String eventType,OffsetDateTime startsAt,UUID organizerId,Venue venue) {
         this.organizerId=Objects.requireNonNull(organizerId); this.venue=Objects.requireNonNull(venue); update(name,description,eventType,startsAt);
@@ -39,9 +40,11 @@ public class Event {
         offerings.clear(); prices.forEach((sector,price)->offerings.add(new EventSectorOffering(this,sector,price)));
     }
     public void setStatus(EventStatus status){this.status=Objects.requireNonNull(status);}
+    public void setSnapshot(EventSnapshot snapshot){this.snapshot=Objects.requireNonNull(snapshot);}
     private static String required(String s,String field){if(s==null||s.isBlank())throw new IllegalArgumentException(field+" is required");return s.trim();}
     public UUID getId(){return id;} public String getName(){return name;} public String getDescription(){return description;}
     public String getEventType(){return eventType;} public OffsetDateTime getStartsAt(){return startsAt;} public UUID getOrganizerId(){return organizerId;}
     public Venue getVenue(){return venue;} public EventStatus getStatus(){return status;} public List<EventParticipant> getParticipants(){return Collections.unmodifiableList(participants);}
     public List<EventSectorOffering> getOfferings(){return Collections.unmodifiableList(offerings);}
+    public EventSnapshot getSnapshot(){return snapshot;}
 }

@@ -16,6 +16,19 @@ public class EventManagementService {
   Event e=authorized(user,role,id); draft(e); Venue v=venue(venueId); e.update(name,description,type,startsAt);if(!e.getVenue().getId().equals(v.getId()))e.clearOfferings();e.setVenue(v);if(participants!=null)e.replaceParticipants(participants);return e;
  }
  public Event offerings(String user,String role,UUID id,Map<UUID,BigDecimal> prices){Event e=authorized(user,role,id);draft(e);validateOfferings(e.getVenue(),prices);e.replaceOfferings(prices);return e;}
+ public Event publish(String user,String role,UUID id){
+  Event e=authorized(user,role,id);
+  if(e.getStatus()==EventStatus.PUBLISHED && e.getSnapshot()!=null)return e;
+  draft(e);
+  if(e.getName()==null||e.getDescription()==null||e.getEventType()==null||e.getVenue()==null)throw bad("Event data is incomplete");
+  if(!e.getStartsAt().isAfter(java.time.OffsetDateTime.now()))throw bad("Event start time must be in the future");
+  if(e.getParticipants().isEmpty())throw bad("At least one participant is required");
+  if(e.getOfferings().isEmpty())throw bad("At least one priced sector is required");
+  validateOfferings(e.getVenue(),e.getOfferings().stream().collect(java.util.stream.Collectors.toMap(EventSectorOffering::getVenueSectorId,EventSectorOffering::getPrice)));
+  e.setSnapshot(EventSnapshot.copyOf(e)); e.setStatus(EventStatus.PUBLISHED); return events.saveAndFlush(e);
+ }
+ public Event suspend(String user,String role,UUID id){identity(user,role);if(!"ADMIN".equals(role))throw forbidden();Event e=events.findById(id).orElseThrow(()->notFound("Event not found"));if(e.getStatus()!=EventStatus.PUBLISHED)throw conflict("Only PUBLISHED events can be suspended");e.getOfferings().size();e.getVenue().getId();e.setStatus(EventStatus.SUSPENDED);return e;}
+ public Event resume(String user,String role,UUID id){identity(user,role);if(!"ADMIN".equals(role))throw forbidden();Event e=events.findById(id).orElseThrow(()->notFound("Event not found"));if(e.getStatus()!=EventStatus.SUSPENDED)throw conflict("Only SUSPENDED events can be resumed");e.getOfferings().size();e.getVenue().getId();e.setStatus(EventStatus.PUBLISHED);return e;}
  @Transactional(readOnly=true) public List<Event> list(String user,String role){UUID actor=identity(user,role);List<Event> result;if("ADMIN".equals(role))result=events.findAllByOrderByNameAscIdAsc();else if("ORGANIZER".equals(role))result=events.findAllByOrganizerIdOrderByNameAscIdAsc(actor);else throw forbidden();result.forEach(e->e.getOfferings().size());return result;}
  @Transactional(readOnly=true) public Event get(String user,String role,UUID id){Event e=authorized(user,role,id);e.getOfferings().size();return e;}
  private Event authorized(String user,String role,UUID id){UUID actor=identity(user,role);if(!"ADMIN".equals(role)&&!"ORGANIZER".equals(role))throw forbidden();Event e=events.findById(id).orElseThrow(()->notFound("Event not found"));if("ORGANIZER".equals(role)&&!e.getOrganizerId().equals(actor))throw forbidden();e.getOfferings().size();return e;}
@@ -26,4 +39,5 @@ public class EventManagementService {
  private ApiProblemException forbidden(){return new ApiProblemException(HttpStatus.FORBIDDEN,"Forbidden","A valid identity and permitted role are required");}
  private ApiProblemException notFound(String d){return new ApiProblemException(HttpStatus.NOT_FOUND,"Not found",d);}
  private ApiProblemException bad(String d){return new ApiProblemException(HttpStatus.BAD_REQUEST,"Invalid event",d);}
+ private ApiProblemException conflict(String d){return new ApiProblemException(HttpStatus.CONFLICT,"Invalid event state",d);}
 }

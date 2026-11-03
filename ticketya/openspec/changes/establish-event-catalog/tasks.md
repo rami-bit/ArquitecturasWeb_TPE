@@ -25,13 +25,13 @@
 
 ## 4. US-E1-04 - Publicación y estados administrativos
 
-- [ ] 4.1 Crear el esquema de snapshots normalizados de evento, participantes, lugar, sectores y asientos, incluyendo unicidad por evento, y verificarlo con pruebas de integración contra PostgreSQL real.
-- [ ] 4.2 Implementar validaciones de publicación para datos completos, fecha futura, participantes y sectores valorizados, y verificar cada rechazo conserva el evento en `DRAFT` sin snapshot.
-- [ ] 4.3 Implementar la publicación transaccional y copia del snapshot, y verificar con pruebas de integración que un fallo intermedio hace rollback completo y una publicación válida confirma estado y snapshot juntos.
-- [ ] 4.4 Hacer idempotente la repetición de `publish` mediante el snapshot único, y verificar que solicitudes repetidas devuelven el mismo evento sin duplicar filas.
-- [ ] 4.5 Bloquear toda edición fuera de `DRAFT` y verificar que cambios posteriores en la plantilla canónica no modifican snapshots publicados.
-- [ ] 4.6 Implementar `suspend` y `resume` exclusivos de `ADMIN`, y verificar transiciones válidas, rechazos por rol/estado y conservación del mismo snapshot.
-- [ ] 4.7 Documentar publicación, suspensión, reanudación y sus errores en OpenAPI, y verificar que los estados futuros aparecen en el modelo sin exponer comandos para `SOLD_OUT`, `CANCELLED` o `FINISHED`.
+- [x] 4.1 Crear el esquema de snapshots normalizados de evento, participantes, lugar, sectores y asientos, incluyendo unicidad por evento, y verificarlo con pruebas de integración contra PostgreSQL real.
+- [x] 4.2 Implementar validaciones de publicación para datos completos, fecha futura, participantes y sectores valorizados, y verificar cada rechazo conserva el evento en `DRAFT` sin snapshot.
+- [x] 4.3 Implementar la publicación transaccional y copia del snapshot, y verificar con pruebas de integración que un fallo intermedio hace rollback completo y una publicación válida confirma estado y snapshot juntos.
+- [x] 4.4 Hacer idempotente la repetición de `publish` mediante el snapshot único, y verificar que solicitudes repetidas devuelven el mismo evento sin duplicar filas.
+- [x] 4.5 Bloquear toda edición fuera de `DRAFT` y verificar que cambios posteriores en la plantilla canónica no modifican snapshots publicados.
+- [x] 4.6 Implementar `suspend` y `resume` exclusivos de `ADMIN`, y verificar transiciones válidas, rechazos por rol/estado y conservación del mismo snapshot.
+- [x] 4.7 Documentar publicación, suspensión, reanudación y sus errores en OpenAPI, y verificar que los estados futuros aparecen en el modelo sin exponer comandos para `SOLD_OUT`, `CANCELLED` o `FINISHED`.
 
 ## 5. US-E1-05 y US-E1-06 - Descubrimiento público
 

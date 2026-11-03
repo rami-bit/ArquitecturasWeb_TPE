@@ -4,6 +4,7 @@ import com.ticketya.catalog.domain.venue.SeatPosition;
 import com.ticketya.catalog.domain.venue.SectorType;
 import com.ticketya.catalog.domain.venue.Venue;
 import com.ticketya.catalog.domain.event.Event;
+import com.ticketya.catalog.domain.event.EventSnapshot;
 import com.ticketya.catalog.infrastructure.persistence.event.EventRepository;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
@@ -132,6 +133,22 @@ class VenueRepositoryPostgresTest {
         assertThatThrownBy(() -> jdbcTemplate.update(
                 "INSERT INTO events (id,name,description,event_type,starts_at,organizer_id,venue_id,status) VALUES (?,?,?,?,?,?,?,?)",
                 UUID.randomUUID(), "Invalid", "Invalid", "MUSIC", java.time.OffsetDateTime.now(), UUID.randomUUID(), venue.getId(), "UNKNOWN"))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void persistsNormalizedPublicationSnapshotAndEnforcesOneSnapshotPerEvent() {
+        Venue venue=venue(); var numbered=venue.addNumberedSector("Platea",List.of(new SeatPosition("A",1),new SeatPosition("A",2)));
+        var general=venue.addGeneralAdmissionSector("Campo",50); venue=repository.saveAndFlush(venue);
+        Event event=new Event("Festival","Music festival","MUSIC",java.time.OffsetDateTime.parse("2030-01-01T20:00:00-03:00"),UUID.randomUUID(),venue);
+        event.replaceParticipants(List.of("Band")); event.replaceOfferings(java.util.Map.of(numbered.getId(),new BigDecimal("100.00"),general.getId(),new BigDecimal("50.00")));
+        event.setSnapshot(EventSnapshot.copyOf(event)); event.setStatus(com.ticketya.catalog.domain.event.EventStatus.PUBLISHED);
+        UUID eventId=eventRepository.saveAndFlush(event).getId(); entityManager.clear();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from event_snapshots where event_id=?",Integer.class,eventId)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("select count(*) from snapshot_participants",Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("select count(*) from snapshot_sectors",Integer.class)).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject("select count(*) from snapshot_seats",Integer.class)).isEqualTo(2);
+        assertThatThrownBy(()->jdbcTemplate.update("insert into event_snapshots (id,event_id,name,description,event_type,starts_at,venue_name,venue_address,venue_city,venue_latitude,venue_longitude) select ?,event_id,name,description,event_type,starts_at,venue_name,venue_address,venue_city,venue_latitude,venue_longitude from event_snapshots where event_id=?",UUID.randomUUID(),eventId))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 

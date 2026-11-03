@@ -80,3 +80,42 @@ CREATE TABLE IF NOT EXISTS event_sector_offerings (
     CONSTRAINT ck_offering_price CHECK (price > 0),
     CONSTRAINT uk_event_offering UNIQUE (event_id, venue_sector_id)
 );
+
+-- Immutable, normalized publication copy. The unique event_id makes publish idempotent.
+CREATE TABLE IF NOT EXISTS event_snapshots (
+    id UUID PRIMARY KEY,
+    event_id UUID NOT NULL,
+    name VARCHAR(200) NOT NULL,
+    description TEXT NOT NULL,
+    event_type VARCHAR(80) NOT NULL,
+    starts_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    venue_name VARCHAR(200) NOT NULL,
+    venue_address VARCHAR(300) NOT NULL,
+    venue_city VARCHAR(120) NOT NULL,
+    venue_latitude NUMERIC(9,6) NOT NULL,
+    venue_longitude NUMERIC(9,6) NOT NULL,
+    CONSTRAINT fk_snapshot_event FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
+    CONSTRAINT uk_event_snapshot_event UNIQUE (event_id)
+);
+CREATE TABLE IF NOT EXISTS snapshot_participants (
+    id UUID PRIMARY KEY,
+    snapshot_id UUID NOT NULL REFERENCES event_snapshots(id) ON DELETE CASCADE,
+    name VARCHAR(200) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS snapshot_sectors (
+    id UUID PRIMARY KEY,
+    snapshot_id UUID NOT NULL REFERENCES event_snapshots(id) ON DELETE CASCADE,
+    source_sector_id UUID NOT NULL,
+    name VARCHAR(120) NOT NULL,
+    sector_type VARCHAR(32) NOT NULL CHECK (sector_type IN ('NUMBERED','GENERAL_ADMISSION')),
+    capacity INTEGER NOT NULL CHECK (capacity > 0),
+    price NUMERIC(12,2) NOT NULL CHECK (price > 0)
+);
+CREATE TABLE IF NOT EXISTS snapshot_seats (
+    id UUID PRIMARY KEY,
+    sector_id UUID NOT NULL REFERENCES snapshot_sectors(id) ON DELETE CASCADE,
+    source_seat_id UUID NOT NULL,
+    row_label VARCHAR(40) NOT NULL,
+    seat_number INTEGER NOT NULL CHECK (seat_number > 0),
+    CONSTRAINT uk_snapshot_seat_position UNIQUE (sector_id,row_label,seat_number)
+);
