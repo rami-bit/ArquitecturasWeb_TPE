@@ -119,3 +119,10 @@ CREATE TABLE IF NOT EXISTS snapshot_seats (
     seat_number INTEGER NOT NULL CHECK (seat_number > 0),
     CONSTRAINT uk_snapshot_seat_position UNIQUE (sector_id,row_label,seat_number)
 );
+
+-- Public discovery access paths; keep these aligned with the supported filters.
+CREATE INDEX IF NOT EXISTS ix_events_status_starts_at_id ON events (status, starts_at, id);
+CREATE INDEX IF NOT EXISTS ix_events_status_type_starts_at_id ON events (status, event_type, starts_at, id);
+CREATE INDEX IF NOT EXISTS ix_events_status_organizer_starts_at_id ON events (status, organizer_id, starts_at, id);
+CREATE INDEX IF NOT EXISTS ix_event_snapshots_city ON event_snapshots (venue_city, event_id);
+CREATE INDEX IF NOT EXISTS ix_snapshot_participants_snapshot_name ON snapshot_participants (snapshot_id, name);

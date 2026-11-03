@@ -152,6 +152,28 @@ class VenueRepositoryPostgresTest {
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
+    @Test
+    void discoveryIndexesExistAndPublishedFiltersReturnOnlyMatchingSnapshotRows() {
+        UUID organizer = UUID.randomUUID();
+        UUID venueId = UUID.randomUUID();
+        UUID published = UUID.randomUUID();
+        UUID draft = UUID.randomUUID();
+        UUID snapshot = UUID.randomUUID();
+        UUID sector = UUID.randomUUID();
+        jdbcTemplate.update("insert into venues(id,name,address,city,latitude,longitude) values(?,?,?,?,?,?)", venueId, "Arena", "Street", "Buenos Aires", BigDecimal.ZERO, BigDecimal.ZERO);
+        insertEvent(published, organizer, venueId, "PUBLISHED");
+        insertEvent(draft, organizer, venueId, "DRAFT");
+        jdbcTemplate.update("insert into event_snapshots(id,event_id,name,description,event_type,starts_at,venue_name,venue_address,venue_city,venue_latitude,venue_longitude) values(?,?,?,?,?,?,?,?,?,?,?)", snapshot, published, "Festival", "Live music", "MUSIC", java.time.OffsetDateTime.parse("2030-06-10T20:00:00-03:00"), "Arena", "Street", "Buenos Aires", BigDecimal.ZERO, BigDecimal.ZERO);
+        jdbcTemplate.update("insert into snapshot_participants(id,snapshot_id,name) values(?,?,?)", UUID.randomUUID(), snapshot, "Band");
+        jdbcTemplate.update("insert into snapshot_sectors(id,snapshot_id,source_sector_id,name,sector_type,capacity,price) values(?,?,?,?,?,?,?)", sector, snapshot, UUID.randomUUID(), "Field", "GENERAL_ADMISSION", 50, new BigDecimal("25.00"));
+        assertThat(jdbcTemplate.queryForObject("select count(*) from pg_indexes where schemaname='public' and indexname in ('ix_events_status_starts_at_id','ix_events_status_type_starts_at_id','ix_events_status_organizer_starts_at_id','ix_event_snapshots_city','ix_snapshot_participants_snapshot_name')", Integer.class)).isEqualTo(5);
+        assertThat(jdbcTemplate.queryForList("select s.name from events e join event_snapshots s on s.event_id=e.id where e.status='PUBLISHED' and s.event_type=? and e.organizer_id=? and s.venue_city=? and s.starts_at between ? and ? and exists (select 1 from snapshot_participants p where p.snapshot_id=s.id and lower(p.name) like lower(?))", String.class, "MUSIC", organizer, "Buenos Aires", java.time.OffsetDateTime.parse("2030-06-10T20:00:00-03:00"), java.time.OffsetDateTime.parse("2030-06-10T20:00:00-03:00"), "%band%")).containsExactly("Festival");
+    }
+
+    private void insertEvent(UUID eventId, UUID organizerId, UUID venueId, String status) {
+        jdbcTemplate.update("insert into events(id,name,description,event_type,starts_at,organizer_id,venue_id,status) values(?,?,?,?,?,?,?,?)", eventId, "Festival", "Live music", "MUSIC", java.time.OffsetDateTime.parse("2030-06-10T20:00:00-03:00"), organizerId, venueId, status);
+    }
+
     private Venue venue() {
         return new Venue(
                 "Estadio",

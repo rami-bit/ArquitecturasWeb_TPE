@@ -35,12 +35,12 @@
 
 ## 5. US-E1-05 y US-E1-06 - Descubrimiento público
 
-- [ ] 5.1 Incorporar sólo los índices relacionales necesarios para estado, fecha, tipo, organizador, ciudad y participantes, y verificar su existencia y el resultado correcto de las consultas en PostgreSQL.
-- [ ] 5.2 Implementar filtros combinables por tipo, organizador, participante, ciudad y rango inclusivo de fechas, y verificar con pruebas de persistencia que sólo se devuelven eventos `PUBLISHED` que cumplen todos los filtros.
-- [ ] 5.3 Implementar paginación con límites y metadata, y verificar páginas válidas y rechazo de tamaños o rangos inválidos mediante pruebas de endpoint.
-- [ ] 5.4 Implementar orden estable por fecha, menor precio y relevancia textual mediante la solución SQL más simple que cumpla los escenarios, y verificar cada criterio, dirección y desempate con datos controlados antes de considerar full-text o GIN.
-- [ ] 5.5 Implementar detalle público basado en snapshot y verificar `404` para eventos inexistentes, `DRAFT` o `SUSPENDED`, sin afirmar disponibilidad de entradas.
-- [ ] 5.6 Documentar búsqueda, filtros, ordenamientos, paginación y detalle en OpenAPI, y verificar ejemplos públicos sin encabezados de identidad.
+- [x] 5.1 Incorporar sólo los índices relacionales necesarios para estado, fecha, tipo, organizador, ciudad y participantes, y verificar su existencia y el resultado correcto de las consultas en PostgreSQL.
+- [x] 5.2 Implementar filtros combinables por tipo, organizador, participante, ciudad y rango inclusivo de fechas, y verificar con pruebas de persistencia que sólo se devuelven eventos `PUBLISHED` que cumplen todos los filtros.
+- [x] 5.3 Implementar paginación con límites y metadata, y verificar páginas válidas y rechazo de tamaños o rangos inválidos mediante pruebas de endpoint.
+- [x] 5.4 Implementar orden estable por fecha, menor precio y relevancia textual mediante la solución SQL más simple que cumpla los escenarios, y verificar cada criterio, dirección y desempate con datos controlados antes de considerar full-text o GIN.
+- [x] 5.5 Implementar detalle público basado en snapshot y verificar `404` para eventos inexistentes, `DRAFT` o `SUSPENDED`, sin afirmar disponibilidad de entradas.
+- [x] 5.6 Documentar búsqueda, filtros, ordenamientos, paginación y detalle en OpenAPI, y verificar ejemplos públicos sin encabezados de identidad.
 
 ## 6. Gateway y verificación integrada
 
