@@ -16,6 +16,7 @@ La épica sigue las guidelines de `establish-ticketya-architecture`: Java 19 es 
 - Exponer el detalle público de eventos publicados y vistas de gestión para organizadores y administradores.
 - Incorporar un API Gateway como único punto de entrada y aplicar identificación provisional mediante encabezados durante la Entrega 1.
 - Documentar contratos OpenAPI y cubrir reglas de dominio, persistencia y endpoints con pruebas automatizadas.
+- Empaquetar Gateway y Catalog Service con Dockerfiles propios e incorporarlos junto con PostgreSQL al `docker-compose.yml` central de la raíz.
 
 ## Capabilities
 
@@ -24,6 +25,7 @@ La épica sigue las guidelines de `establish-ticketya-architecture`: Java 19 es 
 - `venue-management`: Administración y consulta de lugares canónicos, sectores, capacidades, filas y asientos.
 - `event-management`: Creación y edición de borradores, configuración de precios, publicación con snapshot inmutable, ownership y transiciones de suspensión.
 - `event-discovery`: Búsqueda paginada, ordenamiento y consulta pública de eventos visibles.
+- `containerized-deployment`: Empaquetado reproducible de componentes de aplicación y arranque integrado mediante el Compose central del repositorio.
 
 ### Modified Capabilities
 
@@ -38,3 +40,4 @@ Ninguna. El proyecto todavía no posee especificaciones principales.
 - Base arquitectónica para que Inventory Service inicialice inventario desde snapshots publicados en una épica posterior.
 - Sin implementación todavía de reservas, disponibilidad, compras, pagos, QR, cancelaciones, reintegros, cache o mensajería.
 - Sin obligación de adoptar migradores de esquema, infraestructura de testing o optimizaciones de búsqueda específicas mientras una alternativa simple cumpla los escenarios.
+- Nuevos `Dockerfile` para API Gateway y Catalog Service, y `docker-compose.yml` raíz con ambos componentes y PostgreSQL mediante imagen oficial.

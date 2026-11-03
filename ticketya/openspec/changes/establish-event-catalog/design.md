@@ -17,6 +17,7 @@ Este diseño aplica las guidelines de `establish-ticketya-architecture`: se elig
 - Mantener una única autoridad para los datos de catálogo y producir snapshots adecuados para inicializar inventario en una épica posterior.
 - Definir contratos, errores, trazabilidad básica y pruebas suficientes para evolucionar sin romper clientes.
 - Mantener una solución didáctica que el equipo pueda ejecutar, explicar y probar localmente.
+- Proveer un arranque reproducible del incremento completo mediante contenedores.
 
 **Non-Goals:**
 
@@ -36,13 +37,14 @@ La primera épica tendrá `services/api-gateway` y `services/catalog-service`, c
 ```text
 ticketya/
 +-- pom.xml
++-- docker-compose.yml
 +-- services/
 |   +-- api-gateway/
 |   |   +-- pom.xml
+|   |   +-- Dockerfile
 |   +-- catalog-service/
 |       +-- pom.xml
-+-- infra/
-|   +-- compose.yaml
+|       +-- Dockerfile
 +-- docs/
 +-- postman/
 +-- openspec/
@@ -51,6 +53,14 @@ ticketya/
 Se usará Java 19, Maven, Spring Boot 3.x compatible con Java 19 y una versión de Spring Cloud compatible con la versión elegida de Spring Boot. Las versiones se fijarán en los POM; no se usarán rangos dinámicos.
 
 **Alternativa considerada:** repositorios separados. Se descarta para simplificar la entrega académica, ejecución y revisión, manteniendo igualmente independencia de construcción.
+
+### 1.1 Contenedores por componente y Compose raíz
+
+API Gateway y Catalog Service tendrán Dockerfiles independientes. El `docker-compose.yml` central de la raíz construirá ambas imágenes y declarará PostgreSQL mediante una imagen oficial con versión explícita.
+
+Los servicios se comunicarán por nombres de servicio de la red de Compose. Variables de entorno configurarán URLs y credenciales de desarrollo; ninguna imagen dependerá de rutas locales o del JDK instalado en la máquina host. `docker compose up --build` será la verificación integrada y podrá convivir con la ejecución directa mediante Maven durante el desarrollo.
+
+**Alternativa considerada:** Dockerfile custom para PostgreSQL. Se descarta porque la imagen oficial cubre esta épica y una imagen propia agregaría mantenimiento sin valor didáctico.
 
 ### 2. API Gateway como único punto de entrada externo
 
@@ -198,6 +208,7 @@ Estrategia de pruebas:
 - Persistencia: repositorios, constraints, snapshot y queries de búsqueda contra PostgreSQL real. Puede usarse la instancia local/de Docker del equipo o Testcontainers si esta última opción simplifica efectivamente las pruebas.
 - Integración de Catalog Service: endpoints, errores, ownership y rollback de publicación.
 - Integración a través del Gateway: routing, propagación de identidad y `correlationId`.
+- Contenedores: construcción individual de Gateway/Catalog y smoke test del sistema completo con `docker compose up --build`.
 - Contrato: OpenAPI generado y ejemplos principales ejecutables desde Postman.
 
 ## Risks / Trade-offs
@@ -207,15 +218,17 @@ Estrategia de pruebas:
 - **[El snapshot duplica datos]** -> Aceptar la duplicación deliberada para garantizar estabilidad histórica; constraints y transacción evitan copias incompletas.
 - **[Búsqueda textual puede degradarse]** -> Indexar filtros y texto, medir planes de consulta y mantener paginación y tamaño máximo.
 - **[Una herramienta de infraestructura domina la épica]** -> Mantener schema y tests reproducibles con el mecanismo más simple; adoptar migrador o Testcontainers sólo con justificación.
+- **[Compose funciona sólo en la máquina del autor]** -> Usar build contexts relativos, variables documentadas, nombres DNS de Compose y ninguna ruta personal.
 - **[Cambios en lugares pueden confundir borradores]** -> Revalidar toda referencia y copiar la versión vigente exclusivamente al publicar.
 - **[No hay inventario al publicar]** -> El snapshot queda preparado como contrato de entrada; la inicialización de inventario se implementará en la próxima épica sin exponer disponibilidad falsa.
 
 ## Migration Plan
 
-1. Crear la estructura Maven y los dos proyectos independientes.
-2. Levantar PostgreSQL de catálogo y crear el esquema completo desde una base vacía con el mecanismo seleccionado.
-3. Implementar y verificar Catalog Service antes de publicar rutas externas.
-4. Configurar Gateway y validar todos los flujos exclusivamente por `/api`.
-5. Cargar datos de prueba y publicar la colección Postman.
+1. Crear la estructura Maven y los dos proyectos independientes con sus Dockerfiles.
+2. Crear el `docker-compose.yml` raíz con Gateway, Catalog Service y la imagen oficial de PostgreSQL.
+3. Crear el esquema completo desde una base vacía con el mecanismo seleccionado.
+4. Implementar y verificar Catalog Service antes de publicar rutas externas.
+5. Configurar Gateway y validar todos los flujos exclusivamente por `/api`.
+6. Cargar datos de prueba, publicar la colección Postman y verificar el flujo sobre el entorno Compose.
 
 Como el proyecto parte sin datos productivos, no se requiere migración histórica. El rollback consiste en detener Gateway y Catalog Service y eliminar únicamente la base local de desarrollo creada para esta épica; no se definen procedimientos complejos para entornos productivos inexistentes.

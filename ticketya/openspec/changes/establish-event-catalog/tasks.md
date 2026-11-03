@@ -3,9 +3,10 @@
 ## 1. Base de la solución
 
 - [ ] 1.1 Crear el POM agregador y los proyectos independientes `api-gateway` y `catalog-service`, fijar Java 19 y versiones compatibles de Spring Boot/Spring Cloud, y verificar que el build raíz y cada build individual ejecuten `mvn verify`.
-- [ ] 1.2 Incorporar PostgreSQL de catálogo en `infra/compose.yaml`, configurar Catalog Service sin rutas locales y verificar que la conexión funcione usando variables de entorno documentadas.
-- [ ] 1.3 Elegir y documentar el mecanismo mínimo de creación de esquema —SQL, JPA o migrador justificado— y verificar que una base PostgreSQL vacía queda lista para usar de forma reproducible.
-- [ ] 1.4 Implementar respuestas `application/problem+json` y propagación de `X-Correlation-Id` en Catalog Service, y verificar con pruebas de integración los campos y encabezados devueltos.
+- [ ] 1.2 Crear Dockerfiles independientes para `api-gateway` y `catalog-service`, y verificar que cada imagen se construye desde su directorio sin rutas personales ni artefactos externos no declarados.
+- [ ] 1.3 Crear el `docker-compose.yml` central en la raíz con Gateway, Catalog Service y una imagen oficial versionada de PostgreSQL, y verificar que `docker compose up --build` levanta el incremento completo.
+- [ ] 1.4 Elegir y documentar el mecanismo mínimo de creación de esquema —SQL, JPA o migrador justificado— y verificar que una base PostgreSQL vacía queda lista para usar de forma reproducible.
+- [ ] 1.5 Implementar respuestas `application/problem+json` y propagación de `X-Correlation-Id` en Catalog Service, y verificar con pruebas de integración los campos y encabezados devueltos.
 
 ## 2. US-E1-01 - Gestión de lugares
 
@@ -46,10 +47,10 @@
 - [ ] 6.1 Configurar Gateway para exponer las rutas `/api/**` de catálogo sin publicar dependencias a puertos internos, y verificar routing de gestión y consulta mediante pruebas de integración.
 - [ ] 6.2 Implementar generación o propagación de `X-Correlation-Id` y forwarding de identidad provisional, y verificar extremo a extremo que Catalog Service registra y responde con el mismo identificador.
 - [ ] 6.3 Crear datos de prueba repetibles y una colección Postman que ejecute crear lugar, crear/configurar borrador, publicar, buscar, consultar, suspender y reanudar exclusivamente a través del Gateway; verificar que la colección completa finaliza sin errores.
-- [ ] 6.4 Documentar en README requisitos de JDK 19, variables de entorno, comandos de build individual/global, arranque de PostgreSQL y ejecución local, y verificar las instrucciones desde un checkout limpio sin rutas personales.
-- [ ] 6.5 Ejecutar `mvn verify` desde la raíz y desde cada servicio, validar el OpenAPI y ejecutar la colección Postman contra el entorno integrado; registrar que todas las verificaciones pasan antes de cerrar el cambio.
+- [ ] 6.4 Documentar en README requisitos de JDK 19, variables de entorno, builds Maven, construcción de imágenes y comandos del Compose raíz, y verificar las instrucciones desde un checkout limpio sin rutas personales.
+- [ ] 6.5 Ejecutar `mvn verify` desde la raíz y cada servicio, construir las imágenes, levantar `docker compose up --build`, validar OpenAPI y ejecutar Postman a través del Gateway; registrar que todas las verificaciones pasan antes de cerrar el cambio.
 
 ## Workflow follow-up
 
 - Archivar `establish-event-catalog` después de la revisión del equipo y de completar todas las tareas.
-- Verificar que las tres capacidades queden consolidadas bajo `openspec/specs/` luego del archivado.
+- Verificar que las cuatro capacidades queden consolidadas bajo `openspec/specs/` luego del archivado.

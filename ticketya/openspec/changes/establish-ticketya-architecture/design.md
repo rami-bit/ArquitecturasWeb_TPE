@@ -44,6 +44,7 @@ El proyecto es didáctico. El PDF define el piso obligatorio y la arquitectura d
 8. Los eventos publicados, órdenes y tickets conservan snapshots históricos; no dependen de datos maestros mutables.
 9. Los datos copiados entre servicios se relacionan por IDs, nunca por foreign keys entre bases.
 10. No agregar cache, broker, service discovery, migrador de esquema o tracing distribuido sin una justificación revisada por el equipo.
+11. Todo componente ejecutable desarrollado por el equipo se distribuye con un `Dockerfile` propio y se integra al `docker-compose.yml` central de la raíz en la misma épica que lo introduce.
 
 Antes de incorporar una tecnología o patrón, la épica debe responder:
 
@@ -466,14 +467,29 @@ La implementación mínima debe centralizar o reunir logs de forma consultable y
 
 ### 20. Despliegue
 
-Entrega 1:
+Regla común desde Entrega 1:
 
-- Microservicios ejecutados localmente como procesos Java 19 independientes.
-- Bases PostgreSQL en contenedores separados o instancias lógicamente aisladas.
-- Configuración por variables de entorno.
-- Gateway como única URL usada por Postman.
+- Cada microservicio, Gateway, Payment Mock u otro componente de aplicación desarrollado por el equipo tiene un `Dockerfile` en su propio directorio.
+- La raíz de `ticketya` contiene un único `docker-compose.yml` que declara todos los componentes disponibles en el incremento actual y sus dependencias.
+- PostgreSQL, la base NoSQL y otras dependencias estándar usan imágenes oficiales en Compose; no se crean Dockerfiles custom salvo que una personalización sea necesaria y justificada.
+- `docker compose up --build` construye y levanta el sistema completo disponible.
+- Configuración, URLs y credenciales de desarrollo se inyectan mediante variables de entorno; no se versionan rutas personales ni secretos reales.
+- Gateway es la única API usada por clientes y por la colección Postman.
+- La ejecución local como procesos Java 19 sigue permitida para desarrollo, pero no reemplaza la verificación con Compose.
 
-Entrega 2:
+Estructura esperada:
+
+```text
+ticketya/
++-- docker-compose.yml
++-- services/
+|   +-- api-gateway/Dockerfile
+|   +-- catalog-service/Dockerfile
+|   +-- <future-service>/Dockerfile
++-- <other-app-component>/Dockerfile
+```
+
+El Compose crece incrementalmente hasta Entrega 2:
 
 ```mermaid
 flowchart TB
@@ -485,7 +501,7 @@ flowchart TB
     Compose -. opcional .-> ExtraC[Infraestructura adicional justificada]
 ```
 
-Docker DNS resuelve servicios dentro de la red; no se agrega Eureka mientras Docker Compose sea el único orquestador. Cada servicio debe poder construirse y ejecutarse por separado, aunque el repositorio use un POM agregador.
+Docker DNS resuelve servicios dentro de la red; no se agrega Eureka mientras Docker Compose sea el único orquestador. Cada imagen debe poder construirse por separado, aunque Compose provea el arranque integrado y el repositorio use un POM agregador.
 
 ### 21. Mapa de épicas
 
@@ -529,6 +545,7 @@ Cada épica puede ajustar detalles internos, pero un cambio de ownership, servic
 - **[Reporting queda temporalmente desactualizado]** -> Exponer fecha de última actualización y mantenerlo fuera de decisiones transaccionales.
 - **[El blueprint se vuelve rígido]** -> Tratarlo como baseline revisable; las épicas aportan evidencia y deben actualizar decisiones globales cuando corresponda.
 - **[Java 19 no es LTS]** -> Fijar versiones de toolchain y dependencias compatibles, usar la misma versión en CI y contenedores y no registrar rutas locales.
+- **[Compose central se desactualiza]** -> La Definition of Done de cada épica que agrega un componente exige actualizar Compose y verificar `docker compose up --build` desde la raíz.
 
 ## Migration Plan
 

@@ -6,6 +6,7 @@
 - [ ] 1.2 Contrastar actores, funcionalidades y no funcionales del blueprint con `TPE-ArqWeb-TicketYa-2026.pdf`, y verificar que cada punto del enunciado tiene un servicio dueño o una decisión arquitectónica asociada.
 - [ ] 1.3 Revisar el mapa de épicas y verificar que cada funcionalidad del PDF pertenece a una única épica primaria sin quedar fuera del roadmap.
 - [ ] 1.4 Revisar las guidelines de simplicidad y verificar que el equipo acuerda Java 19, el PDF como piso y la ausencia de performance productiva como driver.
+- [ ] 1.5 Revisar el requisito de despliegue y verificar que el equipo acuerda un `Dockerfile` por componente desarrollado y un único `docker-compose.yml` incremental en la raíz.
 
 ## 2. Validación de límites y datos
 
@@ -26,6 +27,7 @@
 - [ ] 4.2 Revisar cache, resiliencia, seguridad y trazabilidad, y verificar que ninguna estrategia permita decidir venta, pago o acceso desde datos no autoritativos.
 - [ ] 4.3 Comparar `establish-event-catalog` con este blueprint y registrar mediante `$openspec-update-change establish-event-catalog` cualquier referencia o reconciliación que el equipo apruebe.
 - [ ] 4.4 Auditar tecnologías opcionales —cache, Redis, broker, migrador de esquema, tracing y service discovery— y verificar que las no justificadas queden explícitamente fuera de la baseline.
+- [ ] 4.5 Verificar que la Definition of Done de cada épica que agregue un componente incluya construir su imagen y levantar el sistema actualizado con `docker compose up --build`.
 
 ## 5. Aprobación arquitectónica
 
