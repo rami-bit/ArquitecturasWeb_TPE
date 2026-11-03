@@ -268,19 +268,93 @@ Una historia está lista para `apply` cuando:
 
 ## 7. Definition of Done
 
-Una historia está terminada cuando:
+Una user story o épica se considera terminada sólo cuando cumple todos los
+criterios aplicables de esta sección. Cada cambio puede agregar criterios
+específicos, pero no eliminar estos criterios generales.
 
-- todos sus escenarios están implementados;
-- las tareas del cambio están completas;
-- pasan pruebas unitarias y de integración relevantes;
-- si modifica inventario, existe una prueba concurrente entre múltiples hilos o
-  instancias;
-- los endpoints están documentados en OpenAPI con ejemplos y errores;
-- la colección Postman permite demostrar el flujo desde el Gateway;
-- logs críticos incluyen `correlationId`, usuario, endpoint, estado y duración;
-- README y diagramas afectados están actualizados;
-- no se comparten tablas ni se accede directamente a la base de otro servicio;
-- el cambio OpenSpec valida correctamente y fue revisado antes de archivarse.
+### Funcionalidad
+
+- Todos los escenarios OpenSpec y criterios de aceptación están implementados.
+- Los caminos exitosos, errores y casos límite relevantes tienen comportamiento
+  definido.
+- No quedan tareas obligatorias del cambio sin completar.
+- No se implementó funcionalidad fuera del alcance acordado.
+
+### Arquitectura
+
+- La implementación respeta el servicio dueño y el ownership de datos
+  definidos.
+- Ningún servicio accede directamente a la base de otro ni existen foreign keys
+  entre bases de distintos servicios.
+- Las comunicaciones entre componentes usan contratos explícitos.
+- Las decisiones críticas no dependen exclusivamente de memoria o cache.
+- Las operaciones que lo requieren son transaccionales o idempotentes.
+- Toda desviación del blueprint fue registrada previamente en OpenSpec.
+
+### Simplicidad
+
+- La solución es la alternativa más simple que cumple el PDF y las specs.
+- Toda herramienta o patrón adicional documenta el requisito o problema que
+  resuelve, la alternativa más simple considerada, el costo agregado y cómo se
+  verificará su utilidad.
+- No se incorporaron componentes para anticipar escala o necesidades
+  productivas fuera del alcance didáctico.
+- No existen abstracciones, microservicios o infraestructura sin una
+  responsabilidad actual verificable.
+
+### API
+
+- Los endpoints están documentados en OpenAPI.
+- Requests, responses, parámetros, códigos HTTP y errores tienen ejemplos.
+- Los errores usan un formato consistente.
+- Las APIs externas se consumen únicamente mediante el API Gateway.
+- La colección Postman demuestra los flujos principales.
+
+### Testing
+
+- `mvn verify` pasa desde la raíz y desde cada microservicio afectado.
+- La lógica de negocio tiene pruebas unitarias.
+- Persistencia y endpoints críticos tienen pruebas de integración contra la
+  tecnología real utilizada.
+- Se prueban permisos, estados inválidos y rollback cuando corresponda.
+- Los flujos que afectan inventario, QR u otra exclusión mutua incluyen pruebas
+  de concurrencia.
+- No se exige performance productiva fuera de las pruebas de carga requeridas
+  por el TPE.
+
+### Contenedores
+
+- Cada componente ejecutable desarrollado por el equipo tiene un `Dockerfile`
+  propio y su imagen puede construirse individualmente.
+- El `docker-compose.yml` central de la raíz incluye todos los componentes y
+  dependencias del incremento actual.
+- `docker compose up --build` levanta el sistema completo disponible.
+- Las dependencias estándar usan imágenes oficiales salvo que una
+  personalización esté justificada.
+- La configuración usa variables de entorno y no contiene rutas personales ni
+  secretos reales versionados.
+
+### Operación y trazabilidad
+
+- La configuración necesaria está documentada.
+- Cada request registra endpoint, usuario cuando corresponde, estado y tiempo
+  de procesamiento.
+- El `correlationId` se genera o propaga entre los componentes afectados.
+- Los logs no exponen credenciales, tokens, QR completos ni datos sensibles.
+
+### Documentación y cierre
+
+- El README documenta requisitos, configuración, build, ejecución y pruebas.
+- Los diagramas afectados representan la implementación real.
+- OpenAPI y la colección Postman están actualizados.
+- `openspec validate <change> --strict` finaliza sin errores.
+- El equipo revisó la implementación y confirmó los criterios de aceptación.
+- El cambio está listo para archivarse en OpenSpec.
+
+Como comprobación final, si el incremento no puede demostrarse desde un
+checkout limpio siguiendo el README, construyendo sus imágenes, levantando
+Compose, ejecutando las pruebas y recorriendo sus flujos principales desde el
+Gateway, todavía no está Done.
 
 ## 8. Comandos de control
 
