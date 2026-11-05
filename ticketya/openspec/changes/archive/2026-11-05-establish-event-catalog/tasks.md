@@ -46,9 +46,9 @@
 
 - [x] 6.1 Configurar Gateway para exponer las rutas `/api/**` de catálogo sin publicar dependencias a puertos internos, y verificar routing de gestión y consulta mediante pruebas de integración.
 - [x] 6.2 Implementar generación o propagación de `X-Correlation-Id` y forwarding de identidad provisional, y verificar extremo a extremo que Catalog Service registra y responde con el mismo identificador. (Implementado y verificado en el Gateway contra un stub HTTP; la corrida real Gateway -> Catalog Service se valida en 6.5.)
-- [ ] 6.3 Crear datos de prueba repetibles y una colección Postman que ejecute crear lugar, crear/configurar borrador, publicar, buscar, consultar, suspender y reanudar exclusivamente a través del Gateway; verificar que la colección completa finaliza sin errores.
-- [ ] 6.4 Documentar en README requisitos de JDK 19, variables de entorno, builds Maven, construcción de imágenes y comandos del Compose raíz, y verificar las instrucciones desde un checkout limpio sin rutas personales.
-- [ ] 6.5 Ejecutar `mvn verify` desde la raíz y cada servicio, construir las imágenes, levantar `docker compose up --build`, validar OpenAPI y ejecutar Postman a través del Gateway; registrar que todas las verificaciones pasan antes de cerrar el cambio.
+- [x] 6.3 Crear datos de prueba repetibles y una colección Postman que ejecute crear lugar, crear/configurar borrador, publicar, buscar, consultar, suspender y reanudar exclusivamente a través del Gateway; verificar que la colección completa finaliza sin errores.
+- [x] 6.4 Documentar en README requisitos de JDK 19, variables de entorno, builds Maven, construcción de imágenes y comandos del Compose raíz, y verificar las instrucciones desde un checkout limpio sin rutas personales.
+- [x] 6.5 Ejecutar `mvn verify` desde la raíz y cada servicio, construir las imágenes, levantar `docker compose up --build`, validar OpenAPI y ejecutar Postman a través del Gateway; registrar que todas las verificaciones pasan antes de cerrar el cambio.
 
 ## Workflow follow-up
 

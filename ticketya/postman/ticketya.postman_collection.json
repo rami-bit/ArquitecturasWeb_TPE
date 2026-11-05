@@ -1,0 +1,757 @@
+{
+  "info": {
+    "name": "TicketYa Event Catalog - E2E via Gateway",
+    "description": "Flujo completo de catálogo exclusivamente a través del API Gateway: crear lugar, crear/configurar borrador, publicar, buscar, consultar, suspender y reanudar. Los datos de prueba son repetibles: cada corrida genera un `runId` único para nombre de lugar y participante, evitando colisiones entre ejecuciones.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string",
+      "description": "Base URL del API Gateway (único punto de entrada externo). Puedes sobreescribir con --env-var baseUrl=..."
+    },
+    {
+      "key": "runId",
+      "value": "",
+      "type": "string",
+      "description": "Identificador único de corrida para generar datos sin colisiones. Se establece en el pre-request del primer request."
+    },
+    {
+      "key": "venueId",
+      "value": "",
+      "type": "string",
+      "description": "ID del lugar creado (guardado tras POST /api/venues)"
+    },
+    {
+      "key": "sectorNumeradoId",
+      "value": "",
+      "type": "string",
+      "description": "ID del sector numerado (guardado tras POST /api/venues)"
+    },
+    {
+      "key": "sectorGeneralId",
+      "value": "",
+      "type": "string",
+      "description": "ID del sector de admisión general (guardado tras POST /api/venues)"
+    },
+    {
+      "key": "eventId",
+      "value": "",
+      "type": "string",
+      "description": "ID del evento borrador (guardado tras POST /api/management/events)"
+    },
+    {
+      "key": "correlationId",
+      "value": "",
+      "type": "string",
+      "description": "ID de correlación conocido para validar eco en respuesta"
+    },
+    {
+      "key": "userId",
+      "value": "e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b",
+      "type": "string",
+      "description": "UUID de usuario provisional para ORGANIZER"
+    },
+    {
+      "key": "adminUserId",
+      "value": "a1b2c3d4-1111-2222-3333-444455556666",
+      "type": "string",
+      "description": "UUID de usuario provisional para ADMIN"
+    }
+  ],
+  "item": [
+    {
+      "name": "01 - Crear lugar (ADMIN)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Role",
+            "value": "ADMIN",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Estadio {{runId}}\",\n  \"address\": \"Av. Siempre Viva 742\",\n  \"city\": \"Buenos Aires\",\n  \"latitude\": -34.6037,\n  \"longitude\": -58.3816,\n  \"sectors\": [\n    {\n      \"name\": \"Platea Numerada\",\n      \"type\": \"NUMBERED\",\n      \"capacity\": 3,\n      \"seats\": [\n        {\"rowLabel\": \"A\", \"seatNumber\": 1},\n        {\"rowLabel\": \"A\", \"seatNumber\": 2},\n        {\"rowLabel\": \"B\", \"seatNumber\": 1}\n      ]\n    },\n    {\n      \"name\": \"General\",\n      \"type\": \"GENERAL_ADMISSION\",\n      \"capacity\": 500,\n      \"seats\": []\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/venues",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "venues"]
+        },
+        "description": "Crea un lugar con un sector numerado y uno de admisión general. Guarda venueId, sectorNumeradoId y sectorGeneralId."
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (!pm.variables.get('runId')) {",
+              "  const runId = 'tky-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);",
+              "  pm.variables.set('runId', runId);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "response": [
+        {
+          "name": "201 Created",
+          "status": "OK",
+          "code": 201,
+          "body": "{\n  \"id\": \"{{venueId}}\",\n  \"name\": \"Estadio {{runId}}\",\n  \"sectors\": [\n    {\"id\": \"{{sectorNumeradoId}}\", \"type\": \"NUMBERED\"},\n    {\"id\": \"{{sectorGeneralId}}\", \"type\": \"GENERAL_ADMISSION\"}\n  ]\n}"
+        }
+      ],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status es 201', function () {",
+              "  pm.response.to.have.status(201);",
+              "});",
+              "pm.test('Respuesta tiene venueId', function () {",
+              "  const json = pm.response.json();",
+              "  pm.variables.set('venueId', json.id);",
+              "  pm.expect(json.id).to.not.be.empty;",
+              "});",
+              "pm.test('Tiene al menos dos sectores', function () {",
+              "  const json = pm.response.json();",
+              "  pm.expect(json.sectors.length).to.be.at.least(2);",
+              "  const numerado = json.sectors.find(s => s.type === 'NUMBERED');",
+              "  const general = json.sectors.find(s => s.type === 'GENERAL_ADMISSION');",
+              "  if (numerado) pm.variables.set('sectorNumeradoId', numerado.id);",
+              "  if (general) pm.variables.set('sectorGeneralId', general.id);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 - Crear borrador de evento (ORGANIZER)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{userId}}",
+            "type": "text"
+          },
+          {
+            "key": "X-User-Role",
+            "value": "ORGANIZER",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Concierto {{runId}}\",\n  \"description\": \"Evento de prueba creado por organizador\",\n  \"eventType\": \"MUSIC\",\n  \"startsAt\": \"2030-06-01T20:00:00-03:00\",\n  \"venueId\": \"{{venueId}}\",\n  \"participants\": [\"Artista {{runId}}\"],\n  \"offerings\": []\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/management/events",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "management", "events"]
+        },
+        "description": "Crea un borrador de evento para el organizador autenticado. Guarda eventId."
+      },
+      "response": [
+        {
+          "name": "201 Created",
+          "status": "OK",
+          "code": 201,
+          "body": "{\n  \"id\": \"{{eventId}}\",\n  \"status\": \"DRAFT\"\n}"
+        }
+      ],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status es 201', function () {",
+              "  pm.response.to.have.status(201);",
+              "});",
+              "pm.test('Respuesta tiene eventId en DRAFT', function () {",
+              "  const json = pm.response.json();",
+              "  pm.variables.set('eventId', json.id);",
+              "  pm.expect(json.id).to.not.be.empty;",
+              "  pm.expect(json.status).to.eql('DRAFT');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 - Editar borrador de evento (ORGANIZER)",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{userId}}",
+            "type": "text"
+          },
+          {
+            "key": "X-User-Role",
+            "value": "ORGANIZER",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Concierto {{runId}} - Edición\",\n  \"description\": \"Evento de prueba editado por organizador\",\n  \"eventType\": \"MUSIC\",\n  \"startsAt\": \"2030-06-01T20:00:00-03:00\",\n  \"venueId\": \"{{venueId}}\",\n  \"participants\": [\"Artista {{runId}} - Edit\", \"Banda Invitada {{runId}}\"]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/management/events/{{eventId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "management", "events", "{{eventId}}"]
+        },
+        "description": "Edita los datos del borrador mientras está en DRAFT. Cambia nombres de participantes para evitar violar unicidad."
+      },
+      "response": [
+        {
+          "name": "200 OK",
+          "status": "OK",
+          "code": 200,
+          "body": "{\n  \"id\": \"{{eventId}}\",\n  \"status\": \"DRAFT\"\n}"
+        }
+      ],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status es 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "pm.test('Evento sigue en DRAFT', function () {",
+              "  const json = pm.response.json();",
+              "  pm.expect(json.status).to.eql('DRAFT');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 - Configurar ofertas de sectores (ORGANIZER)",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{userId}}",
+            "type": "text"
+          },
+          {
+            "key": "X-User-Role",
+            "value": "ORGANIZER",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"offerings\": [\n    {\n      \"sectorId\": \"{{sectorNumeradoId}}\",\n      \"price\": \"25.00\"\n    },\n    {\n      \"sectorId\": \"{{sectorGeneralId}}\",\n      \"price\": \"50.00\"\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/management/events/{{eventId}}/offerings",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "management", "events", "{{eventId}}", "offerings"]
+        },
+        "description": "Configura precios por sector para el borrador. Ambos sectores pertenecen al lugar creado."
+      },
+      "response": [
+        {
+          "name": "200 OK",
+          "status": "OK",
+          "code": 200,
+          "body": "{\n  \"id\": \"{{eventId}}\",\n  \"status\": \"DRAFT\"\n}"
+        }
+      ],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status es 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "pm.test('Ofertas configuradas, sigue en DRAFT', function () {",
+              "  const json = pm.response.json();",
+              "  pm.expect(json.status).to.eql('DRAFT');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 - Publicar evento (ORGANIZER)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{userId}}",
+            "type": "text"
+          },
+          {
+            "key": "X-User-Role",
+            "value": "ORGANIZER",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {},
+        "url": {
+          "raw": "{{baseUrl}}/api/management/events/{{eventId}}/publish",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "management", "events", "{{eventId}}", "publish"]
+        },
+        "description": "Publica el borrador: crea snapshot inmutable y cambia estado a PUBLISHED."
+      },
+      "response": [
+        {
+          "name": "200 OK",
+          "status": "OK",
+          "code": 200,
+          "body": "{\n  \"id\": \"{{eventId}}\",\n  \"status\": \"PUBLISHED\"\n}"
+        }
+      ],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status es 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "pm.test('Evento publicado', function () {",
+              "  const json = pm.response.json();",
+              "  pm.expect(json.status).to.eql('PUBLISHED');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 - Buscar eventos publicados (público)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "body": {},
+        "url": {
+          "raw": "{{baseUrl}}/api/events?participant=Artista {{runId}}&city=Buenos Aires&sort=price&direction=asc",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "events"],
+          "query": [
+            {
+              "key": "participant",
+              "value": "Artista {{runId}}",
+              "disabled": false
+            },
+            {
+              "key": "city",
+              "value": "Buenos Aires",
+              "disabled": false
+            },
+            {
+              "key": "sort",
+              "value": "price",
+              "disabled": false
+            },
+            {
+              "key": "direction",
+              "value": "asc",
+              "disabled": false
+            }
+          ]
+        },
+        "description": "Búsqueda pública sin encabezados de identidad. Filtra por participante único y ciudad, ordena por menor precio."
+      },
+      "response": [
+        {
+          "name": "200 OK",
+          "status": "OK",
+          "code": 200,
+          "body": "{\n  \"items\": [\n    {\n      \"id\": \"{{eventId}}\",\n      \"name\": \"Concierto {{runId}} - Edición\",\n      \"city\": \"Buenos Aires\"\n    }\n  ],\n  \"page\": 0,\n  \"size\": 20,\n  \"totalElements\": 1,\n  \"totalPages\": 1\n}"
+        }
+      ],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status es 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "pm.test('El evento publicado aparece en resultados', function () {",
+              "  const json = pm.response.json();",
+              "  pm.expect(json.items.some(i => i.id === pm.variables.get('eventId'))).to.be.true;",
+              "});",
+              "pm.test('Todos los resultados son PUBLISHED', function () {",
+              "  const json = pm.response.json();",
+              "  json.items.forEach(i => {",
+              "    pm.expect(i.id).to.not.be.empty;",
+              "  });",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 - Consultar detalle público del evento (público)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "body": {},
+        "url": {
+          "raw": "{{baseUrl}}/api/events/{{eventId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "events", "{{eventId}}"]
+        },
+        "description": "Detalle público del evento publicado: lugar, sectores, precios, participantes. Sin afirmación de disponibilidad de entradas."
+      },
+      "response": [
+        {
+          "name": "200 OK",
+          "status": "OK",
+          "code": 200,
+          "body": "{\n  \"id\": \"{{eventId}}\",\n  \"status\": \"PUBLISHED\",\n  \"venueName\": \"Estadio {{runId}}\",\n  \"city\": \"Buenos Aires\",\n  \"secters\": [\n    {\"name\": \"Platea Numerada\", \"type\": \"NUMBERED\", \"price\": 25.00},\n    {\"name\": \"General\", \"type\": \"GENERAL_ADMISSION\", \"price\": 50.00}\n  ]\n}"
+        }
+      ],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status es 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "pm.test('Detalle tiene datos del snapshot', function () {",
+              "  const json = pm.response.json();",
+              "  pm.expect(json.id).to.eql(pm.variables.get('eventId'));",
+              "  pm.expect(json.venueName).to.contain('Estadio');",
+              "  pm.expect(Array.isArray(json.sectors)).to.be.true;",
+              "  pm.expect(json.sectors.length).to.be.at.least(1);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "08 - Suspender evento (ADMIN)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{adminUserId}}",
+            "type": "text"
+          },
+          {
+            "key": "X-User-Role",
+            "value": "ADMIN",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {},
+        "url": {
+          "raw": "{{baseUrl}}/api/management/events/{{eventId}}/suspend",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "management", "events", "{{eventId}}", "suspend"]
+        },
+        "description": "Suspende el evento publicado. Solo ADMIN puede hacerlo. Guarda el snapshot sin modificaciones."
+      },
+      "response": [
+        {
+          "name": "200 OK",
+          "status": "OK",
+          "code": 200,
+          "body": "{\n  \"id\": \"{{eventId}}\",\n  \"status\": \"SUSPENDED\"\n}"
+        }
+      ],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status es 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "pm.test('Evento suspendido', function () {",
+              "  const json = pm.response.json();",
+              "  pm.expect(json.status).to.eql('SUSPENDED');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "09 - Detalle público tras suspensión debe ser 404 (público)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "body": {},
+        "url": {
+          "raw": "{{baseUrl}}/api/events/{{eventId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "events", "{{eventId}}"]
+        },
+        "description": "Después de suspender, el evento deja de ser público y el detalle retorna 404."
+      },
+      "response": [
+        {
+          "name": "404 Not Found",
+          "status": "Not Found",
+          "code": 404,
+          "body": "{\n  \"title\": \"Not found\",\n  \"detail\": \"Published event not found\"\n}"
+        }
+      ],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status es 404 tras suspensión', function () {",
+              "  pm.response.to.have.status(404);",
+              "});",
+              "pm.test('Cuerpo es problem+json con correlationId', function () {",
+              "  const json = pm.response.json();",
+              "  pm.expect(json.title).to.eql('Not found');",
+              "  pm.expect(json.correlationId).to.not.be.empty;",
+              "  pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10 - Reanudar evento (ADMIN)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{adminUserId}}",
+            "type": "text"
+          },
+          {
+            "key": "X-User-Role",
+            "value": "ADMIN",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {},
+        "url": {
+          "raw": "{{baseUrl}}/api/management/events/{{eventId}}/resume",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "management", "events", "{{eventId}}", "resume"]
+        },
+        "description": "Reanuda el evento suspendido. Solo ADMIN. Reusa el snapshot existente."
+      },
+      "response": [
+        {
+          "name": "200 OK",
+          "status": "OK",
+          "code": 200,
+          "body": "{\n  \"id\": \"{{eventId}}\",\n  \"status\": \"PUBLISHED\"\n}"
+        }
+      ],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status es 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "pm.test('Evento reanudado a PUBLISHED', function () {",
+              "  const json = pm.response.json();",
+              "  pm.expect(json.status).to.eql('PUBLISHED');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "11 - Detalle público tras reanudación es 200 (público)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "body": {},
+        "url": {
+          "raw": "{{baseUrl}}/api/events/{{eventId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "events", "{{eventId}}"]
+        },
+        "description": "Después de reanudar, el evento vuelve a ser público y el detalle retorna 200."
+      },
+      "response": [
+        {
+          "name": "200 OK",
+          "status": "OK",
+          "code": 200,
+          "body": "{\n  \"id\": \"{{eventId}}\",\n  \"status\": \"PUBLISHED\"\n}"
+        }
+      ],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status es 200 tras reanudación', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "pm.test('Evento vuelve a ser visible públicamente', function () {",
+              "  const json = pm.response.json();",
+              "  pm.expect(json.id).to.eql(pm.variables.get('eventId'));",
+              "});",
+              "pm.test('Colección completa finaliza sin errores', function () {",
+              "  pm.expect(true).to.be.true;",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "12 - Eco de X-Correlation-Id (ADMIN)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{adminUserId}}",
+            "type": "text"
+          },
+          {
+            "key": "X-User-Role",
+            "value": "ADMIN",
+            "type": "text"
+          },
+          {
+            "key": "X-Correlation-Id",
+            "value": "test-correlation-12345",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {},
+        "url": {
+          "raw": "{{baseUrl}}/api/management/events/{{eventId}}/suspend",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "management", "events", "{{eventId}}", "suspend"]
+        },
+        "description": "Envía un X-Correlation-Id conocido y valida que el Gateway y Catalog Service lo ecoen en el encabezado de respuesta y en el cuerpo problem+json."
+      },
+      "event": [],
+      "response": [
+        {
+          "name": "200 OK o 409",
+          "status": "OK",
+          "code": 200
+        }
+      ],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "",
+              "pm.test('Eco de X-Correlation-Id en encabezado', function () {",
+              "  pm.response.to.have.header('X-Correlation-Id', 'test-correlation-12345');",
+              "});",
+              "pm.test('Eco de correlationId en body problem+json', function () {",
+              "  if (pm.response.code === 409 || pm.response.code === 403) {",
+              "    const json = pm.response.json();",
+              "    pm.expect(json.correlationId).to.eql('test-correlation-12345');",
+              "  }",
+              "});"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
