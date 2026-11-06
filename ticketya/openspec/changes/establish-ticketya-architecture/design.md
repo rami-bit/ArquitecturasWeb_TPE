@@ -55,7 +55,7 @@ Antes de incorporar una tecnología o patrón, la épica debe responder:
 
 Si estas preguntas no tienen una respuesta concreta, la tecnología queda fuera del alcance.
 
-### 2. Contexto del sistema
+### 2. Contexto del sistema (D1 - transversal)
 
 ```mermaid
 flowchart LR
@@ -82,6 +82,8 @@ flowchart LR
     TicketYa --> Mail
 ```
 
+**Nota (D1):** Web / Mobile, Backoffice y Lector QR son canales externos; PSP y Mail son sistemas externos. Ninguno es un contenedor a construir por el equipo. El contexto es el mismo en Entrega 1 y Entrega 2; no distingue entregas.
+
 Actores y roles:
 
 | Actor | Responsabilidad principal |
@@ -93,36 +95,49 @@ Actores y roles:
 
 Entrega 1 usa encabezados de identidad. Entrega 2 reemplaza ese mecanismo por JWT; los servicios mantienen sus reglas de autorización de dominio.
 
-### 3. Arquitectura lógica general
+### 3. Contenedores C4 - Entrega 1 (D2)
 
 ```mermaid
 flowchart TB
-    subgraph Clients[Clientes externos]
-        Apps[Web / Mobile / Backoffice]
-        Scan[Lectores QR]
+    subgraph E1[Entrega 1 - contenedores C4]
+        Gateway[api-gateway<br/>contenedor Docker]
+        Catalog[catalog-service<br/>contenedor Docker]
+        Inventory[inventory-service<br/>contenedor Docker]
+        Purchase[purchase-service<br/>contenedor Docker]
+        Payment[payment-mock<br/>contenedor Docker]
+        Ticket[ticket-service<br/>contenedor Docker]
+
+        CatalogDB[(catalog_db<br/>PostgreSQL)]
+        InventoryDB[(inventory_db<br/>PostgreSQL)]
+        PurchaseDB[(purchase_db<br/>PostgreSQL)]
+        TicketDB[(ticket_db<br/>PostgreSQL)]
+        PaymentDB[(payment_db<br/>a decidir)]
     end
 
-    Gateway[API Gateway]
-    Catalog[Catalog Service]
-    Inventory[Inventory Service]
-    Purchase[Purchase Service]
-    Ticket[Ticket & Access Service]
-    Payment[Pasarela simulada]
-    Delivery2[Capacidades Entrega 2 a refinar:<br/>JWT, fila virtual, preferencias,<br/>notificaciones y reportes]
+    Clients[Web / Mobile / Backoffice / Lector QR] --> Gateway
 
-    Apps --> Gateway
-    Scan --> Gateway
     Gateway --> Catalog
     Gateway --> Purchase
     Gateway --> Ticket
-    Gateway -.-> Delivery2
 
+    Purchase -. snapshot/copia .-> Catalog
     Purchase --> Inventory
     Purchase --> Payment
     Purchase --> Ticket
-    Inventory --> Catalog
-    Payment -. versión futura .-> PSP[Pasarela externa]
+
+    Catalog --> CatalogDB
+    Inventory --> InventoryDB
+    Purchase --> PurchaseDB
+    Ticket --> TicketDB
+    Payment -. a decidir .-> PaymentDB
+
+    classDef servicio fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
+    classDef base fill:#fff3e0,stroke:#e65100,stroke-width:2px;
+    class Gateway,Catalog,Inventory,Purchase,Payment,Ticket servicio;
+    class CatalogDB,InventoryDB,PurchaseDB,TicketDB,PaymentDB base;
 ```
+
+**Nota (D2):** Cada microservicio Spring Boot es un contenedor C4 (unidad ejecutable/desplegable) y se mapea 1:1 a una imagen Docker con su propio `Dockerfile`. Las bases de datos son contenedores C4 de infraestructura. `payment_db` está "a decidir" (ver tabla de ownership). La relación Purchase → Catalog es una copia de snapshot, no una llamada runtime.
 
 Los servicios de dominio no quedan expuestos directamente a clientes. El Gateway enruta y aplica controles transversales, pero no contiene reglas de negocio. Las capacidades de Entrega 2 se separarán en nuevos servicios sólo si su refinamiento demuestra ownership o despliegue independiente; el diagrama no obliga a crear un servicio por capacidad.
 
@@ -137,12 +152,12 @@ flowchart LR
     Gateway --> Purchase[Purchase Service]
     Purchase --> Inventory[Inventory Service]
     Purchase --> Payment[Payment Mock]
-    Purchase --> Ticket[Ticket Service]
+    Purchase --> Ticket[Ticket & Access Service]
 
     Catalog --> CatalogDB[(catalog_db)]
     Inventory --> InventoryDB[(inventory_db)]
     Purchase --> PurchaseDB[(purchase_db)]
-    Payment --> PaymentDB[(payment_db)]
+    Payment -. a decidir .-> PaymentDB[(payment_db)]
     Ticket --> TicketDB[(ticket_db)]
 ```
 
@@ -153,9 +168,84 @@ La integración entre publicación e inventario evoluciona en dos pasos:
 1. La primera épica crea el snapshot publicado dentro de Catalog Service.
 2. Al incorporarse Inventory Service, se agrega inicialización idempotente desde ese snapshot; esa épica modifica el flujo de publicación o agrega reconciliación sin reescribir el catálogo histórico.
 
-#### Entrega 2 - plataforma completa
+#### Entrega 2 - plataforma completa (D3 - contenedores C4)
 
-Se incorporan JWT, una base NoSQL en al menos una capacidad, fila virtual, preferencias/recomendaciones, notificaciones, reportes, resiliencia, cache justificada, logs centralizados y despliegue completo con Docker Compose. La cantidad final de servicios y las tecnologías concretas se deciden al refinar cada épica.
+```mermaid
+flowchart TB
+    subgraph E2[Entrega 2 - contenedores C4]
+        subgraph E1_confirmados[Con E1 confirmados]
+            Gateway[api-gateway<br/>contenedor Docker]
+            Catalog[catalog-service<br/>contenedor Docker]
+            Inventory[inventory-service<br/>contenedor Docker]
+            Purchase[purchase-service<br/>contenedor Docker]
+            Payment[payment-mock<br/>contenedor Docker]
+            Ticket[ticket-service<br/>contenedor Docker]
+
+            CatalogDB[(catalog_db<br/>PostgreSQL)]
+            InventoryDB[(inventory_db<br/>PostgreSQL)]
+            PurchaseDB[(purchase_db<br/>PostgreSQL)]
+            TicketDB[(ticket_db<br/>PostgreSQL)]
+        end
+
+        NoSqlDB[(preferencias_db<br/>NoSQL candidata)]
+    end
+
+    subgraph CapacidadesE2["Capacidades E2 a refinar<br/>(a decidir si servicio propio o módulo)"]
+        JWT[Identidad / JWT]
+        Cola[Fila virtual]
+        Prefs[Preferencias / recomendaciones]
+        Notif[Notificaciones]
+        Reportes[Reportes]
+    end
+
+    Gateway -.-> CapacidadesE2
+    NoSqlDB -.-> Prefs
+
+    classDef servicio fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
+    classDef base fill:#fff3e0,stroke:#e65100,stroke-width:2px;
+    classDef punt fill:#f3e5f5,stroke:#4a148c,stroke-width:2px,stroke-dasharray: 5 5;
+    class Gateway,Catalog,Inventory,Purchase,Payment,Ticket servicio;
+    class CatalogDB,InventoryDB,PurchaseDB,TicketDB,NoSqlDB base;
+    class JWT,Cola,Prefs,Notif,Reportes punt;
+```
+
+**Nota (D3):** Los contenedores de E1 se confirman en E2. Se añade una base NoSQL candidata (preferencias/recomendaciones). Las cinco capacidades de E2 (JWT, fila virtual, preferencias/recomendaciones, notificaciones, reportes) aparecen como un grupo punteado "a refinar": todavía no se decide si cada una es un servicio independiente o un módulo de un servicio existente; eso se resuelve al refinar su épica.
+
+### Estado actual de contenedores (tabla aparte, no en los diagramas)
+
+| Contenedor | E1 | E2 | Estado repo |
+|---|---|---|---|
+| `api-gateway` | Sí | Sí | Implementado |
+| `catalog-service` | Sí | Sí | Implementado |
+| `catalog_db` | Sí | Sí | Implementado |
+| `inventory-service` + `inventory_db` | Sí | Sí | Planificado |
+| `purchase-service` + `purchase_db` | Sí | Sí | Planificado |
+| `payment-mock` + `payment_db` | Sí | Sí | Planificado / almacenamiento a decidir |
+| `ticket-service` + `ticket_db` | Sí | Sí | Planificado |
+| `preferencias_db` (NoSQL) | No | Sí | A decidir |
+| JWT, fila virtual, notificaciones, reportes | No | Sí | A refinar |
+
+**Nota:** El mínimo del PDF para E1 permite ejecución local con bases en Docker. TicketYa adelanta Docker también en E1 como decisión del proyecto (adelanto voluntario, ya implementado en `establish-event-catalog`). El estado actual del repo tiene implementados Gateway, Catalog y catalog_db.
+
+### Tabla operativa por contenedor
+
+| Contenedor | Build context | Puerto | Red | Volumen | Healthcheck |
+|---|---|---|---|---|---|
+| `api-gateway` | `./services/api-gateway` | 8080 (host) | ticketya | - | actuator/health |
+| `catalog-service` | `./services/catalog-service` | 8081 (interno) | ticketya | - | actuator/health |
+| `catalog_db` | `postgres:16.4-alpine` | 5432 (interno) | ticketya | catalog-postgres-data | pg_isready |
+| `inventory-service` | `./services/inventory-service` | 808x (interno) | ticketya | - | actuator/health |
+| `inventory_db` | `postgres:16.4-alpine` | 5432 (interno) | ticketya | inventory-postgres-data | pg_isready |
+| `purchase-service` | `./services/purchase-service` | 808x (interno) | ticketya | - | actuator/health |
+| `purchase_db` | `postgres:16.4-alpine` | 5432 (interno) | ticketya | purchase-postgres-data | pg_isready |
+| `ticket-service` | `./services/ticket-service` | 808x (interno) | ticketya | - | actuator/health |
+| `ticket_db` | `postgres:16.4-alpine` | 5432 (interno) | ticketya | ticket-postgres-data | pg_isready |
+| `payment-mock` | `./services/payment-mock` | 808x (interno) | ticketya | - | actuator/health |
+| `preferencias_db` (NoSQL) | imagen oficial NoSQL | 27017 (interno) | ticketya | preferencias-data | ping |
+
+Solo `api-gateway` publica un puerto al host (8080). Los demás servicios y bases quedan en la red interna de Compose.
+
+Se incorporan JWT, fila virtual, preferencias/recomendaciones, notificaciones, reportes, resiliencia, cache justificada, logs centralizados y despliegue completo con Docker Compose. La cantidad final de servicios y las tecnologías concretas se deciden al refinar cada épica.
 
 ### 5. Responsabilidades y límites
 
@@ -467,17 +557,24 @@ La implementación mínima debe centralizar o reunir logs de forma consultable y
 
 ### 20. Despliegue
 
-Regla común desde Entrega 1:
+**Diferencia mínimo del PDF vs decisión del proyecto:**
+
+| | Mínimo del PDF | Decisión del proyecto (TicketYa) |
+|---|---|---|
+| Entrega 1 | Ejecución local de los microservicios; las bases de datos pueden levantarse con Docker | Docker desde E1 para los servicios también (adelanto voluntario, ya implementado en `establish-event-catalog`) |
+| Entrega 2 | Cada microservicio en un contenedor Docker separado; todo el sistema con un `docker-compose.yml` | Igual que el mínimo del PDF |
+
+**Regla común:**
 
 - Cada microservicio, Gateway, Payment Mock u otro componente de aplicación desarrollado por el equipo tiene un `Dockerfile` en su propio directorio.
 - La raíz de `ticketya` contiene un único `docker-compose.yml` que declara todos los componentes disponibles en el incremento actual y sus dependencias.
 - PostgreSQL, la base NoSQL y otras dependencias estándar usan imágenes oficiales en Compose; no se crean Dockerfiles custom salvo que una personalización sea necesaria y justificada.
 - `docker compose up --build` construye y levanta el sistema completo disponible.
 - Configuración, URLs y credenciales de desarrollo se inyectan mediante variables de entorno; no se versionan rutas personales ni secretos reales.
-- Gateway es la única API usada por clientes y por la colección Postman.
+- Gateway es la única API usada por clientes y por la colección Postman; solo el Gateway publica un puerto al host.
 - La ejecución local como procesos Java 19 sigue permitida para desarrollo, pero no reemplaza la verificación con Compose.
 
-Estructura esperada:
+**Estructura esperada:**
 
 ```text
 ticketya/
@@ -489,16 +586,92 @@ ticketya/
 +-- <other-app-component>/Dockerfile
 ```
 
-El Compose crece incrementalmente hasta Entrega 2:
+**D4 - Despliegue Entrega 1:**
 
 ```mermaid
 flowchart TB
-    Compose[Docker Compose]
-    Compose --> GatewayC[Gateway container]
-    Compose --> ServiceC[Un container por microservicio]
-    Compose --> PgC[Un container/base por ownership]
-    Compose --> NoSqlC[Base NoSQL seleccionada]
-    Compose -. opcional .-> ExtraC[Infraestructura adicional justificada]
+    subgraph E1[Despliegue Entrega 1]
+        Compose[docker-compose.yml<br/>raíz ticketya/]
+
+        Gateway[api-gateway<br/>puerto 8080 publicado al host]
+        Catalog[catalog-service<br/>puerto 8081 interno]
+        CatalogDB[catalog_db<br/>PostgreSQL<br/>volumen catalog-postgres-data]
+
+        Compose --> Gateway
+        Compose --> Catalog
+        Compose --> CatalogDB
+        Gateway --> Catalog
+        Catalog --> CatalogDB
+
+        network[ticketya<br/>red interna]
+        Gateway -.- network
+        Catalog -.- network
+        CatalogDB -.- network
+    end
+
+    classDef servicio fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
+    classDef base fill:#fff3e0,stroke:#e65100,stroke-width:2px;
+    class Gateway,Catalog servicio;
+    class CatalogDB base;
+```
+
+**D5 - Despliegue Entrega 2:**
+
+```mermaid
+flowchart TB
+    subgraph E2[Despliegue Entrega 2]
+        Compose[docker-compose.yml<br/>raíz ticketya/]
+
+        Gateway[api-gateway<br/>puerto 8080 publicado al host]
+        Catalog[catalog-service<br/>contenedor Docker]
+        Inventory[inventory-service<br/>contenedor Docker]
+        Purchase[purchase-service<br/>contenedor Docker]
+        Payment[payment-mock<br/>contenedor Docker]
+        Ticket[ticket-service<br/>contenedor Docker]
+
+        CatalogDB[catalog_db<br/>PostgreSQL]
+        InventoryDB[inventory_db<br/>PostgreSQL]
+        PurchaseDB[purchase_db<br/>PostgreSQL]
+        TicketDB[ticket_db<br/>PostgreSQL]
+        NoSqlDB[preferencias_db<br/>NoSQL candidata]
+
+        Compose --> Gateway
+        Compose --> Catalog
+        Compose --> Inventory
+        Compose --> Purchase
+        Compose --> Payment
+        Compose --> Ticket
+        Compose --> CatalogDB
+        Compose --> InventoryDB
+        Compose --> PurchaseDB
+        Compose --> TicketDB
+        Compose --> NoSqlDB
+
+        Gateway --> Catalog
+        Gateway --> Purchase
+        Gateway --> Ticket
+        Purchase --> Inventory
+        Purchase --> Payment
+        Purchase --> Ticket
+
+        network[ticketya<br/>red interna]
+        Gateway -.- network
+        Catalog -.- network
+        Inventory -.- network
+        Purchase -.- network
+        Payment -.- network
+        Ticket -.- network
+        CatalogDB -.- network
+        InventoryDB -.- network
+        PurchaseDB -.- network
+        TicketDB -.- network
+        NoSqlDB -.- network
+    end
+
+    classDef servicio fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
+    classDef base fill:#fff3e0,stroke:#e65100,stroke-width:2px;
+    class Gateway,Catalog,Inventory,Purchase,Payment,Ticket servicio;
+    class CatalogDB,InventoryDB,PurchaseDB,TicketDB,NoSqlDB base;
 ```
 
 Docker DNS resuelve servicios dentro de la red; no se agrega Eureka mientras Docker Compose sea el único orquestador. Cada imagen debe poder construirse por separado, aunque Compose provea el arranque integrado y el repositorio use un POM agregador.

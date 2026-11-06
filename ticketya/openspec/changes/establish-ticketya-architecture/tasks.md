@@ -3,6 +3,13 @@
 ## 1. Revisión del blueprint
 
 - [ ] 1.1 Revisar con el equipo los diagramas de contexto, contenedores y despliegue, y verificar que todos renderizan correctamente y distinguen Entrega 1 de Entrega 2.
+  **Criterios de aceptación:**
+  - D1 contexto (transversal, sin E1/E2), D2 C4 contenedores E1, D3 C4 contenedores E2, D4 despliegue E1, D5 despliegue E2 — cada uno con un solo alcance.
+  - Renderizado verificado con `mmdc` (comando y resultado registrados).
+  - Tabla de estado actual aparte de los diagramas.
+  - `payment_db` marcado como "a decidir"; PSP fuera de alcance; nombres unificados entre diagramas y tablas.
+  - §20 distingue mínimo del PDF (E1 local + bases Docker; E2 todo Docker) de la decisión del proyecto (Docker desde E1 como adelanto voluntario).
+  - 1.5 sigue siendo la tarea que confirma la política de Dockerfile por componente y Compose único.
 - [ ] 1.2 Contrastar actores, funcionalidades y no funcionales del blueprint con `TPE-ArqWeb-TicketYa-2026.pdf`, y verificar que cada punto del enunciado tiene un servicio dueño o una decisión arquitectónica asociada.
 - [ ] 1.3 Revisar el mapa de épicas y verificar que cada funcionalidad del PDF pertenece a una única épica primaria sin quedar fuera del roadmap.
 - [ ] 1.4 Revisar las guidelines de simplicidad y verificar que el equipo acuerda Java 19, el PDF como piso y la ausencia de performance productiva como driver.
