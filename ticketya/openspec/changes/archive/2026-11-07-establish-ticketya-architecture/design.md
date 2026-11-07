@@ -46,6 +46,15 @@ El proyecto es didáctico. El PDF define el piso obligatorio y la arquitectura d
 10. No agregar cache, broker, service discovery, migrador de esquema o tracing distribuido sin una justificación revisada por el equipo.
 11. Todo componente ejecutable desarrollado por el equipo se distribuye con un `Dockerfile` propio y se integra al `docker-compose.yml` central de la raíz en la misma épica que lo introduce.
 
+**Guidelines de simplicidad acordadas:**
+
+| Decisión | Alcance | Consecuencia |
+|---|---|---|
+| Java 19 y Maven 3.9+ | Estándar del proyecto; el PDF no fija una versión de Java | Toolchain, CI e imágenes usan la misma versión; no se versionan rutas locales. |
+| El PDF es el piso | Todo requisito funcional y no funcional del enunciado debe tener dueño o decisión | Ninguna épica puede reducir alcance; agregar funcionalidad fuera del PDF requiere justificación. |
+| Performance productiva | No es driver; sólo se exigen la prueba de concurrencia y la prueba de carga del TPE | No se agregan caches, brokers o infraestructura preventiva por escala. |
+| Tecnología o patrón adicional | Requiere las cuatro preguntas de esta sección | Si no hay requisito, alternativa simple, costo y validación, queda fuera de la baseline. |
+
 Antes de incorporar una tecnología o patrón, la épica debe responder:
 
 - ¿Qué requisito obligatorio satisface o qué problema observado resuelve?
@@ -145,21 +154,7 @@ Los servicios de dominio no quedan expuestos directamente a clientes. El Gateway
 
 #### Entrega 1 - núcleo síncrono
 
-```mermaid
-flowchart LR
-    Apps[Clientes] --> Gateway[API Gateway]
-    Gateway --> Catalog[Catalog Service]
-    Gateway --> Purchase[Purchase Service]
-    Purchase --> Inventory[Inventory Service]
-    Purchase --> Payment[Payment Mock]
-    Purchase --> Ticket[Ticket & Access Service]
-
-    Catalog --> CatalogDB[(catalog_db)]
-    Inventory --> InventoryDB[(inventory_db)]
-    Purchase --> PurchaseDB[(purchase_db)]
-    Payment -. a decidir .-> PaymentDB[(payment_db)]
-    Ticket --> TicketDB[(ticket_db)]
-```
+La vista de contenedores C4 de Entrega 1 es D2 (§3). No se repite aquí para evitar dos diagramas con el mismo alcance; D2 es la referencia para los límites y D4 (§20) para el despliegue.
 
 El primer incremento `establish-event-catalog` materializa sólo Gateway, Catalog Service y `catalog_db`. Los demás componentes aparecen en épicas posteriores de Entrega 1.
 
@@ -185,6 +180,7 @@ flowchart TB
             InventoryDB[(inventory_db<br/>PostgreSQL)]
             PurchaseDB[(purchase_db<br/>PostgreSQL)]
             TicketDB[(ticket_db<br/>PostgreSQL)]
+            PaymentDB[(payment_db<br/>a decidir)]
         end
 
         NoSqlDB[(preferencias_db<br/>NoSQL candidata)]
@@ -205,11 +201,11 @@ flowchart TB
     classDef base fill:#fff3e0,stroke:#e65100,stroke-width:2px;
     classDef punt fill:#f3e5f5,stroke:#4a148c,stroke-width:2px,stroke-dasharray: 5 5;
     class Gateway,Catalog,Inventory,Purchase,Payment,Ticket servicio;
-    class CatalogDB,InventoryDB,PurchaseDB,TicketDB,NoSqlDB base;
+    class CatalogDB,InventoryDB,PurchaseDB,TicketDB,PaymentDB,NoSqlDB base;
     class JWT,Cola,Prefs,Notif,Reportes punt;
 ```
 
-**Nota (D3):** Los contenedores de E1 se confirman en E2. Se añade una base NoSQL candidata (preferencias/recomendaciones). Las cinco capacidades de E2 (JWT, fila virtual, preferencias/recomendaciones, notificaciones, reportes) aparecen como un grupo punteado "a refinar": todavía no se decide si cada una es un servicio independiente o un módulo de un servicio existente; eso se resuelve al refinar su épica.
+**Nota (D3):** Los contenedores de E1 se confirman en E2. Se añade una base NoSQL candidata (preferencias/recomendaciones). `payment_db` se mantiene como "a decidir", igual que en D2. Las cinco capacidades de E2 (JWT, fila virtual, preferencias/recomendaciones, notificaciones, reportes) aparecen como un grupo punteado "a refinar": todavía no se decide si cada una es un servicio independiente o un módulo de un servicio existente; eso se resuelve al refinar su épica.
 
 ### Estado actual de contenedores (tabla aparte, no en los diagramas)
 
@@ -243,7 +239,9 @@ flowchart TB
 | `payment-mock` | `./services/payment-mock` | 808x (interno) | ticketya | - | actuator/health |
 | `preferencias_db` (NoSQL) | imagen oficial NoSQL | 27017 (interno) | ticketya | preferencias-data | ping |
 
-Solo `api-gateway` publica un puerto al host (8080). Los demás servicios y bases quedan en la red interna de Compose.
+Solo `api-gateway` publica un puerto al host en el despliegue Compose (8080). Los demás servicios y bases quedan en la red interna. La ejecución local como procesos Java 19 puede usar puertos locales para desarrollo, pero no reemplaza la verificación con Compose.
+
+**Nota de nombres:** el `docker-compose.yml` implementado llama `postgres` al contenedor y `ticketya_catalog` a la base, mientras que el blueprint usa `catalog_db` como nombre lógico. Este cambio es documental y no renombra infraestructura; la próxima épica que agregue una base debe unificar el criterio de nombres (por ejemplo, `catalog-db`) o documentar el alias en el Compose.
 
 Se incorporan JWT, fila virtual, preferencias/recomendaciones, notificaciones, reportes, resiliencia, cache justificada, logs centralizados y despliegue completo con Docker Compose. La cantidad final de servicios y las tecnologías concretas se deciden al refinar cada épica.
 
@@ -252,11 +250,13 @@ Se incorporan JWT, fila virtual, preferencias/recomendaciones, notificaciones, r
 | Servicio | Responsabilidad | Fuera de su responsabilidad |
 |---|---|---|
 | API Gateway | Entrada única, routing, rate limiting, correlation ID y validación JWT | Reglas de compra o inventario |
-| Catalog | Lugares, sectores plantilla, eventos, participantes, precios publicados y búsqueda | Disponibilidad, compras y tickets |
-| Inventory | Inventario por evento, holds temporales, expiración y confirmación de venta | Cobro, precio maestro y QR |
-| Purchase | Órdenes, límite por cliente, saga de compra, devoluciones y cancelación comercial | Modificar inventario o capturar QR directamente |
+| Catalog | Lugares, sectores plantilla, eventos, participantes, estados editoriales, precios publicados y búsqueda | Disponibilidad, compras y tickets |
+| Inventory | Inventario por evento, holds temporales, expiración y confirmación de venta | Cobro, precio maestro, estado editorial y QR |
+| Purchase | Órdenes, detalle de compra, medio de pago simulado, límite por cliente, saga de compra, devoluciones y proceso de cancelación | Modificar inventario o capturar QR directamente |
 | Payment Mock | Simular aprobación, rechazo, consulta y reintegro | Decidir reglas de devolución o transformarse necesariamente en microservicio productivo |
 | Ticket & Access | Emisión, QR, vigencia, revocación y uso único en acceso | Cobro y selección de asientos |
+
+**Estados del evento y dueños únicos:** Catalog es dueño de los estados editoriales (`DRAFT`, `PUBLISHED`, `SUSPENDED`, `CANCELLED`, `FINISHED`). `SOLD_OUT` es un estado comercial derivado de la disponibilidad que posee Inventory: Catalog puede proyectarlo para consulta, pero ninguna venta se decide por él. `FINISHED` se deriva de la fecha o se actualiza de forma perezosa. La cancelación masiva es un proceso de Purchase: el administrador invoca el comando de cancelación (ruteado a Purchase), Purchase solicita a Catalog el cambio idempotente a `CANCELLED`, y luego bloquea/revoca tickets, reintegra y libera inventario. Catalog no llama a Purchase. Ninguna capacidad tiene dos dueños transaccionales.
 
 Capacidades de Entrega 2 todavía no fijadas como servicios independientes:
 
@@ -278,12 +278,24 @@ Capacidades de Entrega 2 todavía no fijadas como servicios independientes:
 
 | Servicio | Datos autoritativos | Persistencia objetivo | Copias permitidas |
 |---|---|---|---|
-| Catalog | Venue, sector plantilla, asiento plantilla, evento, participante, snapshot publicado y precio | PostgreSQL | Inventory y Purchase copian IDs/layout/precio necesarios para operar |
-| Inventory | Inventario por evento, unidad/asiento, stock de zona, reserva y expiración | Base relacional | Layout inicial copiado desde snapshot de Catalog |
-| Purchase | Orden, ítem, intento de saga, límite por cliente y solicitud de devolución | PostgreSQL | Snapshot de descripción y precio al comprar |
-| Payment Mock | Resultado simulado e idempotencia mínima | A decidir; puede ser almacenamiento simple | Referencia `orderId`, nunca datos completos de la orden |
-| Ticket & Access | Ticket, QR hash, estado, propietario y uso | PostgreSQL | Snapshot mínimo del evento para validación y visualización |
+| Catalog | Venue, sector plantilla, asiento plantilla, evento, participante, estado editorial, snapshot publicado y precio | PostgreSQL | Inventory copia IDs/layout; Purchase copia IDs, descripción y precio como snapshot histórico |
+| Inventory | Inventario por evento, unidad/asiento, stock de zona, reserva y expiración | Base relacional | Layout inicial copiado desde snapshot de Catalog, sin precios |
+| Purchase | Orden, ítem, intento de saga, límite por cliente, detalle de compra, medio de pago simulado y solicitud de devolución | PostgreSQL | Snapshot de descripción y precio al comprar |
+| Payment Mock | Resultado simulado, idempotencia mínima y operación de reintegro | A decidir; puede ser almacenamiento simple | Referencia `orderId`, nunca datos completos de la orden |
+| Ticket & Access | Ticket, QR hash, estado, propietario y uso | PostgreSQL | Snapshot mínimo del evento (nombre, fecha, lugar, sector/asiento) para validación y visualización; sin precio autoritativo |
 | Preferencias/recomendaciones | Preferencias, favoritos y señales simples | Base NoSQL a seleccionar | Historial derivado de compras |
+
+**Propósito de cada copia o snapshot:**
+
+| Copia | Dueño | Origen | Propósito histórico u operativo | Qué no decide |
+|---|---|---|---|---|
+| `EventSnapshot` | Catalog | Publicación | Configuración inmutable del evento publicado; fuente para inicializar otros servicios | Disponibilidad, compras o uso de tickets |
+| `EventInventory` / layout | Inventory | Snapshot de Catalog | Asignar asientos y stock sin depender de Catalog en cada operación | Metadatos del evento, estado editorial o precio |
+| `OrderItem` snapshot | Purchase | Catálogo al crear la orden | Precio y descripción históricos para recibo, devolución y auditoría | Disponibilidad actual ni estado del evento |
+| `Ticket` event snapshot | Ticket & Access | Orden confirmada | Validar y mostrar la entrada sin consultar Catalog | Estado del evento, precio o disponibilidad |
+| `orderId` en Payment | Payment Mock | Purchase | Correlacionar pago, reintegro e idempotencia | Datos completos de la orden o inventario |
+
+Ninguna copia crea una foreign key entre bases ni convierte al servicio copiante en dueño del dato original. Inventory no copia precios. La base NoSQL obligatoria se selecciona y justifica en la épica de preferencias/recomendaciones; MongoDB es una candidata, no una decisión de este blueprint.
 
 La capacidad de preferencias/recomendaciones es la candidata inicial para satisfacer el requisito NoSQL, porque sus documentos varían por usuario y no requieren joins transaccionales con ventas. MongoDB es una opción, no una decisión tomada. Catálogo permanece relacional por sus invariantes y relaciones estructuradas.
 
@@ -322,6 +334,21 @@ REST síncrono:
 - Emisión idempotente de tickets cuando la respuesta debe volver al comprador.
 - Validación QR en el acceso.
 
+**Integraciones de Entrega 1 y modo por defecto:**
+
+| Integración | Modo | Datos | Idempotencia |
+|---|---|---|---|
+| Gateway → servicios | REST síncrono | Routing, identidad provisional y correlation ID | No aplica; el Gateway no decide negocio |
+| Purchase → Catalog | REST síncrono | Snapshot publicado al crear la orden | `orderId`; la copia se guarda una vez |
+| Purchase → Inventory | REST síncrono | hold, confirm, release | `orderId` / `reservationId` |
+| Purchase → Payment Mock | REST síncrono | pay, query, refund | `orderId + attempt` / `refundId` |
+| Purchase → Ticket | REST síncrono | emit, revoke | `orderId + orderItemId` / `refundId` |
+| Catalog → Inventory | Inicialización batch/REST al incorporar Inventory | Snapshot publicado | `eventId`; no se reescribe el snapshot |
+| Catalog/Purchase/Ticket → Notification | Asíncrono candidato E2 | Compra, cambio/cancelación y artista favorito | Clave del evento + consumidor idempotente |
+| Purchase/Ticket → Reporting | Asíncrono candidato E2 | Proyecciones de ventas, devoluciones y uso | Clave del evento + consumidor idempotente |
+
+**Regla para propuestas asíncronas:** toda épica que proponga broker, cola, Outbox/Inbox o eventos debe agregar una sección `Decisión asíncrona` con: (1) requisito o problema que lo exige, (2) alternativa simple con REST o job persistido, (3) costo de desarrollo, testing y operación, y (4) forma de validación. Sin esos cuatro puntos, la propuesta queda fuera de alcance. Outbox/Inbox no son baseline; se evalúan sólo si se adopta un broker.
+
 Interacciones que podrían volverse asíncronas en Entrega 2:
 
 | Evento | Productor | Consumidores típicos |
@@ -341,6 +368,8 @@ RabbitMQ y Kafka quedan fuera de la baseline. Si una épica demuestra que necesi
 ### 9. Orquestación persistida de compra
 
 Purchase Service orquesta la operación porque posee el estado de negocio de la orden y puede decidir compensaciones. Este flujo puede describirse como Saga, pero no requiere un framework ni un motor especializado: estados persistidos y llamadas REST idempotentes son suficientes para la versión didáctica.
+
+La reserva usa un TTL inicial de 10 minutos, configurable por evento. El límite de entradas por cliente y evento se valida dentro de la transacción de Purchase con una fila de contador y una actualización condicional (`quantity + requested <= limit`) o `SELECT ... FOR UPDATE`; una lectura previa no es suficiente bajo concurrencia. Una restricción única por `(customerId, eventId, orderItem)` evita duplicados por reintento.
 
 ```mermaid
 sequenceDiagram
@@ -399,6 +428,19 @@ PENDING -> RESERVED -> PAYMENT_PENDING -> PAID -> CONFIRMED
                                              -> COMPENSATING -> REFUNDED
 ```
 
+**Ramas de la saga y recuperación:**
+
+| Rama | Detección | Estado de la orden | Compensación / recuperación |
+|---|---|---|---|
+| Pago aprobado, inventario confirmado y tickets emitidos | Respuestas exitosas | `CONFIRMED` | Ninguna; operación completa |
+| Pago rechazado | Payment responde `rejected` | `REJECTED` | Liberar el hold con `reservationId`; reintento idempotente |
+| Pago incierto | Timeout o `unknown` | `PAYMENT_PENDING` | Consultar Payment; no asumir fracaso. Si luego se aprueba, continuar; si se rechaza, liberar |
+| Reserva vencida o confirmación fallida | Inventory responde `not confirmed` | `COMPENSATING` → `REFUNDED` | Reintegrar con `refundId` y liberar si sigue retenida; ambos idempotentes |
+| Emisión fallida | Ticket falla después de confirmar inventario | `PAID_PENDING_TICKETS` | Reintentar emisión idempotente; si la falla es permanente, `COMPENSATING` → reintegro y liberación |
+| Compra duplicada | Misma `Idempotency-Key` | Mismo estado de la orden original | Devolver la orden existente; no reservar, cobrar ni emitir de nuevo |
+
+Los estados terminales son `CONFIRMED`, `REJECTED` y `REFUNDED`; los intermedios tienen job de reintento o reconciliación y nunca se interpretan como éxito o fracaso definitivo por un timeout.
+
 Si la emisión de tickets falla después de confirmar inventario, la orden queda `PAID_PENDING_TICKETS` y se reintenta idempotentemente. Sólo una falla permanente dispara compensación de pago e inventario; un timeout no se interpreta automáticamente como fracaso.
 
 ### 10. Mecanismo contra doble venta
@@ -426,6 +468,50 @@ WHERE event_id = :eventId
   AND capacity - sold - reserved >= :quantity;
 ```
 
+Confirmación de asiento numerado:
+
+```sql
+UPDATE inventory_item
+SET status = 'SOLD', sold_at = CURRENT_TIMESTAMP
+WHERE event_id = :eventId
+  AND seat_id = :seatId
+  AND status = 'HELD'
+  AND reservation_id = :reservationId
+  AND expires_at > CURRENT_TIMESTAMP;
+```
+
+Confirmación de sector no numerado:
+
+```sql
+UPDATE sector_inventory
+SET sold = sold + :quantity, reserved = reserved - :quantity
+WHERE event_id = :eventId
+  AND sector_id = :sectorId
+  AND reserved >= :quantity;
+```
+
+Liberación idempotente:
+
+```sql
+UPDATE inventory_item
+SET status = 'AVAILABLE', reservation_id = NULL, expires_at = NULL
+WHERE event_id = :eventId
+  AND seat_id = :seatId
+  AND status = 'HELD'
+  AND reservation_id = :reservationId;
+```
+
+Expiración (programada o lazy):
+
+```sql
+UPDATE inventory_item
+SET status = 'AVAILABLE', reservation_id = NULL, expires_at = NULL
+WHERE status = 'HELD'
+  AND expires_at < CURRENT_TIMESTAMP;
+```
+
+Restricciones mínimas: unicidad de `(event_id, seat_id)`, unicidad de `(event_id, sector_id)` y unicidad de `reservation_id`. PostgreSQL serializa las filas afectadas y reevalúa la condición después del lock; por eso dos instancias no pueden confirmar el mismo asiento. La expiración sólo toca `HELD` y nunca `SOLD`.
+
 Confirmar exige estado `HELD`, mismo `reservationId` y `expires_at > now`. La expiración puede resolverse mediante una tarea programada y también de forma lazy al intentar reservar. No se agrega Redis mientras esta solución sea suficiente.
 
 La prueba obligatoria ejecuta muchas solicitudes simultáneas contra el mismo asiento o último cupo, incluyendo más de una instancia de Inventory Service, y verifica exactamente un éxito.
@@ -441,8 +527,9 @@ La prueba obligatoria ejecuta muchas solicitudes simultáneas contra el mismo as
 | Emitir tickets | `orderId + orderItemId` | Devuelve tickets ya emitidos |
 | Reintegrar | `refundId` | Devuelve el reintegro existente |
 | Validar QR | `ticketId` | Primer uso exitoso; siguientes usos rechazados |
+| Aplicar límite por cliente | `customerId + eventId` | El contador transaccional no incrementa dos veces por reintento |
 
-Cada servicio persiste la clave y el resultado dentro de su propia transacción. Los reintentos automáticos sólo se habilitan para operaciones idempotentes.
+Cada servicio persiste la clave y el resultado dentro de su propia transacción. Los reintentos automáticos sólo se habilitan para operaciones idempotentes. El `qr_hash` tiene índice único y la emisión es única por `(orderId, orderItemId)`.
 
 ### 12. Devoluciones y cancelaciones
 
@@ -460,25 +547,28 @@ sequenceDiagram
     C->>P: solicitar devolución
     P->>P: validar titular y 72 horas
     A->>P: aprobar
+    P->>T: bloquear/revocar ticket
+    T-->>P: revocado (idempotente)
     P->>Pay: reintegrar(refundId)
     Pay-->>P: reintegro confirmado
-    P->>T: revocar ticket
     P->>I: liberar unidad/cupo
     P-->>C: devolución completada
 ```
 
-No se libera inventario para reventa hasta confirmar el reintegro y revocar el ticket. Un reintegro incierto queda pendiente y se reconcilia con Payment Service.
+El orden es deliberado: primero se bloquea/revoca el ticket, después se reintegra y sólo al final se libera inventario. Así un reintegro confirmado no deja una entrada utilizable. Estados: `REFUND_REQUESTED → REFUND_APPROVED → TICKET_REVOKED → REFUNDING → REFUNDED → INVENTORY_RELEASED → COMPLETED`. Un reintegro incierto queda en `REFUND_PENDING` y se reconcilia con Payment; no se libera inventario. Si falla la revocación, no se reintegra todavía: se reintenta la revocación idempotente. Si la revocación es irreversible y el reintegro se rechaza definitivamente, un administrador resuelve el caso; el ticket no se restaura automáticamente.
+
+La ventana de 72 horas se calcula con la fecha vigente del evento. En E1 no hay reprogramación; si una épica posterior permite cambios post-publicación, debe definir la regla y notificarlos.
 
 Cancelación de evento:
 
-1. Catalog cambia el estado a `CANCELLED`.
-2. Purchase recibe una solicitud idempotente y crea reintegros para órdenes afectadas, procesados por lotes simples.
-3. Ticket revoca entradas.
-4. Inventory cierra o libera inventario según política; no vuelve a vender un evento cancelado.
-5. Notification informa a compradores.
-6. Reporting actualiza sus proyecciones.
+1. El administrador invoca el comando de cancelación, ruteado a Purchase (proceso dueño). Purchase solicita a Catalog el cambio idempotente a `CANCELLED`; Catalog es dueño del estado editorial y no llama a Purchase.
+2. Purchase bloquea/revoca las entradas de las órdenes afectadas, por lotes y de forma idempotente.
+3. Purchase crea y ejecuta reintegros idempotentes; los inciertos quedan `REFUND_PENDING` y se reconcilian.
+4. Purchase indica a Inventory cerrar o liberar inventario según política; el evento cancelado no vuelve a venderse.
+5. Notification informa a los compradores cuando E2-03 esté disponible. En E1 la cancelación y el estado del reintegro son consultables; la notificación no bloquea el cierre.
+6. Reporting actualiza sus proyecciones en E2-06.
 
-El proceso es eventual, observable y reanudable; no intenta una transacción distribuida única. Puede comenzar con REST y jobs persistidos; mensajería queda como evolución justificada.
+El proceso es eventual, observable y reanudable; no intenta una transacción distribuida única. Puede comenzar con REST y jobs persistidos; mensajería queda como evolución justificada. La notificación al comprador pertenece a E2 según la tabla de entregas del PDF (funcionalidad 11), aunque la cancelación y el reintegro sean E1 (funcionalidad 7).
 
 ### 13. Fila virtual
 
@@ -495,11 +585,11 @@ flowchart LR
     Purchase --> Inventory[Inventory Service]
 ```
 
-La cola habilita tandas y emite un token de admisión de corta duración ligado a cliente y evento. El token permite intentar comprar, pero no garantiza inventario. Inventory sigue siendo la autoridad. La versión didáctica puede usar una tabla ordenada y polling de posición.
+La cola habilita tandas y emite un token de admisión de corta duración ligado a cliente y evento. El token permite intentar comprar, pero no reserva ni garantiza inventario: Inventory revalida y puede rechazar por falta de stock. La cola nunca es autoridad de disponibilidad. La versión didáctica puede usar una tabla ordenada y polling de posición; Redis no es baseline.
 
 ### 14. Tickets y control de acceso
 
-El QR contiene un token opaco o firmado; la base almacena su hash, no un payload que permita reconstruir credenciales sensibles. La validación comprueba ticket, evento, vigencia, revocación y uso.
+El QR contiene un token opaco o firmado; la base almacena su hash, no un payload que permita reconstruir credenciales sensibles. La validación comprueba ticket, evento, vigencia, revocación y uso. El `qr_hash` tiene índice único y la emisión es única por `(order_id, order_item_id)`; la base guarda el hash, no el token completo ni datos sensibles.
 
 Uso único entre instancias:
 
@@ -515,11 +605,11 @@ Sólo una operación obtiene una fila actualizada. Reintentos posteriores respon
 
 ### 15. Preferencias, recomendaciones, notificaciones y reportes
 
-La capacidad de preferencias/recomendaciones guarda en una base NoSQL a seleccionar preferencias explícitas —tipos, artistas, ciudad— y señales derivadas de compras. La primera versión recomienda por afinidad simple y co-compra; no requiere machine learning ni un servicio separado si un módulo con ownership claro resulta suficiente.
+La capacidad de preferencias/recomendaciones guarda en una base NoSQL a seleccionar preferencias explícitas —tipos, artistas, ciudad— y señales derivadas de compras. La épica E2-04 selecciona y justifica la base NoSQL (MongoDB es candidata), define la fórmula inicial de recomendación por afinidad simple y co-compra y no requiere machine learning ni un servicio separado si un módulo con ownership claro resulta suficiente.
 
-La capacidad de notificaciones entrega email/push y sus fallas nunca revierten una compra confirmada. Puede comenzar con un adaptador simple y reintentos controlados; un servicio independiente, broker o dead-letter queue requieren justificación adicional.
+La capacidad de notificaciones entrega email/push en tres disparadores del PDF: compra confirmada, cancelación o cambio de evento, y publicación de un artista favorito en la ciudad del cliente. Sus fallas nunca revierten una compra confirmada. Puede comenzar con un adaptador simple y reintentos controlados; un servicio independiente, broker o dead-letter queue requieren justificación adicional. Los cambios post-publicación de eventos se difieren a E2-03/E2-04; E1 mantiene snapshots inmutables y sólo cancela.
 
-Los reportes pueden calcularse consultando los servicios dueños o mediante una proyección simple. Un Reporting Service y read models separados sólo se incorporarán si reducen complejidad frente a la consulta síncrona requerida por el TPE.
+Los reportes permiten consultar por evento y sector entradas vendidas, entradas devueltas, porcentaje de ocupación y recaudación. Pueden calcularse consultando los servicios dueños o mediante una proyección simple. Un Reporting Service y read models separados sólo se incorporarán si reducen complejidad frente a la consulta síncrona requerida por el TPE.
 
 ### 16. Cache
 
@@ -531,6 +621,20 @@ Los reportes pueden calcularse consultando los servicios dueños o mediante una 
 | Disponibilidad de asientos | No como respuesta autoritativa | Consultar Inventory Service |
 | Estado de orden, pago o ticket | No para decisiones | Consultar servicio dueño |
 
+**Autoridad de decisión (independiente de cache, resiliencia y logs):**
+
+| Decisión | Autoridad | ¿Puede un cache o dato derivado decidirla? |
+|---|---|---|
+| Vender o retener un asiento/cupo | Inventory + PostgreSQL | No |
+| Aprobar, rechazar o reintegrar un pago | Payment Mock + su almacenamiento | No |
+| Confirmar el uso de un QR | Ticket & Access + actualización atómica | No |
+| Estado de una orden o devolución | Purchase + PostgreSQL | No |
+| Estado editorial de un evento | Catalog + PostgreSQL | No |
+| Resultados de búsqueda o detalle | Catalog + PostgreSQL | Sólo lectura; un miss afecta latencia, no correctitud |
+| Preferencias/recomendaciones | Base NoSQL de la épica E2-04 | Sólo lectura; un miss afecta sugerencias, no ventas |
+
+Ninguna estrategia de cache, resiliencia, seguridad o trazabilidad puede decidir una venta, un pago o un acceso desde datos no autoritativos. Un fallback de pago no aprueba; un fallback de notificación no bloquea una compra; un log no es fuente de verdad.
+
 El TPE pide definir la estrategia de cache; “no cachear” es una decisión válida cuando se justifica por escala didáctica y simplicidad. Si se incorpora cache, un miss sólo afecta rendimiento y un dato stale nunca debe permitir vender, devolver o validar incorrectamente.
 
 ### 17. Resiliencia
@@ -539,15 +643,17 @@ El TPE pide definir la estrategia de cache; “no cachear” es una decisión v�
 - Reintentos acotados sólo para operaciones idempotentes.
 - Fallback explícito para pagos o notificaciones, tal como exige el PDF.
 - Pago incierto produce estado `PENDING`, seguido de consulta/reconciliación; nunca cobro duplicado.
+- Un fallback de pago sólo devuelve un estado seguro (`PENDING`/consulta), nunca una aprobación simulada.
+- Un fallback de notificación no revierte ni bloquea la compra.
 - La notificación no revierte una compra; su mecanismo de reintento se mantiene simple salvo evidencia contraria.
 
 Timeout, retry y fallback son comportamientos obligatorios. Circuit breakers, bulkheads, jitter, DLQ y librerías como Resilience4j son alternativas posibles, no decisiones preestablecidas.
 
 ### 18. Seguridad
 
-Entrega 1 identifica al usuario por encabezado para facilitar pruebas, sin considerarlo seguridad real. Entrega 2 incorpora JWT firmado con `sub`, roles y expiración.
+Entrega 1 identifica al usuario por encabezado para facilitar pruebas, sin considerarlo seguridad real. Entrega 2 incorpora JWT firmado con `sub`, roles y expiración. Los roles son `CLIENT`, `ORGANIZER`, `ADMIN` y `ACCESS_STAFF`.
 
-El Gateway valida firma y expiración; cada servicio valida autorización y ownership. Los endpoints internos no se publican fuera de la red de servicios. Secretos y claves no se guardan en Git. Logs no incluyen contraseñas, tokens, QR completos ni datos de pago sensibles.
+El Gateway valida firma y expiración; cada servicio valida autorización y ownership; el Gateway no reemplaza esas reglas. Los endpoints internos no se publican fuera de la red de servicios. Secretos y claves no se guardan en Git. Logs no incluyen contraseñas, tokens, QR completos ni datos de pago sensibles.
 
 ### 19. Trazabilidad y observabilidad
 
@@ -569,6 +675,7 @@ La implementación mínima debe centralizar o reunir logs de forma consultable y
 - Cada microservicio, Gateway, Payment Mock u otro componente de aplicación desarrollado por el equipo tiene un `Dockerfile` en su propio directorio.
 - La raíz de `ticketya` contiene un único `docker-compose.yml` que declara todos los componentes disponibles en el incremento actual y sus dependencias.
 - PostgreSQL, la base NoSQL y otras dependencias estándar usan imágenes oficiales en Compose; no se crean Dockerfiles custom salvo que una personalización sea necesaria y justificada.
+- Cada servicio crea su esquema con un bootstrap SQL idempotente (`schema.sql`) mientras no existan datos durables que exijan migraciones versionadas; Flyway/Liquibase no son baseline.
 - `docker compose up --build` construye y levanta el sistema completo disponible.
 - Configuración, URLs y credenciales de desarrollo se inyectan mediante variables de entorno; no se versionan rutas personales ni secretos reales.
 - Gateway es la única API usada por clientes y por la colección Postman; solo el Gateway publica un puerto al host.
@@ -586,7 +693,7 @@ ticketya/
 +-- <other-app-component>/Dockerfile
 ```
 
-**D4 - Despliegue Entrega 1:**
+**D4 - Despliegue Entrega 1 - incremento actual:**
 
 ```mermaid
 flowchart TB
@@ -614,6 +721,8 @@ flowchart TB
     class Gateway,Catalog servicio;
     class CatalogDB base;
 ```
+
+**Nota (D4):** D4 refleja el incremento ya implementado (Gateway, Catalog y `catalog_db`). Cada épica de E1 agrega sus contenedores al mismo Compose; D2 y la tabla operativa muestran el objetivo completo de E1. D4 no debe interpretarse como el alcance final de E1.
 
 **D5 - Despliegue Entrega 2:**
 
@@ -706,7 +815,92 @@ ARCH-00 establish-ticketya-architecture
    +-- E2-08 execute-security-integration-and-load-tests
 ```
 
+**Nota de reconciliación:** `integrate-gateway-routing-and-tracing` es un sub-cambio de E1-01 (routing y correlation ID del Gateway), no una épica nueva. `establish-event-catalog` ya referencia este blueprint en su propuesta.
+
+**Cobertura funcional del PDF por épica primaria:**
+
+| Referencia PDF | Funcionalidad | Épica primaria | Servicio dueño | Entrega |
+|---|---|---|---|---|
+| PDF-F1 | Eventos: datos, organizador, participantes, fecha, lugar y estados | E1-01 | Catalog | E1 |
+| PDF-F2 | Lugares, sectores numerados/generales y precios por evento | E1-01 | Catalog | E1 |
+| PDF-F3 | Borrador, publicación, suspensión y cancelación editorial | E1-01 | Catalog | E1 |
+| PDF-F4 | Reserva temporal, pago, detalle de compra, límite por cliente y emisión de QR | E1-03 | Purchase/Payment/Ticket, con Inventory en la reserva | E1 |
+| PDF-F5 | No doble venta e idempotencia | E1-02 | Inventory, con Purchase idempotente | E1 |
+| PDF-F6 | Fila virtual | E2-02 | Capacidad E2 a definir | E2 |
+| PDF-F7 | Devoluciones y cancelación masiva | E1-04 | Purchase, con Payment/Ticket/Inventory | E1 |
+| PDF-F8 | Control de acceso con QR | E2-05 | Ticket & Access | E2 |
+| PDF-F9 | Búsqueda, filtros y ordenamiento | E1-01 | Catalog | E1 |
+| PDF-F10 | Preferencias y recomendaciones | E2-04 | Capacidad E2 con NoSQL | E2 |
+| PDF-F11 | Notificaciones | E2-03 | Capacidad E2 | E2 |
+| PDF-F12 | Reportes para organizadores | E2-06 | Capacidad E2 | E2 |
+
+**Cobertura de no funcionales:**
+
+| Referencia PDF | Requisito | Dueño/decisión | Dónde se verifica |
+|---|---|---|---|
+| PDF-NF-SERVICES | Microservicios Spring Boot independientes | E1-01 y cada épica | Estructura `services/`, builds individuales y §20 |
+| PDF-NF-GATEWAY | Punto de entrada único | API Gateway | §5, §18 y spec `api-gateway` |
+| PDF-NF-COMM | REST síncrono; asíncrono justificado | §8 | Tabla de integraciones y regla de decisión asíncrona |
+| PDF-NF-PERSISTENCE | Base por servicio y al menos una NoSQL | §6; E2-04 selecciona NoSQL | Ownership y épica E2-04 |
+| PDF-NF-CONCURRENCY | No doble venta multi-instancia e idempotencia | Inventory y Purchase | §10, §11, prueba E1-02/E1-03 |
+| PDF-NF-CONSISTENCY | Consistencia y compensaciones | Purchase | §9 y §12 |
+| PDF-NF-RESILIENCE | Reintentos, timeouts y fallback | §17; E1-03 y E2-07 | Pruebas de fallo de Payment/Notification |
+| PDF-NF-CACHE | Estrategia de cache y datos no cacheables | §16; E2-07 | Tabla de autoridad y justificación |
+| PDF-NF-TRACEABILITY | Log por request y operación crítica con correlation ID | Gateway y cada servicio; E2-07 | §19 y pruebas de correlación |
+| PDF-NF-SECURITY | JWT y roles | E2-01 | §18 y E2-08 |
+| PDF-NF-DEPLOYMENT | Docker por componente y Compose único | Cada épica; E1-01/E2-07 | §20 y DoD de épica |
+| PDF-NF-PERFORMANCE | Prueba de carga del flujo de compra | E2-08 | Informe de carga |
+
+**Entregables de diseño del PDF y dónde se cubren:**
+
+| Entregable | Dónde se cubre | Decisión |
+|---|---|---|
+| Features y user stories | Cada épica en `proposal.md` y `specs/` | El blueprint sólo fija el mapa; cada épica detalla criterios |
+| Diagrama de módulos | D2 y D3 | Cubierto por contenedores C4 |
+| Diagrama de secuencia de compra | §9 | Incluye pago rechazado, incierto, reserva vencida y emisión fallida en la tabla de ramas |
+| ER por microservicio | `design.md` de cada épica | Diferido por Non-Goals; §7 sólo fija relaciones entre servicios |
+| API REST/OpenAPI | OpenAPI de cada épica | El Gateway expone todo; no se publican puertos internos |
+| Implementación y README | Cada épica y README raíz | DoD general de `OpenSpec.md` |
+| Pruebas unitarias y no doble venta | Cada épica; E1-02/E1-03 | DoD de testing |
+
+**Definition of Done de una épica que agrega un componente ejecutable** (checklist que se completa en cada épica):
+
+- El componente tiene `Dockerfile` propio y su imagen se construye individualmente.
+- El `docker-compose.yml` raíz declara el componente y sus dependencias.
+- `docker compose up --build` levanta el incremento actual y los healthchecks quedan sanos.
+- La configuración usa variables de entorno, sin rutas personales ni secretos.
+- El README documenta build, ejecución y pruebas.
+- OpenAPI y Postman están actualizados y se ejecutan a través del Gateway.
+- Los tests unitarios, de integración y de concurrencia aplicables pasan.
+- Cada request propaga `correlationId` y no expone datos sensibles en logs.
+
 Cada épica puede ajustar detalles internos, pero un cambio de ownership, servicio dueño o protocolo crítico debe actualizar primero este blueprint.
+
+### 22. Tecnologías y patrones opcionales
+
+| Tecnología o patrón | Estado en la baseline | Requisito que lo justificaría | Alternativa simple | Cómo se validaría |
+|---|---|---|---|---|
+| API Gateway (Spring Cloud Gateway) | Incluido | Punto de entrada único del PDF | Ninguna; es obligatorio | Routing y correlation ID en tests |
+| PostgreSQL por servicio | Incluido | Persistencia relacional y ownership | Ninguna para los datos transaccionales | Tests de persistencia |
+| Docker + Compose raíz | Incluido | Despliegue del PDF y decisión del proyecto | Ejecución local sólo para desarrollo | `docker compose up --build` y healthchecks |
+| Base NoSQL | Obligatoria en E2 | Requisito del PDF | PostgreSQL no cumple la consigna | Selección justificada en E2-04 |
+| Cache (Caffeine, Redis u otro) | Fuera | Medición o requisito de latencia demostrado | Consultas directas e índices | Prueba de carga; nunca autoridad |
+| Redis para reservas o fila | Fuera | Necesidad demostrada de coordinación/velocidad | PostgreSQL con UPDATE atómico y tabla ordenada | Pruebas de concurrencia |
+| Broker (RabbitMQ, Kafka) | Fuera | Múltiples consumidores, desacople o reintentos durables | REST o jobs persistidos | Tests de integración; Outbox/Inbox si se adopta |
+| Flyway/Liquibase | Fuera | Datos durables y migraciones versionadas | `schema.sql` idempotente | Inicialización desde base vacía |
+| OpenTelemetry, Loki, Prometheus, Grafana | Fuera | Operación multi-servicio justificada | Logs JSON consultables + correlation ID | Revisión de logs y trazabilidad |
+| Eureka u otro service discovery | Fuera | Múltiples orquestadores | Docker DNS de Compose | `docker compose up` |
+| Resilience4j, circuit breaker, bulkhead | Fuera | Fallos externos demostrados que timeouts/retries no cubren | Timeouts, retries acotados y fallback | Pruebas de fallo |
+| Framework de saga | Fuera | Complejidad de estados que el código simple no pueda mantener | Estados persistidos + REST idempotente | Pruebas de ramas y compensaciones |
+| BFF | Fuera | Necesidad de cliente no cubierta por el Gateway | Gateway + API REST | No aplica en el alcance actual |
+
+Cualquier incorporación futura debe actualizar esta tabla y responder las cuatro preguntas de §1 antes de implementarse.
+
+### 23. Registro de aprobación
+
+El blueprint fue revisado contra `TPE-ArqWeb-TicketYa-2026.pdf` y aprobado por el equipo el 2026-11-07 mediante el cambio archivado `2026-11-07-architecture-review-remaining-tasks`. Las correcciones aceptadas se incorporaron en §1, §4, §5, §6, §8, §9, §10, §11, §12, §13, §14, §15, §16, §17, §18, §20, §21 y §22. Cualquier objeción posterior requiere un cambio OpenSpec que actualice este blueprint antes de modificar la implementación.
+
+La próxima épica `establish-inventory-and-reservations` debe citar este blueprint y usar especialmente §6 (ownership), §8 (REST), §9 (saga), §10 (doble venta), §11 (idempotencia) y §21 (DoD). A la fecha de esta revisión no existe un proposal de esa épica; la verificación de que el blueprint fue utilizado se hará al abrirlo.
 
 ## Risks / Trade-offs
 

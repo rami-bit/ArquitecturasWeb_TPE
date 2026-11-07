@@ -17,6 +17,10 @@ El equipo necesita una vista arquitectónica compartida de TicketYa antes de pro
 - Establecer guidelines de simplicidad: Java 19 como estándar, el PDF como piso obligatorio y toda tecnología o patrón adicional sujeto a una justificación concreta.
 - Tratar la correctitud, concurrencia e idempotencia exigidas por el TPE como drivers; no tratar performance productiva, escala extrema o sofisticación operativa como objetivos del proyecto.
 - Establecer despliegue reproducible desde el primer incremento: cada componente desarrollado tendrá su `Dockerfile` y un `docker-compose.yml` central en la raíz declarará el sistema completo disponible.
+- Registrar la trazabilidad completa PDF→servicio dueño→épica primaria, incluidos actores, funcionales, no funcionales y entregables de diseño.
+- Auditar las tecnologías opcionales y declarar explícitamente fuera de la baseline las que no tengan justificación aprobada.
+- Corregir las ambigüedades detectadas en la revisión: estados derivados, orden de devolución y cancelación, límite por cliente, propósito de las copias y despliegue incremental.
+- Registrar la aprobación del blueprint y su uso obligatorio como referencia para `establish-inventory-and-reservations`.
 
 ## Capabilities
 
