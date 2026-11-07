@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Expone el catálogo a través de un único punto de entrada y garantiza que cada solicitud conserve un identificador de correlación y la identidad provisional durante la Entrega 1.
+Expone las APIs públicas de catálogo e inventario a través de un único punto de entrada y garantiza que cada solicitud conserve un identificador de correlación y la identidad provisional durante la Entrega 1.
 
 ## Requirements
 
