@@ -1,12 +1,12 @@
-# Verificación integrada - Establish Event Catalog
+# Verificación integrada - Establish Inventory and Reservations
 
-Fecha: 2026-11-05  
-Cambio: `establish-event-catalog`  
+Fecha: 2026-11-07  
+Cambio: `establish-inventory-and-reservations` (E1-02, PDF-F4, PDF-F5)  
 Estado: TODAS LAS VERIFICACIONES PASAN ✓
 
 ## Resumen
 
-Se ejecutó la verificación integrada completa del primer incremento de TicketYa (catálogo de eventos) desde un checkout limpio, siguiendo las instrucciones del `README.md`. Todas las verificaciones pasan.
+Se ejecutó la verificación integrada del segundo incremento de TicketYa: inventario de disponibilidad y reservas temporales. Inventory materializa su inventario desde el snapshot publicado de Catalog (sin copiar precios), expone la disponibilidad pública a través del Gateway y mantiene los comandos de reserva en `/internal/**`, fuera del Gateway. La garantía de no doble venta se apoya en PostgreSQL: actualizaciones condicionales, constraints y transacciones, no en caché ni en estado de proceso.
 
 ## 1. Build con Maven
 
@@ -14,72 +14,108 @@ Comando: `mvn verify` desde la raíz de `ticketya/`
 
 Resultado: **BUILD SUCCESS**
 
-| Módulo | Tests | Fallos | Errores | Tiempo |
+| Módulo | Tests | Fallos | Errores | Omitidos |
 |---|---|---|---|---|
-| api-gateway | 19 | 0 | 0 | 31s |
-| catalog-service | 27 | 0 | 0 | 43s |
-| ticketya (agregador) | — | — | — | 0s |
+| api-gateway | 25 | 0 | 0 | 0 |
+| catalog-service | 32 | 0 | 0 | 0 |
+| inventory-service | 59 | 0 | 0 | 0 |
+| ticketya (agregador) | — | — | — | — |
 
-Total: 46 tests, 0 fallos, 0 errores.
+Total: **116 tests, 0 fallos, 0 errores, 0 omitidos**.
 
 Entorno:
 - JDK 19 (Amazon Corretto 19.0.2)
 - Maven 3.9.15
-- Java version reportada: 19.0.2
+- Docker 29.7.2 (requerido por los tests de Testcontainers)
 
-## 2. Construcción de imágenes Docker
+### 1.1 Desglose de Inventory
+
+| Clase de test | Tests | Qué verifica |
+|---|---|---|
+| `InventoryAvailabilityContractTest` | 8 | Disponibilidad pública, orden estable, asientos retenidos, vencidos, `404` sin snapshot, ausencia de precios |
+| `ReservationContractTest` | 10 | Creación de reservas: asientos, general, último cupo, idempotencia, conflictos, rollback total |
+| `ReservationLifecycleContractTest` | 9 | Confirmación, liberación y expiración: transiciones, repetición idempotente, estados inválidos, `404` |
+| `ReservationQueryContractTest` | 4 | Consulta por `orderId` y por `reservationId`, vencimiento e ítems |
+| `ReservationFingerprintContractTest` | 1 | Fingerprint canónico: el orden de ítems no altera la idempotencia; otro payload con el mismo `orderId` es `409` |
+| `HoldTtlContractTest` | 5 | TTL predeterminado 600, actualización a 300, rango 60–3600, `404` sin inventario materializado |
+| `InventoryHealthContractTest` | 1 | Contexto completo con PostgreSQL real y actuator `UP` con correlation ID |
+| `InventorySchemaConstraintTest` | 3 | Constraints del esquema: duplicados de sector y asiento, tipos inválidos, contadores por encima de capacidad |
+| `OpenApiDocumentContractTest` | 9 | `docs/openapi.yaml`: paths, códigos, esquemas, problem+json y ausencia de precios |
+| `OpenApiRuntimeParityTest` | 5 | Paridad entre springdoc y `docs/openapi.yaml`, incluido el contrato interno de snapshot |
+| `InventoryConcurrencyContractTest` | 4 | Dos instancias sobre la misma base compitiendo por asiento, último cupo, confirmación y expiración |
+| **Total** | **59** | |
+
+### 1.2 Desglose de Catalog y Gateway
+
+Catalog suma 32 tests; 5 corresponden a `CatalogSnapshotContractTest` (snapshot publicado, sin precios, inmutable tras cambiar la plantilla, `404` para inexistente o no publicado).
+
+Gateway suma 25 tests; 6 corresponden a `GatewayInventoryContractTest` (routing de `/api/inventory/**`, precedencia sobre `/api/**`, `/internal/**` no publicado, propagación de `X-Correlation-Id` y preservación de `application/problem+json`).
+
+## 2. Concurrencia multi-instancia
+
+`InventoryConcurrencyContractTest` levanta dos contextos de Spring Boot de Inventory sobre el mismo PostgreSQL de Testcontainers y dispara solicitudes simultáneas alternando ambas instancias. Resultados de la corrida:
+
+| Escenario | Solicitudes | Resultado |
+|---|---|---|
+| Mismo asiento | 8 concurrentes (4 por instancia) | 1 × `201`, 7 × `409`; un único asiento `HELD` y una única reserva `ACTIVE` |
+| Último cupo general | 6 concurrentes, con 2 cupos ya retenidos sobre capacidad 3 | 1 × `201`, 5 × `409`; `sold + reserved = 3 = capacity`; disponible `0` |
+| Confirmación concurrente | 6 confirmaciones de la misma reserva | 6 × `200` con estado `CONFIRMED`; asiento `SOLD`, `sold=1`, `reserved=0`, 2 ítems |
+| Reintento de creación | 6 repeticiones del mismo `orderId` tras confirmar | 6 × `200` con el mismo `reservationId`; una sola fila en `reservations` y `sold` sin cambios |
+| Expiración perezosa concurrente | 6 consultas de disponibilidad desde ambas instancias | 6 × `200`; reserva `EXPIRED` una sola vez, asiento `AVAILABLE`, contadores en cero |
+
+Conclusión: la no doble venta no depende del proceso. Las actualizaciones condicionales (`UPDATE ... WHERE status = 'AVAILABLE'` y contadores con guardas de capacidad) más las constraints del esquema serializan la competencia entre instancias.
+
+## 3. Contrato OpenAPI
+
+- Archivo versionado: `docs/openapi.yaml` (8 paths, 14 schemas).
+- Validación: `npx --yes @redocly/cli@latest lint docs/openapi.yaml` → **API description is valid**, con 4 warnings esperados de `no-ambiguous-paths` (convivencia de `by-order/{orderId}` con `{reservationId}/...`).
+- Runtime de Inventory: `/v3/api-docs` expone los 8 paths. El path `/internal/events/{eventId}/snapshot` es documentación del contrato de Catalog dentro del runtime de Inventory (Inventory no lo sirve).
+- Tests de contrato: `OpenApiDocumentContractTest` y `OpenApiRuntimeParityTest` fallan si cambian paths, códigos o esquemas sin actualizar el YAML.
+
+| Path | Método | Exposición |
+|---|---|---|
+| `/api/inventory/events/{eventId}/availability` | GET | Pública, vía Gateway |
+| `/internal/reservations` | POST | Interna |
+| `/internal/reservations/by-order/{orderId}` | GET | Interna |
+| `/internal/reservations/{reservationId}` | GET | Interna |
+| `/internal/reservations/{reservationId}/confirm` | POST | Interna |
+| `/internal/reservations/{reservationId}/release` | POST | Interna |
+| `/internal/events/{eventId}/hold-ttl` | PUT | Interna |
+| `/internal/events/{eventId}/snapshot` | GET | Interna (Catalog) |
+
+## 4. Construcción de imágenes Docker
 
 Comando: `docker compose build` desde la raíz de `ticketya/`
-
-Resultado: Ambas imágenes construidas exitosamente.
 
 | Imagen | Estado |
 |---|---|
 | `ticketya-api-gateway:latest` | Built |
 | `ticketya-catalog-service:latest` | Built |
+| `ticketya-inventory-service:latest` | Built |
 
-Cada imagen ejecuta `mvn verify` internamente en su etapa de build (los tests de Testcontainers se saltean sin socket Docker dentro del build, pero los tests de persistencia contra H2 y los de integuración de endpoint pasan).
+Cada imagen ejecuta `mvn verify` en su etapa de build. El Dockerfile de Inventory usa el contexto raíz para copiar `docs/openapi.yaml`, de modo que `OpenApiDocumentContractTest` corre también dentro de la imagen. Los tests con `@Testcontainers(disabledWithoutDocker = true)` se omiten en el build porque no hay socket Docker disponible dentro del contenedor de build; se ejecutan completos en `mvn verify` desde el host.
 
-## 3. Levantamiento con Docker Compose
+## 5. Levantamiento con Docker Compose
 
-Comando: `docker compose down -v && docker compose up -d --wait` desde la raíz de `ticketya/`
+Comando: `docker compose down -v && docker compose up -d --build --wait`
 
-Resultado: Todos los servicios saludables.
+Resultado: los 5 servicios quedan `Healthy`.
 
 | Servicio | Puerto | Healthcheck | Estado |
 |---|---|---|---|
 | postgres | 5432 (interno) | `pg_isready` | Healthy |
+| inventory-db | 5432 (interno) | `pg_isready` | Healthy |
 | catalog-service | 8081 (interno) | `wget /actuator/health` | Healthy |
+| inventory-service | 8082 (interno) | `wget /actuator/health` | Healthy |
 | api-gateway | 8080 (publicado) | `wget /actuator/health` | Healthy |
 
-El Gateway expone el único puerto publicado (`8080`). Catalog Service y PostgreSQL no publican puertos al host.
+El Gateway es el único servicio con puerto publicado al host (`${GATEWAY_PORT:-8080}:8080`). Catalog, Inventory, `postgres` e `inventory-db` sólo son accesibles por la red de Compose. `/internal/**` no tiene ruta en el Gateway.
 
-## 4. Validación de OpenAPI
-
-Comando: `docker compose exec -T catalog-service wget -qO- http://localhost:8081/v3/api-docs`
-
-Resultado: OpenAPI 3.0.1 disponible internamente en Catalog Service. Contiene los paths del flujo:
-
-| Path | Método | Tag |
-|---|---|---|
-| `/api/venues` | GET, POST | Venues |
-| `/api/venues/{id}` | PUT | Venues |
-| `/api/management/events` | GET, POST | Event management |
-| `/api/management/events/{id}` | GET, PUT | Event management |
-| `/api/management/events/{id}/offerings` | PUT | Event management |
-| `/api/management/events/{id}/publish` | POST | Event management |
-| `/api/management/events/{id}/suspend` | POST | Event management |
-| `/api/management/events/{id}/resume` | POST | Event management |
-| `/api/events` | GET | Public event discovery |
-| `/api/events/{eventId}` | GET | Public event discovery |
-
-OpenAPI y Swagger UI no se publican por el Gateway (opción A validada: chequeo interno del contenedor).
-
-## 5. Ejecución de Postman vía Gateway
+## 6. Ejecución de Postman vía Gateway
 
 Comando: `npx --yes newman run postman/ticketya.postman_collection.json --env-var baseUrl=http://localhost:8080`
 
-Resultado: **12 requests ejecutadas, 27 aserciones, 0 fallos**
+Resultado: **13 requests, 31 aserciones, 0 fallos**
 
 | # | Request | Método | Ruta | Estado |
 |---|---|---|---|---|
@@ -90,30 +126,54 @@ Resultado: **12 requests ejecutadas, 27 aserciones, 0 fallos**
 | 05 | Publicar | POST | `/api/management/events/{id}/publish` | 200 |
 | 06 | Buscar publicados | GET | `/api/events` | 200 |
 | 07 | Detalle público | GET | `/api/events/{id}` | 200 |
-| 08 | Suspender | POST | `/api/management/events/{id}/suspend` | 200 |
-| 09 | Detalle tras suspensión | GET | `/api/events/{id}` | 404 |
-| 10 | Reanudar | POST | `/api/management/events/{id}/resume` | 200 |
-| 11 | Detalle tras reanudación | GET | `/api/events/{id}` | 200 |
-| 12 | Eco CorrelationId | POST | `/api/management/events/{id}/suspend` | 200 |
+| 08 | Disponibilidad de Inventory | GET | `/api/inventory/events/{eventId}/availability` | 200 |
+| 09 | Suspender | POST | `/api/management/events/{id}/suspend` | 200 |
+| 10 | Detalle tras suspensión | GET | `/api/events/{id}` | 404 |
+| 11 | Reanudar | POST | `/api/management/events/{id}/resume` | 200 |
+| 12 | Detalle tras reanudación | GET | `/api/events/{id}` | 200 |
+| 13 | Eco CorrelationId | POST | `/api/management/events/{id}/suspend` | 200 |
 
-Todos los requests van exclusivamente a través del API Gateway (puerto 8080). Ninguno llama directamente a Catalog Service (8081).
+La request 08 valida que Inventory materializa perezosamente el inventario desde el snapshot publicado, devuelve sectores numerados y generales con sus asientos, no expone `price` y propaga `X-Correlation-Id`. Todos los requests van exclusivamente por el Gateway (puerto 8080).
 
-Datos repetibles: cada corrida genera un `runId` único para nombre de lugar y participante, evitando colisiones entre ejecuciones.
+## 7. Smoke test interno de reservas
 
-## 6. Limpieza
+Ejecutado dentro de la red de Compose (sin publicar puertos), sobre el evento publicado por la colección Postman:
 
-Comando: `docker compose down` (sin `-v` para conservar el volumen si se desea inspeccionar).
+1. `GET /api/inventory/events/{eventId}/availability` → 2 sectores: numerado (3 asientos) y general (capacidad 500).
+2. `POST /internal/reservations` con 1 asiento numerado + 2 generales → `201`, estado `ACTIVE`, 2 ítems.
+3. `POST /internal/reservations/{reservationId}/confirm` → `200`, estado `CONFIRMED`.
+4. `GET /v3/api-docs` → expone `/api/inventory/events/{eventId}/availability`, `/internal/reservations`, `/internal/events/{eventId}/hold-ttl` y `/internal/events/{eventId}/snapshot`.
 
-Para reset completo: `docker compose down -v`.
+También se verificó que el Gateway no publica `/internal/**` (sin ruta configurada para ese prefijo).
+
+## 8. Limpieza
+
+Comando: `docker compose down` (sin `-v` para conservar volúmenes) o `docker compose down -v` para reset completo de `catalog-postgres-data` e `inventory-postgres-data`.
+
+## 9. Checklist de Definition of Done (§21 del blueprint)
+
+| Criterio | Evidencia |
+|---|---|
+| Dockerfile propio e imagen construida individualmente | `services/inventory-service/Dockerfile`; `docker compose build` construye `ticketya-inventory-service` |
+| Compose raíz declara el componente y sus dependencias | `inventory-service`, `inventory-db`; depende de `inventory-db` y `catalog-service` sanos |
+| `docker compose up --build` levanta el incremento con healthchecks sanos | 5/5 servicios `Healthy` |
+| Configuración por variables de entorno, sin rutas ni secretos | `DB_URL`, `DB_USER`, `DB_PASSWORD`, `CATALOG_SERVICE_URL`, `INVENTORY_HOLD_TTL_SECONDS`, `SERVER_PORT` |
+| README documenta build, ejecución y pruebas | Secciones de Inventory, variables, Compose, flujo interno, OpenAPI y reset de volúmenes |
+| OpenAPI y Postman actualizados y ejecutados por el Gateway | `docs/openapi.yaml` validado; Newman 13 requests / 31 aserciones por el puerto 8080 |
+| Tests unitarios, de integración y de concurrencia aplicables | 116 tests verdes, incluidos los 4 escenarios multi-instancia |
+| `correlationId` propagado y sin datos sensibles | Tests de correlation ID en los 3 servicios; disponibilidad y errores sin precios ni trazas |
 
 ## Conclusión
 
-Todas las verificaciones de la tarea 6.5 pasan:
-- ✅ `mvn verify` desde la raíz y cada servicio
-- ✅ Construcción de imágenes Docker
-- ✅ `docker compose up --build` con servicios saludables
-- ✅ Validación de OpenAPI interna en contenedor
-- ✅ Ejecución de Postman/Newman vía Gateway (27/27 aserciones)
-- ✅ Evidencia registrada en este archivo
+Todas las verificaciones del cambio `establish-inventory-and-reservations` pasan:
 
-El cambio `establish-event-catalog` está listo para archivado tras revisión del equipo.
+- ✅ `mvn verify` desde la raíz: 116 tests, 0 fallos (25 Gateway + 32 Catalog + 59 Inventory)
+- ✅ Concurrencia multi-instancia: 4 escenarios, sin doble venta ni doble liberación
+- ✅ `docs/openapi.yaml` válido con Redocly y en paridad con el runtime de springdoc
+- ✅ `docker compose build` para las 3 imágenes
+- ✅ `docker compose up -d --build --wait`: 5 servicios `Healthy`, sólo el Gateway publicado
+- ✅ Newman vía Gateway: 13 requests, 31 aserciones, 0 fallos
+- ✅ Smoke test interno de reserva y confirmación, y OpenAPI interno de Inventory
+- ✅ DoD de §21 del blueprint cubierto y sin desviaciones
+
+El cambio queda listo para archivado tras la revisión del equipo.

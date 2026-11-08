@@ -35,14 +35,58 @@ services:
     networks:
       - ticketya
 
+  inventory-db:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_DB: ${INVENTORY_POSTGRES_DB:-ticketya_inventory}
+      POSTGRES_USER: ${POSTGRES_USER:-ticketya}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ticketya}
+    volumes:
+      - inventory-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - ticketya
+
+  inventory-service:
+    build:
+      context: .
+      dockerfile: services/inventory-service/Dockerfile
+    environment:
+      SERVER_PORT: 8082
+      DB_URL: jdbc:postgresql://inventory-db:5432/${INVENTORY_POSTGRES_DB:-ticketya_inventory}
+      DB_USER: ${POSTGRES_USER:-ticketya}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-ticketya}
+      CATALOG_SERVICE_URL: http://catalog-service:8081
+      INVENTORY_HOLD_TTL_SECONDS: 600
+    depends_on:
+      inventory-db:
+        condition: service_healthy
+      catalog-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/actuator/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 15s
+    networks:
+      - ticketya
+
   api-gateway:
     build:
       context: ./services/api-gateway
     environment:
       SERVER_PORT: 8080
       CATALOG_SERVICE_URL: http://catalog-service:8081
+      INVENTORY_SERVICE_URL: http://inventory-service:8082
     depends_on:
       catalog-service:
+        condition: service_healthy
+      inventory-service:
         condition: service_healthy
     ports:
       - "${GATEWAY_PORT:-8080}:8080"
@@ -60,3 +104,4 @@ networks:
 
 volumes:
   catalog-postgres-data:
+  inventory-postgres-data:

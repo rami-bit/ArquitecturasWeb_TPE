@@ -1,6 +1,8 @@
-# TicketYa - Catálogo de Eventos (Entrega 1)
+# TicketYa - Catálogo de Eventos e Inventario (Entrega 1)
 
-Primer incremento vertical de TicketYa: administración de lugares, borradores de eventos, publicación con snapshot inmutable y descubrimiento público, todo accesible exclusivamente a través del API Gateway.
+Primer incremento vertical de TicketYa: administración de lugares, borradores de eventos, publicación con snapshot inmutable, descubrimiento público, e inventario de disponibilidad y reservas temporales, todo lo público accesible exclusivamente a través del API Gateway.
+
+El Catálogo es dueño del snapshot publicado y de los precios. Inventory es dueño de la disponibilidad y de las reservas: materializa el layout desde el snapshot de Catalog (sin copiar precios) y expone `GET /api/inventory/events/{eventId}/availability`. Los comandos de reserva (`/internal/**`) son internos y no se publican por el Gateway; los consumirá el futuro Purchase Service.
 
 ## Requisitos
 
@@ -17,8 +19,9 @@ El `docker-compose.yml` de la raíz de `ticketya/` usa los siguientes valores co
 | Variable | Predeterminado | Propósito |
 |---|---|---|
 | `POSTGRES_DB` | `ticketya_catalog` | Nombre de la base de datos de catálogo |
-| `POSTGRES_USER` | `ticketya` | Usuario de PostgreSQL |
-| `POSTGRES_PASSWORD` | `ticketya` | Contraseña de PostgreSQL |
+| `INVENTORY_POSTGRES_DB` | `ticketya_inventory` | Nombre de la base de datos de inventario |
+| `POSTGRES_USER` | `ticketya` | Usuario de ambas bases PostgreSQL |
+| `POSTGRES_PASSWORD` | `ticketya` | Contraseña de ambas bases PostgreSQL |
 | `GATEWAY_PORT` | `8080` | Puerto publicado del API Gateway en el host |
 
 Los servicios internos reciben su configuración a través de variables de Compose (no necesitas definirlas a menos que quieras sobreescribirlas):
@@ -29,8 +32,15 @@ Los servicios internos reciben su configuración a través de variables de Compo
 | catalog-service | `DB_URL` | `jdbc:postgresql://postgres:5432/ticketya_catalog` |
 | catalog-service | `DB_USER` | `ticketya` |
 | catalog-service | `DB_PASSWORD` | `ticketya` |
+| inventory-service | `SERVER_PORT` | `8082` |
+| inventory-service | `DB_URL` | `jdbc:postgresql://inventory-db:5432/ticketya_inventory` |
+| inventory-service | `DB_USER` | `ticketya` |
+| inventory-service | `DB_PASSWORD` | `ticketya` |
+| inventory-service | `CATALOG_SERVICE_URL` | `http://catalog-service:8081` |
+| inventory-service | `INVENTORY_HOLD_TTL_SECONDS` | `600` (TTL por defecto de reservas, rango 60-3600) |
 | api-gateway | `SERVER_PORT` | `8080` |
 | api-gateway | `CATALOG_SERVICE_URL` | `http://catalog-service:8081` |
+| api-gateway | `INVENTORY_SERVICE_URL` | `http://inventory-service:8082` |
 
 Ninguna variable contiene rutas personales ni secretos de producción.
 
@@ -45,16 +55,19 @@ mvn verify
 # Build y verificación de un servicio individual
 mvn verify -pl services/api-gateway
 mvn verify -pl services/catalog-service
+mvn verify -pl services/inventory-service
 ```
 
 El proyecto usa Java 19 y Spring Boot 3.2.5. No se incluye Maven Wrapper (`mvnw`); se asume Maven 3.9+ instalado en el entorno.
+
+Los tests de contrato de Inventory y de persistencia contra PostgreSQL usan Testcontainers: requieren Docker disponible. Si Docker no está disponible, esas clases se saltean automáticamente y el resto de la suite sigue ejecutándose.
 
 ## Construcción de imágenes y Compose
 
 Desde la carpeta `ticketya/`:
 
 ```bash
-# Construir todas las imágenes (Gateway, Catalog Service)
+# Construir todas las imágenes (Gateway, Catalog Service, Inventory Service)
 docker compose build
 
 # Levantar el incremento completo (reconstruye imágenes y espera healthchecks)
@@ -76,14 +89,15 @@ docker compose down
 docker compose down -v
 ```
 
-El Gateway expone el único puerto publicado (`${GATEWAY_PORT:-8080}:8080`). Catalog Service y PostgreSQL no publican puertos al host; se comunican por nombres de servicio de la red de Compose.
+El Gateway expone el único puerto publicado (`${GATEWAY_PORT:-8080}:8080`). Catalog Service, Inventory Service, PostgreSQL (`postgres`) e `inventory-db` no publican puertos al host; se comunican por nombres de servicio de la red de Compose.
 
 ## Salud de los servicios
 
 Cada servicio tiene un healthcheck basado en `wget` contra su endpoint de actuator:
 
-- PostgreSQL: `pg_isready`
+- `postgres` (Catálogo) e `inventory-db` (Inventory): `pg_isready`
 - Catalog Service: `http://localhost:8081/actuator/health`
+- Inventory Service: `http://localhost:8082/actuator/health`
 - API Gateway: `http://localhost:8080/actuator/health`
 
 Espera a que todos reporten `healthy` antes de ejecutar la colección Postman.
@@ -97,17 +111,46 @@ npx --yes newman run postman/ticketya.postman_collection.json \
   --env-var baseUrl=http://localhost:8080
 ```
 
-La colección es repetible: cada corrida genera un `runId` único para nombre de lugar y participante, evitando colisiones entre ejecuciones. Cubre: crear lugar, crear/configurar borrador, publicar, buscar, consultar, suspender y reanudar, todo a través del Gateway.
+La colección es repetible: cada corrida genera un `runId` único para nombre de lugar y participante, evitando colisiones entre ejecuciones. Cubre: crear lugar, crear/configurar borrador, publicar, buscar, consultar, suspender y reanudar, más la consulta pública de disponibilidad de Inventory a través del Gateway. Inventory materializa el inventario de forma perezosa a partir del snapshot publicado de Catalog en la primera consulta.
+
+## Flujo interno de inventario (no publicado por el Gateway)
+
+Los comandos de reserva existen sólo dentro de la red de Compose y no tienen ruta en el Gateway:
+
+| Método | Ruta | Propósito |
+|---|---|---|
+| `POST` | `/internal/reservations` | Crear o recuperar una reserva temporal (idempotente por `orderId`) |
+| `GET` | `/internal/reservations/by-order/{orderId}` | Recuperar por orden |
+| `GET` | `/internal/reservations/{reservationId}` | Recuperar por reserva |
+| `POST` | `/internal/reservations/{reservationId}/confirm` | Confirmar y vender los lugares retenidos |
+| `POST` | `/internal/reservations/{reservationId}/release` | Liberar los lugares retenidos |
+| `PUT` | `/internal/events/{eventId}/hold-ttl` | Configurar el TTL de retención (60-3600 s) |
+| `GET` | `/internal/events/{eventId}/snapshot` | Snapshot publicado de Catalog (contrato interno) |
+
+Smoke test interno desde el host, sin publicar puertos:
+
+```bash
+# Disponibilidad pública a través del Gateway
+curl -H "X-Correlation-Id: smoke-1" \
+  http://localhost:8080/api/inventory/events/<eventId>/availability
+
+# Comandos internos dentro de la red de Compose
+docker compose exec -T inventory-service wget -qO- \
+  http://localhost:8082/v3/api-docs
+docker compose exec -T inventory-service wget -qO- \
+  http://localhost:8082/internal/reservations/by-order/<orderId>
+```
 
 ## Validar OpenAPI (interno, vía contenedor)
 
-OpenAPI y Swagger UI están expuestos en Catalog Service (puerto interno 8081) y no se publican por el Gateway. Valida desde dentro del contenedor:
+OpenAPI y Swagger UI están expuestos en Catalog Service (puerto interno 8081), Inventory Service (puerto interno 8082) y no se publican por el Gateway. Valida desde dentro de cada contenedor:
 
 ```bash
 docker compose exec -T catalog-service wget -qO- http://localhost:8081/v3/api-docs
+docker compose exec -T inventory-service wget -qO- http://localhost:8082/v3/api-docs
 ```
 
-Debe contener los paths del flujo: `/api/venues`, `/api/management/events/*`, `/api/events/*`.
+Deben contener los paths de cada flujo. El contrato versionado de Inventory está en `docs/openapi.yaml` y los tests de contrato fallan si cambian paths, códigos o esquemas sin actualizarlo.
 
 ## Verificación desde un checkout limpio
 
@@ -120,7 +163,7 @@ Desde un checkout limpio del proyecto (sin rutas personales ni configuración de
 5. Ejecuta `docker compose build`.
 6. Ejecuta `docker compose down -v && docker compose up -d --wait`.
 7. Ejecuta la colección Postman con `npx newman`.
-8. Valida OpenAPI con `docker compose exec -T catalog-service wget -qO- http://localhost:8081/v3/api-docs`.
+8. Valida OpenAPI con `docker compose exec -T catalog-service wget -qO- http://localhost:8081/v3/api-docs` y con `docker compose exec -T inventory-service wget -qO- http://localhost:8082/v3/api-docs`.
 9. Ejecuta `docker compose down` al terminar.
 
 Ningún paso requiere rutas absolutas de la máquina del autor ni secretos versionados.
@@ -140,6 +183,8 @@ ticketya/
 |   +-- api-gateway/
 |   |   +-- pom.xml, Dockerfile, src/
 |   +-- catalog-service/
+|   |   +-- pom.xml, Dockerfile, src/
+|   +-- inventory-service/
 |       +-- pom.xml, Dockerfile, src/
 +-- openspec/
 +-- OpenSpec.md
@@ -147,11 +192,11 @@ ticketya/
 
 ## Reset de la base de datos
 
-Para partir desde una base PostgreSQL vacía:
+Para partir desde bases PostgreSQL vacías:
 
 ```bash
 docker compose down -v
 docker compose up -d
 ```
 
-Esto elimina el volumen `catalog-postgres-data` y lo recrea vacío. El esquema se inicializa automáticamente con `schema.sql` al iniciar Catalog Service.
+Esto elimina los volúmenes `catalog-postgres-data` e `inventory-postgres-data` y los recrea vacíos. Los esquemas se inicializan automáticamente con el `schema.sql` de cada servicio al arrancar Catalog Service e Inventory Service.

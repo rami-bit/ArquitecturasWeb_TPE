@@ -6,7 +6,13 @@ spring:
     name: api-gateway
   cloud:
     gateway:
+      # Route order matters: the inventory prefix must win over the catalog catch-all.
+      # Internal commands (/internal/**) are intentionally not routed.
       routes:
+        - id: inventory-service
+          uri: ${INVENTORY_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/inventory/**
         - id: catalog-service
           uri: ${CATALOG_SERVICE_URL:http://localhost:8081}
           predicates:

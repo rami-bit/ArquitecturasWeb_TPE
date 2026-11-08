@@ -124,15 +124,25 @@ class GatewayRoutingIntegrationTest {
     }
 
     @Test
-    void routeUriComesFromCatalogServiceUrlProperty() {
+    void routeUrisComeFromServiceUrlProperties() {
         List<Route> routes = routeLocator.getRoutes().collectList().block();
+        assertThat(routes).isNotNull();
 
-        assertThat(routes).singleElement().satisfies(route -> {
-            assertThat(route.getId()).isEqualTo("catalog-service");
-            assertThat(route.getUri().getScheme()).isEqualTo("http");
-            assertThat(route.getUri().getHost()).isEqualTo("localhost");
-            assertThat(route.getUri().getPort()).isEqualTo(CATALOG_STUB.getAddress().getPort());
-        });
+        assertThat(routes)
+                .filteredOn(route -> "catalog-service".equals(route.getId()))
+                .singleElement()
+                .satisfies(route -> {
+                    assertThat(route.getUri().getScheme()).isEqualTo("http");
+                    assertThat(route.getUri().getHost()).isEqualTo("localhost");
+                    assertThat(route.getUri().getPort())
+                            .isEqualTo(CATALOG_STUB.getAddress().getPort());
+                });
+
+        assertThat(routes)
+                .filteredOn(route -> "inventory-service".equals(route.getId()))
+                .singleElement()
+                .satisfies(route -> assertThat(route.getUri().toString())
+                        .isEqualTo("http://localhost:8082"));
     }
 
     @Test

@@ -498,7 +498,62 @@
       ]
     },
     {
-      "name": "08 - Suspender evento (ADMIN)",
+      "name": "08 - Disponibilidad pública de Inventory (público)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "body": {},
+        "url": {
+          "raw": "{{baseUrl}}/api/inventory/events/{{eventId}}/availability",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "inventory", "events", "{{eventId}}", "availability"]
+        },
+        "description": "Inventory materializa el inventario desde el snapshot publicado de Catalog y devuelve la disponibilidad por sector. Sin precios ni datos sensibles."
+      },
+      "response": [
+        {
+          "name": "200 OK",
+          "status": "OK",
+          "code": 200,
+          "body": "{\n  \"eventId\": \"{{eventId}}\",\n  \"generatedAt\": \"2030-06-01T21:00:00Z\",\n  \"sectors\": [\n    {\"sectorId\": \"...\", \"name\": \"Platea Numerada\", \"type\": \"NUMBERED\", \"capacity\": 3, \"sold\": 0, \"reserved\": 0, \"available\": 3, \"seats\": [{\"seatId\": \"...\", \"row\": \"A\", \"number\": 1, \"status\": \"AVAILABLE\"}]},\n    {\"sectorId\": \"...\", \"name\": \"General\", \"type\": \"GENERAL_ADMISSION\", \"capacity\": 500, \"sold\": 0, \"reserved\": 0, \"available\": 500, \"seats\": null}\n  ]\n}"
+        }
+      ],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status es 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "pm.test('Disponibilidad coincide con el evento y tiene sectores', function () {",
+              "  const json = pm.response.json();",
+              "  pm.expect(json.eventId).to.eql(pm.variables.get('eventId'));",
+              "  pm.expect(Array.isArray(json.sectors)).to.be.true;",
+              "  pm.expect(json.sectors.length).to.be.at.least(2);",
+              "});",
+              "pm.test('Sector numerado expone asientos y no precios', function () {",
+              "  const json = pm.response.json();",
+              "  const numerado = json.sectors.find(s => s.type === 'NUMBERED');",
+              "  const general = json.sectors.find(s => s.type === 'GENERAL_ADMISSION');",
+              "  pm.expect(numerado).to.not.be.undefined;",
+              "  pm.expect(general).to.not.be.undefined;",
+              "  pm.expect(numerado.capacity).to.eql(3);",
+              "  pm.expect(numerado.seats.length).to.eql(3);",
+              "  pm.expect(general.capacity).to.eql(500);",
+              "  JSON.stringify(json).includes('price') && pm.expect.fail('la disponibilidad no debe exponer price');",
+              "});",
+              "pm.test('Toda respuesta lleva X-Correlation-Id', function () {",
+              "  pm.expect(pm.response.headers.get('X-Correlation-Id')).to.not.be.empty;",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "09 - Suspender evento (ADMIN)",
       "request": {
         "method": "POST",
         "header": [
@@ -553,7 +608,7 @@
       ]
     },
     {
-      "name": "09 - Detalle público tras suspensión debe ser 404 (público)",
+      "name": "10 - Detalle público tras suspensión debe ser 404 (público)",
       "request": {
         "method": "GET",
         "header": [],
@@ -594,7 +649,7 @@
       ]
     },
     {
-      "name": "10 - Reanudar evento (ADMIN)",
+      "name": "11 - Reanudar evento (ADMIN)",
       "request": {
         "method": "POST",
         "header": [
@@ -649,7 +704,7 @@
       ]
     },
     {
-      "name": "11 - Detalle público tras reanudación es 200 (público)",
+      "name": "12 - Detalle público tras reanudación es 200 (público)",
       "request": {
         "method": "GET",
         "header": [],
@@ -691,7 +746,7 @@
       ]
     },
     {
-      "name": "12 - Eco de X-Correlation-Id (ADMIN)",
+      "name": "13 - Eco de X-Correlation-Id (ADMIN)",
       "request": {
         "method": "POST",
         "header": [

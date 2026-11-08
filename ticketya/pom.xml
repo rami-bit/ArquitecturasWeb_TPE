@@ -12,6 +12,7 @@
     <modules>
         <module>services/api-gateway</module>
         <module>services/catalog-service</module>
+        <module>services/inventory-service</module>
     </modules>
 
     <properties>

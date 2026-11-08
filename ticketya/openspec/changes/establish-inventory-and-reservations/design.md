@@ -81,6 +81,8 @@ Tablas y restricciones principales:
 
 Para sectores numerados, `sold` y `reserved` de `inventory_sectors` no se mantienen: la disponibilidad se deriva de los estados de `inventory_items`. Para admisión general no existen `inventory_items`; se usan los contadores `sold` y `reserved` del sector. Esto evita serializar todos los asientos de un sector numerado sobre una misma fila.
 
+**Identificadores de la API:** en toda la API de Inventory, `sectorId` es el `inventory_sectors.id` y `seatId` es el `inventory_items.id`. La disponibilidad pública es la superficie donde el cliente descubre esos identificadores y los reutiliza en las reservas; así Purchase no depende de los identificadores internos de Catalog. Los `sourceSectorId` y `sourceSeatId` se conservan en la base para trazabilidad y reconciliación con el snapshot, pero no se usan como claves de los comandos de reserva.
+
 `reservation_items` guarda una fila por asiento (cantidad 1) y una fila por sector general con la cantidad solicitada. Los índices únicos parciales impiden duplicar el mismo asiento o el mismo sector general dentro de una reserva:
 
 ```sql
@@ -155,6 +157,8 @@ Todos los comandos son REST síncronos y viven bajo `/internal`, sin pasar por e
 | `POST /internal/reservations/{reservationId}/release` | Liberar la reserva | `reservationId` + estado |
 | `PUT /internal/events/{eventId}/hold-ttl` | Configurar la retención del evento | `eventId` + valor |
 
+Configurar el TTL requiere que el inventario del evento ya esté materializado; si no existe, se devuelve `404` sin inicializarlo ni consultar Catalog. Así la operación de configuración no introduce una dependencia síncrona nueva.
+
 Solicitud de reserva:
 
 ```json
@@ -164,7 +168,7 @@ Solicitud de reserva:
   "ttlSeconds": 300,
   "items": [
     { "sectorId": "0b5e9b5e-...", "seatId": "f1d2..." },
-    { "sectorId": "0b5e9b5e-...", "seatId": "f1d2..." },
+    { "sectorId": "0b5e9b5e-...", "seatId": "a7c3..." },
     { "sectorId": "9c8d...", "quantity": 2 }
   ]
 }
@@ -194,7 +198,8 @@ Asiento numerado:
 UPDATE inventory_items
 SET status = 'HELD', reservation_id = :reservationId, expires_at = :expiresAt
 WHERE event_inventory_id = :eventInventoryId
-  AND source_seat_id = :seatId
+  AND id = :seatId
+  AND sector_id = :sectorId
   AND (status = 'AVAILABLE' OR (status = 'HELD' AND expires_at <= CURRENT_TIMESTAMP));
 ```
 

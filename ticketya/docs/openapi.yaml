@@ -1,0 +1,1441 @@
+openapi: 3.0.3
+
+info:
+  title: TicketYa API - Inventory
+  version: '0.1.0'
+  description: |
+    Contrato versionado del incremento `establish-inventory-and-reservations`
+    (E1-02, PDF-F4/F5).
+
+    Este documento cubre:
+    - La **disponibilidad pública** de inventario, publicada por el API Gateway.
+    - Los **contratos internos de Inventory** para reservas temporales, consulta,
+      confirmación, liberación y configuración de retención, consumidos por
+      Purchase Service.
+    - El **snapshot interno de Catalog**, contrato de lectura que Inventory usa
+      para materializar el layout de un evento sin copiar precios.
+
+    Las rutas `/internal/**` existen únicamente en la red interna de servicios y
+    **no se publican por el Gateway**. Inventory Service escucha en
+    `inventory-service:8082` y Catalog Service en `catalog-service:8081`. La
+    única superficie pública de este contrato es
+    `GET /api/inventory/events/{eventId}/availability`.
+
+    Reglas transversales:
+    - La disponibilidad nunca incluye precios, comprador, `orderId` ni
+      `reservationId`.
+    - `sectorId` y `seatId` son identificadores de Inventory; se descubren en la
+      disponibilidad y se reutilizan al reservar.
+    - `sourceSectorId` y `sourceSeatId` son identificadores de Catalog y sólo
+      aparecen en el snapshot interno.
+    - El TTL de retención por defecto es 600 s y el rango permitido es
+      60..3600 s.
+    - Todos los errores usan `application/problem+json`.
+    - Toda solicitud y toda respuesta llevan `X-Correlation-Id`.
+    - No hay autenticación JWT en E1; los comandos internos se protegen por
+      aislamiento de red.
+
+servers:
+  - url: http://localhost:8080
+    description: |
+      API Gateway público. Expone únicamente `/api/inventory/**` y las rutas
+      públicas de Catalog. No enruta `/internal/**`.
+  - url: http://inventory-service:8082
+    description: |
+      Red interna de Compose. Inventory Service expone la disponibilidad y los
+      comandos `/internal/**` de reservas y configuración. No publica puerto al
+      host.
+  - url: http://catalog-service:8081
+    description: |
+      Red interna de Compose. Catalog Service expone el snapshot interno
+      `GET /internal/events/{eventId}/snapshot`. No publica puerto al host.
+
+security: []
+
+tags:
+  - name: Inventory availability
+    description: |
+      Consulta pública de disponibilidad a través del API Gateway. No requiere
+      autenticación ni encabezados de identidad.
+  - name: Inventory reservations (internal)
+    description: |
+      Comandos internos de reserva, consulta, confirmación y liberación,
+      consumidos por Purchase Service. Sólo accesibles dentro de la red de
+      servicios; el Gateway no los publica.
+  - name: Inventory configuration (internal)
+    description: |
+      Configuración interna de la retención (TTL) por evento. Sólo accesible
+      dentro de la red de servicios.
+  - name: Catalog snapshot (internal)
+    description: |
+      Contrato interno de lectura del snapshot publicado de Catalog, usado por
+      Inventory para inicializar el layout de un evento. No incluye precios y no
+      se publica por el Gateway.
+
+paths:
+  /api/inventory/events/{eventId}/availability:
+    get:
+      tags:
+        - Inventory availability
+      operationId: getEventAvailability
+      summary: Consultar la disponibilidad pública de un evento
+      description: |
+        Devuelve la disponibilidad agregada por sector y, para sectores
+        numerados, el estado de cada asiento. Antes de responder, Inventory
+        garantiza que el inventario exista y expira las reservas vencidas del
+        evento.
+
+        La respuesta nunca incluye precios, datos del comprador, `orderId` ni
+        `reservationId`. Si el evento recién se inicializa y Catalog no responde,
+        se devuelve `503` sin dejar inventario parcial.
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: |
+            Disponibilidad del evento calculada en `generatedAt`. Los sectores
+            vienen ordenados por `name` y luego por `sectorId`; los asientos por
+            `row` y luego por `number`.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AvailabilityResponse'
+              examples:
+                availability:
+                  $ref: '#/components/examples/Availability'
+        '404':
+          description: |
+            El evento no existe o no tiene snapshot publicado en Catalog.
+            Inventory no crea inventario parcial.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                notFound:
+                  $ref: '#/components/examples/ProblemNotFound'
+        '503':
+          description: |
+            Catalog no está disponible durante la inicialización del inventario.
+            La solicitud puede reintentarse más tarde.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                serviceUnavailable:
+                  $ref: '#/components/examples/ProblemServiceUnavailable'
+        '504':
+          description: |
+            El API Gateway no obtuvo respuesta de Inventory dentro del tiempo de
+            espera. El cuerpo es un problema y conserva el `X-Correlation-Id`
+            resuelto por el Gateway.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                gatewayTimeout:
+                  $ref: '#/components/examples/ProblemGatewayTimeout'
+        '500':
+          description: |
+            Error inesperado. El cuerpo es un problema genérico sin trazas,
+            credenciales ni detalles de la base de datos.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                internalServerError:
+                  $ref: '#/components/examples/ProblemInternalServerError'
+
+  /internal/reservations:
+    post:
+      tags:
+        - Inventory reservations (internal)
+      operationId: createReservation
+      summary: Crear una reserva temporal
+      description: |
+        Retiene todos los ítems solicitados en una única transacción: o se
+        retienen todos, o no se retiene ninguno. La reserva usa el TTL del evento
+        salvo que `ttlSeconds` se informe explícitamente.
+
+        Idempotencia por `orderId` más el fingerprint canónico del contenido:
+        - Si no existe una reserva para el `orderId`, se crea y se responde
+          `201`.
+        - Si existe una reserva `ACTIVE` o `CONFIRMED` con el mismo contenido, se
+          devuelve la existente con `200` y no se retienen lugares adicionales.
+        - Si el `orderId` existe con otro contenido, o la reserva está `EXPIRED`
+          o `RELEASED`, se responde `409` sin modificar el inventario.
+
+        Los comandos de reserva son internos y no se publican por el Gateway.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReservationRequest'
+            examples:
+              reservation:
+                $ref: '#/components/examples/ReservationRequest'
+      responses:
+        '201':
+          description: |
+            Reserva nueva creada. Todos los ítems quedaron retenidos hasta
+            `expiresAt`.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationResponse'
+              examples:
+                created:
+                  $ref: '#/components/examples/ReservationActive'
+        '200':
+          description: |
+            Reintento idempotente: ya existía una reserva `ACTIVE` o `CONFIRMED`
+            para el mismo `orderId` y el mismo contenido. Se devuelve la reserva
+            existente sin retener lugares adicionales.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationResponse'
+              examples:
+                existing:
+                  $ref: '#/components/examples/ReservationActive'
+        '400':
+          description: |
+            Payload inválido: sector inexistente, asiento ajeno al sector,
+            cantidad no positiva, mezcla inválida de `seatId` y `quantity`,
+            ítems duplicados o TTL fuera del rango 60..3600 s. No se modifica el
+            inventario.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                badRequest:
+                  $ref: '#/components/examples/ProblemBadRequest'
+        '404':
+          description: |
+            El evento no existe o no tiene snapshot publicado. No se crea
+            inventario parcial ni una reserva activa.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                notFound:
+                  $ref: '#/components/examples/ProblemNotFound'
+        '409':
+          description: |
+            Conflicto de disponibilidad (algún ítem ya está retenido o vendido),
+            de estado final (`EXPIRED` o `RELEASED`) o de idempotencia (mismo
+            `orderId` con contenido distinto). La transacción revierte completa:
+            no queda ninguna retención parcial.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                conflict:
+                  $ref: '#/components/examples/ProblemConflict'
+        '503':
+          description: |
+            Catalog no está disponible durante la inicialización del inventario.
+            La solicitud puede reintentarse.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                serviceUnavailable:
+                  $ref: '#/components/examples/ProblemServiceUnavailable'
+        '500':
+          description: |
+            Error inesperado. El cuerpo es un problema genérico sin trazas,
+            credenciales ni detalles de la base de datos.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                internalServerError:
+                  $ref: '#/components/examples/ProblemInternalServerError'
+
+  /internal/reservations/by-order/{orderId}:
+    get:
+      tags:
+        - Inventory reservations (internal)
+      operationId: getReservationByOrderId
+      summary: Recuperar la reserva de un orderId
+      description: |
+        Devuelve el estado, el vencimiento y los ítems de la reserva asociada al
+        `orderId`. Es una operación de lectura e idempotente.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Reserva encontrada para el `orderId`.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationResponse'
+              examples:
+                active:
+                  $ref: '#/components/examples/ReservationActive'
+        '404':
+          description: No existe una reserva para el `orderId` informado.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                notFound:
+                  $ref: '#/components/examples/ProblemNotFound'
+        '500':
+          description: |
+            Error inesperado. El cuerpo es un problema genérico sin trazas,
+            credenciales ni detalles de la base de datos.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                internalServerError:
+                  $ref: '#/components/examples/ProblemInternalServerError'
+
+  /internal/reservations/{reservationId}:
+    get:
+      tags:
+        - Inventory reservations (internal)
+      operationId: getReservationById
+      summary: Recuperar una reserva por identificador
+      description: |
+        Devuelve el estado, el vencimiento y los ítems de la reserva. Es una
+        operación de lectura e idempotente.
+      parameters:
+        - $ref: '#/components/parameters/ReservationId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Reserva encontrada.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationResponse'
+              examples:
+                active:
+                  $ref: '#/components/examples/ReservationActive'
+        '404':
+          description: No existe una reserva con el `reservationId` informado.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                notFound:
+                  $ref: '#/components/examples/ProblemNotFound'
+        '500':
+          description: |
+            Error inesperado. El cuerpo es un problema genérico sin trazas,
+            credenciales ni detalles de la base de datos.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                internalServerError:
+                  $ref: '#/components/examples/ProblemInternalServerError'
+
+  /internal/reservations/{reservationId}/confirm:
+    post:
+      tags:
+        - Inventory reservations (internal)
+      operationId: confirmReservation
+      summary: Confirmar la venta de una reserva
+      description: |
+        Convierte los lugares retenidos en vendidos de forma atómica. Las
+        confirmaciones repetidas devuelven el mismo estado `CONFIRMED` sin
+        duplicar ventas.
+
+        Una reserva `EXPIRED` o `RELEASED` no puede confirmarse: se responde
+        `409` sin modificar el inventario.
+      parameters:
+        - $ref: '#/components/parameters/ReservationId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: |
+            Confirmación exitosa o idempotente. La reserva queda `CONFIRMED` y
+            sus lugares quedan `SOLD`.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationResponse'
+              examples:
+                confirmed:
+                  $ref: '#/components/examples/ReservationConfirmed'
+        '404':
+          description: No existe una reserva con el `reservationId` informado.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                notFound:
+                  $ref: '#/components/examples/ProblemNotFound'
+        '409':
+          description: |
+            La reserva está `EXPIRED` o `RELEASED` y no puede confirmarse, o la
+            confirmación no pudo aplicarse completa. El inventario no cambia.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                conflict:
+                  $ref: '#/components/examples/ProblemConflict'
+        '500':
+          description: |
+            Error inesperado. El cuerpo es un problema genérico sin trazas,
+            credenciales ni detalles de la base de datos.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                internalServerError:
+                  $ref: '#/components/examples/ProblemInternalServerError'
+
+  /internal/reservations/{reservationId}/release:
+    post:
+      tags:
+        - Inventory reservations (internal)
+      operationId: releaseReservation
+      summary: Liberar una reserva
+      description: |
+        Devuelve los lugares retenidos a disponible de forma atómica. Las
+        liberaciones repetidas conservan el estado final sin alterar lugares
+        vendidos.
+
+        Una reserva `CONFIRMED` no puede liberarse porque sus lugares son
+        `SOLD`: se responde `409`.
+      parameters:
+        - $ref: '#/components/parameters/ReservationId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: |
+            Liberación exitosa o idempotente. La reserva queda `RELEASED` (o
+            conserva su estado final `EXPIRED`/`RELEASED`) y los lugares `HELD`
+            vuelven a `AVAILABLE`.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationResponse'
+              examples:
+                released:
+                  $ref: '#/components/examples/ReservationReleased'
+        '404':
+          description: No existe una reserva con el `reservationId` informado.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                notFound:
+                  $ref: '#/components/examples/ProblemNotFound'
+        '409':
+          description: |
+            La reserva está `CONFIRMED`; sus lugares son `SOLD` y no pueden
+            liberarse. El inventario no cambia.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                conflict:
+                  $ref: '#/components/examples/ProblemConflict'
+        '500':
+          description: |
+            Error inesperado. El cuerpo es un problema genérico sin trazas,
+            credenciales ni detalles de la base de datos.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                internalServerError:
+                  $ref: '#/components/examples/ProblemInternalServerError'
+
+  /internal/events/{eventId}/hold-ttl:
+    put:
+      tags:
+        - Inventory configuration (internal)
+      operationId: updateEventHoldTtl
+      summary: Configurar la retención de un evento
+      description: |
+        Fija el TTL que usarán las reservas posteriores del evento cuando no
+        informen `ttlSeconds`. El valor por defecto del evento es 600 s y el
+        rango permitido es 60..3600 s. La operación es idempotente por `eventId`
+        y valor. Requiere que el inventario del evento ya exista; no lo
+        inicializa ni consulta Catalog.
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HoldTtlRequest'
+            examples:
+              holdTtl:
+                $ref: '#/components/examples/HoldTtlRequest'
+      responses:
+        '200':
+          description: TTL vigente del evento después de la actualización.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventHoldConfiguration'
+              examples:
+                configured:
+                  $ref: '#/components/examples/EventHoldConfiguration'
+        '400':
+          description: |
+            `ttlSeconds` falta, no es entero o está fuera del rango 60..3600 s.
+            Se conserva el valor anterior.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                badRequest:
+                  $ref: '#/components/examples/ProblemBadRequest'
+        '404':
+          description: |
+            El evento no existe, no tiene snapshot publicado o todavía no tiene
+            inventario materializado. No se crea inventario ni configuración
+            parcial.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                notFound:
+                  $ref: '#/components/examples/ProblemNotFound'
+        '500':
+          description: |
+            Error inesperado. El cuerpo es un problema genérico sin trazas,
+            credenciales ni detalles de la base de datos.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                internalServerError:
+                  $ref: '#/components/examples/ProblemInternalServerError'
+
+  /internal/events/{eventId}/snapshot:
+    get:
+      tags:
+        - Catalog snapshot (internal)
+      operationId: getCatalogEventSnapshot
+      summary: Leer el snapshot publicado de un evento
+      description: |
+        Contrato interno de Catalog que Inventory consume para materializar el
+        inventario de un evento. Devuelve el snapshot inmutable con los
+        identificadores de origen de sectores y asientos, sus tipos, capacidades
+        y datos de ubicación.
+
+        La respuesta no incluye precios. `sourceSectorId` y `sourceSeatId` son
+        identificadores de Catalog y no se usan como claves de los comandos de
+        reserva de Inventory. El Gateway no publica esta ruta.
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: |
+            Snapshot publicado del evento. Los sectores siguen el orden estable
+            del snapshot y los asientos se ordenan por `row` y `number`.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogEventSnapshot'
+              examples:
+                snapshot:
+                  $ref: '#/components/examples/CatalogEventSnapshot'
+        '404':
+          description: |
+            El evento no existe, está en borrador o no tiene snapshot publicado.
+            No se revelan datos del evento.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                notFound:
+                  $ref: '#/components/examples/ProblemNotFound'
+        '500':
+          description: |
+            Error inesperado en Catalog. El cuerpo es un problema genérico sin
+            trazas, credenciales ni detalles de la base de datos.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                internalServerError:
+                  $ref: '#/components/examples/ProblemInternalServerError'
+
+components:
+  parameters:
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      description: |
+        Identificador de correlación opcional. Si se envía no vacío, el servicio
+        lo conserva; si falta, genera un UUID. Siempre se devuelve en el header
+        de response del mismo nombre.
+      schema:
+        type: string
+        minLength: 1
+        example: trace-inventory-1
+
+    EventId:
+      name: eventId
+      in: path
+      required: true
+      description: Identificador del evento.
+      schema:
+        type: string
+        format: uuid
+        example: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      description: |
+        Identificador de la orden de compra que actúa como clave de idempotencia
+        de la reserva.
+      schema:
+        type: string
+        format: uuid
+        example: 5e3f0a4e-1b2c-4d3e-8f90-a1b2c3d4e5f6
+
+    ReservationId:
+      name: reservationId
+      in: path
+      required: true
+      description: Identificador de la reserva temporal.
+      schema:
+        type: string
+        format: uuid
+        example: 7a6b5c4d-3e2f-41a0-9b8c-7d6e5f4a3b2c
+
+  headers:
+    CorrelationId:
+      description: |
+        Correlation ID conservado o generado por el servicio. Es obligatorio en
+        toda respuesta exitosa y de error.
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        example: trace-inventory-1
+
+  schemas:
+    AvailabilityResponse:
+      type: object
+      description: |
+        Disponibilidad agregada de un evento. Es la superficie pública donde el
+        cliente descubre `sectorId` y `seatId` para reutilizarlos al reservar.
+        Nunca incluye precios, comprador, `orderId` ni `reservationId`.
+      additionalProperties: false
+      required:
+        - eventId
+        - generatedAt
+        - sectors
+      properties:
+        eventId:
+          type: string
+          format: uuid
+          description: Identificador del evento consultado.
+        generatedAt:
+          type: string
+          format: date-time
+          description: |
+            Momento en que Inventory calculó la disponibilidad. Antes de
+            responder se liberaron las reservas vencidas del evento.
+        sectors:
+          type: array
+          description: |
+            Sectores del evento ordenados de forma estable por `name` ascendente
+            y luego por `sectorId`. No incluye datos sensibles.
+          items:
+            $ref: '#/components/schemas/SectorAvailability'
+
+    SectorAvailability:
+      type: object
+      additionalProperties: false
+      required:
+        - sectorId
+        - name
+        - type
+        - capacity
+        - sold
+        - reserved
+        - available
+      properties:
+        sectorId:
+          type: string
+          format: uuid
+          description: |
+            Identificador de Inventory del sector (`inventory_sectors.id`). Es el
+            valor que debe reutilizarse en `ReservationItemRequest.sectorId`.
+        name:
+          type: string
+          maxLength: 120
+          description: Nombre del sector en el snapshot del evento.
+        type:
+          type: string
+          enum:
+            - NUMBERED
+            - GENERAL_ADMISSION
+          description: Tipo de sector.
+        capacity:
+          type: integer
+          minimum: 1
+          description: Capacidad total del sector; siempre mayor que cero.
+        sold:
+          type: integer
+          minimum: 0
+          description: |
+            Cantidad de lugares vendidos (`SOLD`). En sectores numerados se
+            deriva de los estados de los asientos.
+        reserved:
+          type: integer
+          minimum: 0
+          description: |
+            Cantidad de lugares retenidos por reservas vigentes (`HELD`). En
+            sectores numerados se deriva de los estados de los asientos.
+        available:
+          type: integer
+          minimum: 0
+          description: |
+            Lugares disponibles: `capacity - sold - reserved`. En sectores
+            numerados equivale a la cantidad de asientos `AVAILABLE`.
+        seats:
+          type: array
+          description: |
+            Mapa de asientos. Presente sólo para sectores `NUMBERED`; ausente en
+            `GENERAL_ADMISSION`. Ordenado por `row` y luego por `number`.
+          items:
+            $ref: '#/components/schemas/SeatAvailability'
+
+    SeatAvailability:
+      type: object
+      additionalProperties: false
+      required:
+        - seatId
+        - row
+        - number
+        - status
+      properties:
+        seatId:
+          type: string
+          format: uuid
+          description: |
+            Identificador de Inventory del asiento (`inventory_items.id`). Es el
+            valor que debe reutilizarse en `ReservationItemRequest.seatId`.
+        row:
+          type: string
+          maxLength: 40
+          description: Fila del asiento.
+        number:
+          type: integer
+          minimum: 1
+          description: Número del asiento dentro de la fila.
+        status:
+          type: string
+          enum:
+            - AVAILABLE
+            - HELD
+            - SOLD
+          description: |
+            `AVAILABLE` si puede reservarse; `HELD` si está retenido por una
+            reserva vigente; `SOLD` si ya fue vendido.
+
+    ReservationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - orderId
+        - eventId
+        - items
+      properties:
+        orderId:
+          type: string
+          format: uuid
+          description: |
+            Identificador de la orden de compra. Junto con el fingerprint del
+            contenido forma la clave de idempotencia de la reserva.
+        eventId:
+          type: string
+          format: uuid
+          description: Evento sobre el que se reserva.
+        ttlSeconds:
+          type: integer
+          minimum: 60
+          maximum: 3600
+          description: |
+            Retención solicitada en segundos. Opcional; si falta se usa el
+            `holdTtlSeconds` vigente del evento. El valor por defecto del evento
+            es 600 s y el rango permitido es 60..3600 s.
+        items:
+          type: array
+          minItems: 1
+          description: |
+            Lugares a retener. La reserva es atómica: si un ítem no puede
+            retenerse, se revierte la solicitud completa.
+          items:
+            $ref: '#/components/schemas/ReservationItemRequest'
+
+    ReservationItemRequest:
+      type: object
+      description: |
+        Debe informarse exactamente uno de `seatId` o `quantity`. Si viene
+        `seatId`, la cantidad implícita es 1 y el sector debe ser `NUMBERED`. Si
+        viene `quantity`, se reservan cupos de un sector `GENERAL_ADMISSION`.
+      additionalProperties: false
+      required:
+        - sectorId
+      properties:
+        sectorId:
+          type: string
+          format: uuid
+          description: |
+            Identificador de Inventory del sector, descubierto en la
+            disponibilidad pública.
+        seatId:
+          type: string
+          format: uuid
+          description: |
+            Identificador de Inventory del asiento, descubierto en la
+            disponibilidad pública. Excluyente con `quantity`; la cantidad
+            implícita es 1.
+        quantity:
+          type: integer
+          minimum: 1
+          description: |
+            Cantidad de cupos a retener en un sector de admisión general.
+            Excluyente con `seatId`.
+
+    ReservationResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - reservationId
+        - orderId
+        - eventId
+        - status
+        - createdAt
+        - items
+      properties:
+        reservationId:
+          type: string
+          format: uuid
+          description: Identificador de la reserva temporal.
+        orderId:
+          type: string
+          format: uuid
+          description: Orden de compra asociada a la reserva.
+        eventId:
+          type: string
+          format: uuid
+          description: Evento de la reserva.
+        status:
+          type: string
+          enum:
+            - ACTIVE
+            - CONFIRMED
+            - RELEASED
+            - EXPIRED
+          description: Estado actual de la reserva.
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            Vencimiento de la retención. Es `null` cuando no aplica o cuando la
+            reserva ya venció o fue liberada.
+        createdAt:
+          type: string
+          format: date-time
+          description: Momento de creación de la reserva.
+        items:
+          type: array
+          description: Ítems retenidos por la reserva.
+          items:
+            $ref: '#/components/schemas/ReservationItem'
+
+    ReservationItem:
+      type: object
+      description: |
+        Ítem de una reserva. Los ítems de asiento numerado tienen `seatId` y
+        cantidad 1; los de admisión general tienen `seatId` nulo y la cantidad
+        solicitada.
+      additionalProperties: false
+      required:
+        - sectorId
+        - quantity
+      properties:
+        sectorId:
+          type: string
+          format: uuid
+          description: Identificador de Inventory del sector.
+        seatId:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            Identificador de Inventory del asiento, o `null` para admisión
+            general.
+        quantity:
+          type: integer
+          minimum: 1
+          description: Cantidad retenida. Siempre 1 para ítems con `seatId`.
+
+    HoldTtlRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - ttlSeconds
+      properties:
+        ttlSeconds:
+          type: integer
+          minimum: 60
+          maximum: 3600
+          description: |
+            TTL en segundos a aplicar a las reservas posteriores que no informen
+            uno explícito. El valor por defecto del evento es 600 s y el rango
+            permitido es 60..3600 s.
+          example: 300
+
+    EventHoldConfiguration:
+      type: object
+      additionalProperties: false
+      required:
+        - eventId
+        - holdTtlSeconds
+      properties:
+        eventId:
+          type: string
+          format: uuid
+          description: Evento configurado.
+        holdTtlSeconds:
+          type: integer
+          minimum: 60
+          maximum: 3600
+          description: TTL vigente para las reservas del evento.
+          example: 300
+
+    CatalogEventSnapshot:
+      type: object
+      description: |
+        Snapshot publicado e inmutable de un evento. Contrato interno de Catalog
+        consumido por Inventory para inicializar el layout. No incluye precios ni
+        ofertas económicas.
+      additionalProperties: false
+      required:
+        - eventId
+        - snapshotId
+        - name
+        - description
+        - eventType
+        - startsAt
+        - venue
+        - sectors
+      properties:
+        eventId:
+          type: string
+          format: uuid
+          description: Identificador del evento publicado.
+        snapshotId:
+          type: string
+          format: uuid
+          description: Identificador del snapshot publicado.
+        name:
+          type: string
+          maxLength: 200
+          description: Nombre del evento al momento de publicar.
+        description:
+          type: string
+          description: Descripción del evento al momento de publicar.
+        eventType:
+          type: string
+          maxLength: 80
+          description: Tipo de evento.
+        startsAt:
+          type: string
+          format: date-time
+          description: Fecha y hora de inicio del evento.
+        venue:
+          $ref: '#/components/schemas/SnapshotVenue'
+        sectors:
+          type: array
+          description: |
+            Sectores del snapshot en orden estable. Cada sector conserva su
+            identificador de origen de Catalog.
+          items:
+            $ref: '#/components/schemas/SnapshotSector'
+
+    SnapshotVenue:
+      type: object
+      description: Datos de ubicación del lugar al momento de publicar.
+      additionalProperties: false
+      required:
+        - name
+        - address
+        - city
+        - latitude
+        - longitude
+      properties:
+        name:
+          type: string
+          maxLength: 200
+          description: Nombre del lugar.
+        address:
+          type: string
+          maxLength: 300
+          description: Dirección del lugar.
+        city:
+          type: string
+          maxLength: 120
+          description: Ciudad del lugar.
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+          description: Latitud geográfica.
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+          description: Longitud geográfica.
+
+    SnapshotSector:
+      type: object
+      additionalProperties: false
+      required:
+        - sourceSectorId
+        - name
+        - type
+        - capacity
+        - seats
+      properties:
+        sourceSectorId:
+          type: string
+          format: uuid
+          description: |
+            Identificador del sector en Catalog. Sólo sirve para trazabilidad y
+            reconciliación; no se usa como clave de los comandos de reserva.
+        name:
+          type: string
+          maxLength: 120
+          description: Nombre del sector.
+        type:
+          type: string
+          enum:
+            - NUMBERED
+            - GENERAL_ADMISSION
+          description: Tipo de sector.
+        capacity:
+          type: integer
+          minimum: 1
+          description: Capacidad del sector; siempre mayor que cero.
+        seats:
+          type: array
+          description: |
+            Asientos del sector para `NUMBERED`; vacío para
+            `GENERAL_ADMISSION`. Ordenado por `row` y luego por `number`.
+          items:
+            $ref: '#/components/schemas/SnapshotSeat'
+
+    SnapshotSeat:
+      type: object
+      additionalProperties: false
+      required:
+        - sourceSeatId
+        - row
+        - number
+      properties:
+        sourceSeatId:
+          type: string
+          format: uuid
+          description: |
+            Identificador del asiento en Catalog. Sólo sirve para trazabilidad y
+            reconciliación.
+        row:
+          type: string
+          maxLength: 40
+          description: Fila del asiento.
+        number:
+          type: integer
+          minimum: 1
+          description: Número del asiento dentro de la fila.
+
+    Problem:
+      type: object
+      description: |
+        Error conforme a `application/problem+json`. Incluye siempre el
+        `correlationId` de la solicitud. Puede incluir campos adicionales de
+        contexto (por ejemplo el estado de una reserva en un conflicto), pero
+        nunca datos de otros compradores ni detalles internos.
+      required:
+        - type
+        - title
+        - status
+        - detail
+        - instance
+        - correlationId
+      properties:
+        type:
+          type: string
+          description: URI que identifica el tipo de problema. Por defecto `about:blank`.
+          example: about:blank
+        title:
+          type: string
+          description: Resumen corto y estable del tipo de problema.
+          example: Not found
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+          description: Código HTTP del error.
+          example: 404
+        detail:
+          type: string
+          description: Explicación específica de esta ocurrencia.
+          example: Published event not found
+        instance:
+          type: string
+          description: Ruta de la solicitud que originó el error.
+          example: /api/inventory/events/e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b/availability
+        correlationId:
+          type: string
+          minLength: 1
+          description: Correlation ID de la solicitud, igual al devuelto en el header.
+          example: trace-inventory-1
+
+  examples:
+    Availability:
+      summary: Evento con un sector numerado y uno de admisión general
+      value:
+        eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+        generatedAt: '2026-11-07T18:00:00Z'
+        sectors:
+          - sectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+            name: Platea
+            type: NUMBERED
+            capacity: 120
+            sold: 10
+            reserved: 2
+            available: 108
+            seats:
+              - seatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+                row: A
+                number: 1
+                status: AVAILABLE
+              - seatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f602
+                row: A
+                number: 2
+                status: HELD
+          - sectorId: 9c8d7e6f-5a4b-4c3d-8e2f-1a0b9c8d7e6f
+            name: Campo
+            type: GENERAL_ADMISSION
+            capacity: 500
+            sold: 100
+            reserved: 10
+            available: 390
+
+    ReservationRequest:
+      summary: Reserva de dos asientos numerados y dos cupos generales
+      value:
+        orderId: 5e3f0a4e-1b2c-4d3e-8f90-a1b2c3d4e5f6
+        eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+        ttlSeconds: 300
+        items:
+          - sectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+            seatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+          - sectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+            seatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f602
+          - sectorId: 9c8d7e6f-5a4b-4c3d-8e2f-1a0b9c8d7e6f
+            quantity: 2
+
+    ReservationActive:
+      summary: Reserva activa con vencimiento
+      value:
+        reservationId: 7a6b5c4d-3e2f-41a0-9b8c-7d6e5f4a3b2c
+        orderId: 5e3f0a4e-1b2c-4d3e-8f90-a1b2c3d4e5f6
+        eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+        status: ACTIVE
+        expiresAt: '2026-11-07T18:05:00Z'
+        createdAt: '2026-11-07T18:00:00Z'
+        items:
+          - sectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+            seatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+            quantity: 1
+          - sectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+            seatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f602
+            quantity: 1
+          - sectorId: 9c8d7e6f-5a4b-4c3d-8e2f-1a0b9c8d7e6f
+            seatId: null
+            quantity: 2
+
+    ReservationConfirmed:
+      summary: Reserva confirmada
+      value:
+        reservationId: 7a6b5c4d-3e2f-41a0-9b8c-7d6e5f4a3b2c
+        orderId: 5e3f0a4e-1b2c-4d3e-8f90-a1b2c3d4e5f6
+        eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+        status: CONFIRMED
+        expiresAt: null
+        createdAt: '2026-11-07T18:00:00Z'
+        items:
+          - sectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+            seatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+            quantity: 1
+          - sectorId: 9c8d7e6f-5a4b-4c3d-8e2f-1a0b9c8d7e6f
+            seatId: null
+            quantity: 2
+
+    ReservationReleased:
+      summary: Reserva liberada
+      value:
+        reservationId: 7a6b5c4d-3e2f-41a0-9b8c-7d6e5f4a3b2c
+        orderId: 5e3f0a4e-1b2c-4d3e-8f90-a1b2c3d4e5f6
+        eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+        status: RELEASED
+        expiresAt: null
+        createdAt: '2026-11-07T18:00:00Z'
+        items:
+          - sectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+            seatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+            quantity: 1
+          - sectorId: 9c8d7e6f-5a4b-4c3d-8e2f-1a0b9c8d7e6f
+            seatId: null
+            quantity: 2
+
+    HoldTtlRequest:
+      summary: Retención de 300 segundos
+      value:
+        ttlSeconds: 300
+
+    EventHoldConfiguration:
+      summary: TTL vigente del evento
+      value:
+        eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+        holdTtlSeconds: 300
+
+    CatalogEventSnapshot:
+      summary: Snapshot publicado sin precios
+      value:
+        eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+        snapshotId: 1a2b3c4d-5e6f-4718-9a0b-1c2d3e4f5a6b
+        name: Concierto de prueba
+        description: Evento publicado de ejemplo
+        eventType: CONCERT
+        startsAt: '2026-12-01T21:00:00Z'
+        venue:
+          name: Estadio
+          address: Av. Siempreviva 742
+          city: Buenos Aires
+          latitude: -34.6037
+          longitude: -58.3816
+        sectors:
+          - sourceSectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+            name: Platea
+            type: NUMBERED
+            capacity: 2
+            seats:
+              - sourceSeatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+                row: A
+                number: 1
+              - sourceSeatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f602
+                row: A
+                number: 2
+          - sourceSectorId: 9c8d7e6f-5a4b-4c3d-8e2f-1a0b9c8d7e6f
+            name: Campo
+            type: GENERAL_ADMISSION
+            capacity: 500
+            seats: []
+
+    ProblemNotFound:
+      summary: Recurso inexistente
+      value:
+        type: about:blank
+        title: Not found
+        status: 404
+        detail: Published event not found
+        instance: /api/inventory/events/e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b/availability
+        correlationId: trace-inventory-1
+
+    ProblemConflict:
+      summary: Conflicto de disponibilidad, estado o idempotencia
+      value:
+        type: about:blank
+        title: Conflict
+        status: 409
+        detail: One or more requested items are no longer available
+        instance: /internal/reservations
+        correlationId: trace-inventory-1
+
+    ProblemBadRequest:
+      summary: Payload inválido
+      value:
+        type: about:blank
+        title: Invalid request
+        status: 400
+        detail: ttlSeconds must be between 60 and 3600
+        instance: /internal/events/e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b/hold-ttl
+        correlationId: trace-inventory-1
+
+    ProblemServiceUnavailable:
+      summary: Catalog no disponible durante la inicialización
+      value:
+        type: about:blank
+        title: Service unavailable
+        status: 503
+        detail: Catalog service is unavailable while initializing inventory
+        instance: /api/inventory/events/e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b/availability
+        correlationId: trace-inventory-1
+
+    ProblemGatewayTimeout:
+      summary: Inventory no respondió dentro del timeout del Gateway
+      value:
+        type: about:blank
+        title: Gateway timeout
+        status: 504
+        detail: Inventory service did not respond in time
+        instance: /api/inventory/events/e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b/availability
+        correlationId: trace-inventory-1
+
+    ProblemInternalServerError:
+      summary: Error inesperado
+      value:
+        type: about:blank
+        title: Internal server error
+        status: 500
+        detail: An unexpected error occurred
+        instance: /api/inventory/events/e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b/availability
+        correlationId: trace-inventory-1
