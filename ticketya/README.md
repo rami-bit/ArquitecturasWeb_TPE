@@ -64,15 +64,15 @@ Los servicios internos reciben su configuración a través de variables de Compo
 
 Ninguna variable contiene rutas personales ni secretos de producción.
 
-## Build con Maven
+## Compilación y verificación con Maven
 
 Desde la carpeta `ticketya/`:
 
 ```bash
-# Build y verificación completa desde la raíz agregadora
+# Compilación y verificación completa desde la raíz agregadora
 mvn verify
 
-# Build y verificación de un servicio individual
+# Compilación y verificación de un servicio individual
 mvn verify -pl services/api-gateway
 mvn verify -pl services/catalog-service
 mvn verify -pl services/inventory-service
@@ -81,7 +81,7 @@ mvn verify -pl services/ticket-service
 
 El proyecto usa Java 19 y Spring Boot 3.2.5. No se incluye Maven Wrapper (`mvnw`); se asume Maven 3.9+ instalado en el entorno.
 
-Los tests de contrato de Inventory y de persistencia contra PostgreSQL usan Testcontainers: requieren Docker disponible. Si Docker no está disponible, esas clases se saltean automáticamente y el resto de la suite sigue ejecutándose.
+Los tests de contrato de Inventory y de persistencia contra PostgreSQL usan Testcontainers: requieren Docker disponible. Si Docker no está disponible, esas clases se omiten automáticamente y el resto de los tests sigue ejecutándose.
 
 La verificación del nuevo Ticket Service, incluidos los tests omitidos y los
 pasos que siguen pendientes por falta de Docker, está registrada en
@@ -92,10 +92,10 @@ pasos que siguen pendientes por falta de Docker, está registrada en
 Desde la carpeta `ticketya/`:
 
 ```bash
-# Construir todas las imágenes (Gateway, Catalog, Inventory, Ticket Service)
+# Construir todas las imágenes (Gateway, Catalog, Inventory y Ticket Service)
 docker compose build
 
-# Levantar el incremento completo (reconstruye imágenes y espera healthchecks)
+# Levantar el incremento completo (reconstruye imágenes y espera las comprobaciones de estado)
 docker compose up --build
 
 # Levantar en segundo plano
@@ -118,7 +118,7 @@ El Gateway expone el único puerto publicado (`${GATEWAY_PORT:-8080}:8080`). Cat
 
 ## Salud de los servicios
 
-Cada servicio tiene un healthcheck basado en `wget` contra su endpoint de actuator:
+Cada servicio tiene una comprobación de estado basada en `wget` contra su endpoint de actuator:
 
 - `postgres` (Catálogo) e `inventory-db` (Inventory): `pg_isready`
 - `ticket-db`: `pg_isready`
@@ -127,7 +127,7 @@ Cada servicio tiene un healthcheck basado en `wget` contra su endpoint de actuat
 - Ticket Service: `http://localhost:8083/actuator/health`
 - API Gateway: `http://localhost:8080/actuator/health`
 
-Espera a que todos reporten `healthy` antes de ejecutar la colección Postman.
+Espera a que todos informen `healthy` antes de ejecutar la colección Postman.
 
 ## Ejecutar la colección Postman (vía Gateway)
 
@@ -178,7 +178,7 @@ Ticket Service escucha en `ticket-service:8083`, dentro de la red de Compose. Pu
 
 La solicitud incluye al comprador, el snapshot del evento y las unidades del item; para asientos numerados cada unidad lleva fila y número. La primera emisión devuelve `201`; un reintento idéntico devuelve `200` con los mismos tickets y QR. Reutilizar la pareja `orderId + orderItemId` con distinto contenido devuelve `409`.
 
-El response contiene `qrPayload` y `qrPngBase64`. La imagen PNG se genera al responder; PostgreSQL conserva el hash del payload, no el token. La API es interna y no tiene ruta en el Gateway. **Como Purchase Service todavía no existe, la emisión se puede verificar por contrato, pero aún no hay flujo real de compra que la invoque.**
+La respuesta contiene `qrPayload` y `qrPngBase64`. La imagen PNG se genera al responder; PostgreSQL conserva el hash del payload, no el token. La API es interna y no tiene ruta en el Gateway. **Como Purchase Service todavía no existe, la emisión se puede verificar por contrato, pero aún no hay flujo real de compra que la invoque.**
 
 Valida la documentación y el estado del servicio desde el contenedor:
 
@@ -201,9 +201,9 @@ docker compose exec -T ticket-service wget -qO- http://localhost:8083/v3/api-doc
 
 Deben contener los paths de cada flujo. Los contratos versionados de Inventory y Ticket están en `docs/openapi.yaml` y `services/ticket-service/docs/ticket-openapi.yaml`.
 
-## Verificación desde un checkout limpio
+## Verificación desde una copia limpia del repositorio
 
-Desde un checkout limpio del proyecto (sin rutas personales ni configuración del autor):
+Desde una copia limpia del proyecto (sin rutas personales ni configuración del autor):
 
 1. Clona o haz checkout del repositorio en una carpeta nueva.
 2. Entra en `ticketya/`.

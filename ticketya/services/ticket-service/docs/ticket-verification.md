@@ -1,27 +1,29 @@
-# Ticket Service verification
+# Verificación de Ticket Service
 
-## Completed checks
+## Verificaciones completadas
 
-- Maven verification from the aggregator:
+- La verificación de Maven desde el agregador:
   `.\TP3\mvnw.cmd -f ticketya\pom.xml -pl services/ticket-service -am verify`
-  completed with exit code 0 and `BUILD SUCCESS` using JDK 19. All 14 tests
-  passed: seven unit tests and seven contract tests; none failed or were skipped.
-- The seven contract tests used Testcontainers with PostgreSQL 16.4 and verified
-  HTTP issuance/error responses, QR decoding and hash-only persistence,
-  idempotent retries, conflicting content, request validation, and concurrency.
-- `docker compose -f ticketya\docker-compose.yml config --quiet` completed
-  successfully with a temporary verification-only value for
-  `TICKET_QR_SIGNING_SECRET`. No secret was written to the repository.
+  finalizó con código de salida 0 y `BUILD SUCCESS` usando JDK 19. Pasaron las
+  14 tests: siete unitarios y siete de contrato; ninguno falló ni se omitió.
+- Los siete tests de contrato usaron Testcontainers con PostgreSQL 16.4 y
+  verificaron las respuestas HTTP de emisión y error, la decodificación del QR
+  y la persistencia exclusiva del hash, los reintentos idempotentes, el conflicto
+  ante contenido distinto, la validación de solicitudes y la concurrencia.
+- `docker compose -f ticketya\docker-compose.yml config --quiet` finalizó
+  correctamente con un valor temporal de `TICKET_QR_SIGNING_SECRET` usado solo
+  para la verificación. No se guardó ningún secreto en el repositorio.
 - `docker compose -f ticketya\docker-compose.yml up --build -d --wait ticket-service`
-  built the Ticket Service image and started `ticket-service` with `ticket-db`;
-  both reported healthy. The service returned `{"status":"UP"}` from
-  `/actuator/health`, and `/v3/api-docs` exposed the internal ticket issuance
-  route.
+  construyó la imagen de Ticket Service e inició `ticket-service` junto con
+  `ticket-db`; ambos informaron un estado saludable. El servicio devolvió
+  `{"status":"UP"}` en `/actuator/health`, y `/v3/api-docs` mostró la ruta interna
+  de emisión de entradas.
 
-## Scope still outstanding
+## Alcance pendiente
 
-Purchase Service does not exist yet, so there is no end-to-end purchase-to-ticket
-flow. Purchase must call the internal issuance endpoint only after confirming
-payment and inventory. The Compose check intentionally started only Ticket
-Service and its database, not the full TicketYa stack. Access validation, QR
-revocation, and refunds remain outside this change.
+Purchase Service todavía no existe, por lo que aún no hay un flujo completo de
+compra y emisión de entradas. Purchase debe llamar al endpoint interno de emisión
+solo después de confirmar el pago y el inventario. La verificación de Compose
+inició intencionalmente solo Ticket Service y su base de datos, no todo el
+entorno de TicketYa. La validación de acceso, la revocación de QR y los
+reembolsos quedan fuera de este cambio.
