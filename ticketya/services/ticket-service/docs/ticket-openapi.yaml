@@ -1,0 +1,212 @@
+openapi: 3.0.3
+
+info:
+  title: TicketYa API - Ticket issuance
+  version: '0.1.0'
+  description: |
+    Internal Ticket Service contract for QR ticket issuance after Purchase has
+    confirmed payment and inventory. The route is not exposed by the API Gateway.
+
+servers:
+  - url: http://ticket-service:8083
+    description: Internal Docker Compose network only.
+
+paths:
+  /internal/orders/{orderId}/items/{orderItemId}/tickets:
+    post:
+      operationId: issueTicketsForOrderItem
+      summary: Issue or recover QR tickets for a confirmed order item
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: orderItemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: X-Correlation-Id
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TicketIssueRequest'
+      responses:
+        '201':
+          description: Tickets issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketIssueResponse'
+        '200':
+          description: Idempotent replay; same tickets and QR payloads are returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketIssueResponse'
+        '400':
+          description: Invalid snapshot or ticket units.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Idempotency key reused with different content.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+components:
+  schemas:
+    TicketIssueRequest:
+      type: object
+      required:
+        - customerId
+        - eventId
+        - eventName
+        - eventStartsAt
+        - venueName
+        - venueCity
+        - sectorName
+        - tickets
+      properties:
+        customerId:
+          type: string
+          format: uuid
+        eventId:
+          type: string
+          format: uuid
+        eventName:
+          type: string
+          maxLength: 200
+        eventStartsAt:
+          type: string
+          format: date-time
+        venueName:
+          type: string
+          maxLength: 200
+        venueCity:
+          type: string
+          maxLength: 120
+        sectorName:
+          type: string
+          maxLength: 120
+        tickets:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/TicketUnit'
+    TicketUnit:
+      type: object
+      required:
+        - unitNumber
+      properties:
+        unitNumber:
+          type: integer
+          minimum: 1
+        rowLabel:
+          type: string
+          maxLength: 40
+          nullable: true
+        seatNumber:
+          type: integer
+          minimum: 1
+          nullable: true
+    TicketIssueResponse:
+      type: object
+      required:
+        - orderId
+        - orderItemId
+        - tickets
+      properties:
+        orderId:
+          type: string
+          format: uuid
+        orderItemId:
+          type: string
+          format: uuid
+        tickets:
+          type: array
+          items:
+            $ref: '#/components/schemas/Ticket'
+    Ticket:
+      type: object
+      required:
+        - ticketId
+        - unitNumber
+        - eventId
+        - eventName
+        - eventStartsAt
+        - venueName
+        - venueCity
+        - sectorName
+        - status
+        - issuedAt
+        - qrPayload
+        - qrPngBase64
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        unitNumber:
+          type: integer
+        eventId:
+          type: string
+          format: uuid
+        eventName:
+          type: string
+        eventStartsAt:
+          type: string
+          format: date-time
+        venueName:
+          type: string
+        venueCity:
+          type: string
+        sectorName:
+          type: string
+        rowLabel:
+          type: string
+          nullable: true
+        seatNumber:
+          type: integer
+          nullable: true
+        status:
+          type: string
+          enum: [ISSUED, REVOKED, USED]
+        issuedAt:
+          type: string
+          format: date-time
+        qrPayload:
+          type: string
+          description: Versioned HMAC-signed ticket identifier encoded in the QR.
+        qrPngBase64:
+          type: string
+          format: byte
+          description: PNG image of the QR, Base64 encoded.
+    Problem:
+      type: object
+      required: [type, title, status, detail, instance, correlationId]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri
+        correlationId:
+          type: string

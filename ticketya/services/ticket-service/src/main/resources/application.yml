@@ -1,0 +1,32 @@
+server:
+  port: ${SERVER_PORT:8083}
+
+spring:
+  application:
+    name: ticket-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/ticketya_ticket}
+    username: ${DB_USER:ticketya}
+    password: ${DB_PASSWORD:ticketya}
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+
+ticket:
+  qr:
+    signing-secret: ${TICKET_QR_SIGNING_SECRET}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs

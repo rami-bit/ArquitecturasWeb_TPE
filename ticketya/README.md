@@ -1,6 +1,6 @@
 # TicketYa - Catálogo de Eventos e Inventario (Entrega 1)
 
-Primer incremento vertical de TicketYa: administración de lugares, borradores de eventos, publicación con snapshot inmutable, descubrimiento público, e inventario de disponibilidad y reservas temporales, todo lo público accesible exclusivamente a través del API Gateway.
+Incremento actual de TicketYa: administración de lugares, borradores de eventos, publicación con snapshot inmutable, descubrimiento público, inventario de disponibilidad y reservas temporales. Ticket Service también está disponible para emitir entradas QR mediante un contrato interno; la compra que lo invoca todavía no está implementada.
 
 El Catálogo es dueño del snapshot publicado y de los precios. Inventory es dueño de la disponibilidad y de las reservas: materializa el layout desde el snapshot de Catalog (sin copiar precios) y expone `GET /api/inventory/events/{eventId}/availability`. Los comandos de reserva (`/internal/**`) son internos y no se publican por el Gateway; los consumirá el futuro Purchase Service.
 
@@ -20,9 +20,24 @@ El `docker-compose.yml` de la raíz de `ticketya/` usa los siguientes valores co
 |---|---|---|
 | `POSTGRES_DB` | `ticketya_catalog` | Nombre de la base de datos de catálogo |
 | `INVENTORY_POSTGRES_DB` | `ticketya_inventory` | Nombre de la base de datos de inventario |
+| `TICKET_POSTGRES_DB` | `ticketya_ticket` | Nombre de la base de datos de tickets |
 | `POSTGRES_USER` | `ticketya` | Usuario de ambas bases PostgreSQL |
 | `POSTGRES_PASSWORD` | `ticketya` | Contraseña de ambas bases PostgreSQL |
 | `GATEWAY_PORT` | `8080` | Puerto publicado del API Gateway en el host |
+| `TICKET_QR_SIGNING_SECRET` | Sin valor predeterminado | Clave estable de al menos 32 bytes para firmar los QR |
+
+Ticket Service requiere `TICKET_QR_SIGNING_SECRET`; Compose falla explícitamente si falta. Para una sesión local de PowerShell, genera una clave de desarrollo antes de levantar el sistema:
+
+```powershell
+$bytes = New-Object byte[] 32
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$rng.GetBytes($bytes)
+$env:TICKET_QR_SIGNING_SECRET = [Convert]::ToBase64String($bytes)
+$rng.Dispose()
+docker compose up --build
+```
+
+La clave debe mantenerse igual entre reinicios e instancias. Si se cambia, los QR existentes ya no podrán validarse. No la guardes en el repositorio ni uses una clave de desarrollo en producción.
 
 Los servicios internos reciben su configuración a través de variables de Compose (no necesitas definirlas a menos que quieras sobreescribirlas):
 
@@ -38,6 +53,11 @@ Los servicios internos reciben su configuración a través de variables de Compo
 | inventory-service | `DB_PASSWORD` | `ticketya` |
 | inventory-service | `CATALOG_SERVICE_URL` | `http://catalog-service:8081` |
 | inventory-service | `INVENTORY_HOLD_TTL_SECONDS` | `600` (TTL por defecto de reservas, rango 60-3600) |
+| ticket-service | `SERVER_PORT` | `8083` |
+| ticket-service | `DB_URL` | `jdbc:postgresql://ticket-db:5432/ticketya_ticket` |
+| ticket-service | `DB_USER` | `ticketya` |
+| ticket-service | `DB_PASSWORD` | `ticketya` |
+| ticket-service | `TICKET_QR_SIGNING_SECRET` | Obligatoria; clave HMAC estable |
 | api-gateway | `SERVER_PORT` | `8080` |
 | api-gateway | `CATALOG_SERVICE_URL` | `http://catalog-service:8081` |
 | api-gateway | `INVENTORY_SERVICE_URL` | `http://inventory-service:8082` |
@@ -56,18 +76,23 @@ mvn verify
 mvn verify -pl services/api-gateway
 mvn verify -pl services/catalog-service
 mvn verify -pl services/inventory-service
+mvn verify -pl services/ticket-service
 ```
 
 El proyecto usa Java 19 y Spring Boot 3.2.5. No se incluye Maven Wrapper (`mvnw`); se asume Maven 3.9+ instalado en el entorno.
 
 Los tests de contrato de Inventory y de persistencia contra PostgreSQL usan Testcontainers: requieren Docker disponible. Si Docker no está disponible, esas clases se saltean automáticamente y el resto de la suite sigue ejecutándose.
 
+La verificación del nuevo Ticket Service, incluidos los tests omitidos y los
+pasos que siguen pendientes por falta de Docker, está registrada en
+[`services/ticket-service/docs/ticket-verification.md`](services/ticket-service/docs/ticket-verification.md).
+
 ## Construcción de imágenes y Compose
 
 Desde la carpeta `ticketya/`:
 
 ```bash
-# Construir todas las imágenes (Gateway, Catalog Service, Inventory Service)
+# Construir todas las imágenes (Gateway, Catalog, Inventory, Ticket Service)
 docker compose build
 
 # Levantar el incremento completo (reconstruye imágenes y espera healthchecks)
@@ -89,15 +114,17 @@ docker compose down
 docker compose down -v
 ```
 
-El Gateway expone el único puerto publicado (`${GATEWAY_PORT:-8080}:8080`). Catalog Service, Inventory Service, PostgreSQL (`postgres`) e `inventory-db` no publican puertos al host; se comunican por nombres de servicio de la red de Compose.
+El Gateway expone el único puerto publicado (`${GATEWAY_PORT:-8080}:8080`). Catalog Service, Inventory Service, Ticket Service y sus bases no publican puertos al host; se comunican por nombres de servicio de la red de Compose.
 
 ## Salud de los servicios
 
 Cada servicio tiene un healthcheck basado en `wget` contra su endpoint de actuator:
 
 - `postgres` (Catálogo) e `inventory-db` (Inventory): `pg_isready`
+- `ticket-db`: `pg_isready`
 - Catalog Service: `http://localhost:8081/actuator/health`
 - Inventory Service: `http://localhost:8082/actuator/health`
+- Ticket Service: `http://localhost:8083/actuator/health`
 - API Gateway: `http://localhost:8080/actuator/health`
 
 Espera a que todos reporten `healthy` antes de ejecutar la colección Postman.
@@ -141,16 +168,38 @@ docker compose exec -T inventory-service wget -qO- \
   http://localhost:8082/internal/reservations/by-order/<orderId>
 ```
 
+## Emisión interna de entradas QR
+
+Ticket Service escucha en `ticket-service:8083`, dentro de la red de Compose. Purchase invocará este contrato **después** de confirmar pago e inventario:
+
+| Método | Ruta | Propósito |
+|---|---|---|
+| `POST` | `/internal/orders/{orderId}/items/{orderItemId}/tickets` | Emitir o recuperar idempotentemente las entradas QR de un item confirmado |
+
+La solicitud incluye al comprador, el snapshot del evento y las unidades del item; para asientos numerados cada unidad lleva fila y número. La primera emisión devuelve `201`; un reintento idéntico devuelve `200` con los mismos tickets y QR. Reutilizar la pareja `orderId + orderItemId` con distinto contenido devuelve `409`.
+
+El response contiene `qrPayload` y `qrPngBase64`. La imagen PNG se genera al responder; PostgreSQL conserva el hash del payload, no el token. La API es interna y no tiene ruta en el Gateway. **Como Purchase Service todavía no existe, la emisión se puede verificar por contrato, pero aún no hay flujo real de compra que la invoque.**
+
+Valida la documentación y el estado del servicio desde el contenedor:
+
+```powershell
+docker compose exec -T ticket-service wget -qO- http://localhost:8083/v3/api-docs
+docker compose exec -T ticket-service wget -qO- http://localhost:8083/actuator/health
+```
+
+El contrato versionado está en `services/ticket-service/docs/ticket-openapi.yaml`. Este alcance emite QR; validación en acceso, revocación y devoluciones siguen pendientes.
+
 ## Validar OpenAPI (interno, vía contenedor)
 
-OpenAPI y Swagger UI están expuestos en Catalog Service (puerto interno 8081), Inventory Service (puerto interno 8082) y no se publican por el Gateway. Valida desde dentro de cada contenedor:
+OpenAPI y Swagger UI están expuestos en Catalog Service (puerto interno 8081), Inventory Service (puerto interno 8082) y Ticket Service (puerto interno 8083); no se publican por el Gateway. Valida desde dentro de cada contenedor:
 
 ```bash
 docker compose exec -T catalog-service wget -qO- http://localhost:8081/v3/api-docs
 docker compose exec -T inventory-service wget -qO- http://localhost:8082/v3/api-docs
+docker compose exec -T ticket-service wget -qO- http://localhost:8083/v3/api-docs
 ```
 
-Deben contener los paths de cada flujo. El contrato versionado de Inventory está en `docs/openapi.yaml` y los tests de contrato fallan si cambian paths, códigos o esquemas sin actualizarlo.
+Deben contener los paths de cada flujo. Los contratos versionados de Inventory y Ticket están en `docs/openapi.yaml` y `services/ticket-service/docs/ticket-openapi.yaml`.
 
 ## Verificación desde un checkout limpio
 
@@ -163,7 +212,7 @@ Desde un checkout limpio del proyecto (sin rutas personales ni configuración de
 5. Ejecuta `docker compose build`.
 6. Ejecuta `docker compose down -v && docker compose up -d --wait`.
 7. Ejecuta la colección Postman con `npx newman`.
-8. Valida OpenAPI con `docker compose exec -T catalog-service wget -qO- http://localhost:8081/v3/api-docs` y con `docker compose exec -T inventory-service wget -qO- http://localhost:8082/v3/api-docs`.
+8. Valida OpenAPI con `docker compose exec -T catalog-service wget -qO- http://localhost:8081/v3/api-docs`, `docker compose exec -T inventory-service wget -qO- http://localhost:8082/v3/api-docs` y `docker compose exec -T ticket-service wget -qO- http://localhost:8083/v3/api-docs`.
 9. Ejecuta `docker compose down` al terminar.
 
 Ningún paso requiere rutas absolutas de la máquina del autor ni secretos versionados.
@@ -185,7 +234,9 @@ ticketya/
 |   +-- catalog-service/
 |   |   +-- pom.xml, Dockerfile, src/
 |   +-- inventory-service/
-|       +-- pom.xml, Dockerfile, src/
+|   |   +-- pom.xml, Dockerfile, src/
+|   +-- ticket-service/
+|       +-- pom.xml, Dockerfile, docs/, src/
 +-- openspec/
 +-- OpenSpec.md
 ```
@@ -199,4 +250,4 @@ docker compose down -v
 docker compose up -d
 ```
 
-Esto elimina los volúmenes `catalog-postgres-data` e `inventory-postgres-data` y los recrea vacíos. Los esquemas se inicializan automáticamente con el `schema.sql` de cada servicio al arrancar Catalog Service e Inventory Service.
+Esto elimina los volúmenes `catalog-postgres-data`, `inventory-postgres-data` y `ticket-postgres-data` y los recrea vacíos. Los esquemas se inicializan automáticamente con el `schema.sql` de cada servicio al arrancar Catalog, Inventory y Ticket Service.
