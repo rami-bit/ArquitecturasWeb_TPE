@@ -1,16 +1,23 @@
 package com.ticketya.catalog.api.event;
 
+import com.ticketya.catalog.api.error.ApiProblemException;
+import com.ticketya.catalog.application.event.InventoryCancellationClient;
 import com.ticketya.catalog.domain.venue.Venue;
 import com.ticketya.catalog.infrastructure.persistence.venue.VenueRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import java.math.BigDecimal;
 import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -18,6 +25,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class EventManagementIntegrationTest {
  @Autowired MockMvc mvc; @Autowired VenueRepository venues; @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
+ @MockBean InventoryCancellationClient inventoryCancellation;
  private final UUID organizer=UUID.fromString("10000000-0000-0000-0000-000000000001");
  @org.junit.jupiter.api.BeforeEach void cleanDatabase(){jdbc.update("delete from snapshot_seats");jdbc.update("delete from snapshot_sectors");jdbc.update("delete from snapshot_participants");jdbc.update("delete from event_snapshots");jdbc.update("delete from event_sector_offerings");jdbc.update("delete from event_participants");jdbc.update("delete from events");jdbc.update("delete from venue_seats");jdbc.update("delete from venue_sectors");jdbc.update("delete from venues");}
  @Test void createsAndConfiguresOwnedDraftAndDocumentsManagementContracts() throws Exception {
@@ -67,8 +75,17 @@ class EventManagementIntegrationTest {
   mvc.perform(post("/api/management/events/"+event+"/resume").header("X-User-Id",UUID.randomUUID()).header("X-User-Role","ADMIN")).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("PUBLISHED"));
   mvc.perform(post("/api/management/events/"+event+"/resume").header("X-User-Id",UUID.randomUUID()).header("X-User-Role","ADMIN")).andExpect(status().isConflict());
   assertThat(jdbc.queryForObject("select venue_name from event_snapshots where event_id=?",String.class,event)).isEqualTo(snapshotName);
-  String openApi=mvc.perform(get("/v3/api-docs")).andExpect(status().isOk()).andExpect(jsonPath("$.paths['/api/management/events/{id}/publish'].post").exists()).andExpect(jsonPath("$.paths['/api/management/events/{id}/publish'].post.responses['400']").exists()).andExpect(jsonPath("$.paths['/api/management/events/{id}/suspend'].post.responses['403']").exists()).andExpect(jsonPath("$.paths['/api/management/events/{id}/resume'].post.responses['409']").exists()).andReturn().getResponse().getContentAsString();
-  assertThat(openApi).contains("SOLD_OUT","CANCELLED","FINISHED").doesNotContain("/sold-out","/cancel","/finish");
+  // --- cancelacion: dueno u ADMIN, PUBLISHED -> CANCELLED, notifica a Inventory ---
+  mvc.perform(post("/api/management/events/"+event+"/cancel").header("X-User-Id",UUID.randomUUID()).header("X-User-Role","ORGANIZER")).andExpect(status().isForbidden());
+  mvc.perform(post("/api/management/events/"+event+"/cancel").header("X-User-Id",organizer).header("X-User-Role","ORGANIZER")).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CANCELLED"));
+  assertThat(jdbc.queryForObject("select status from events where id=?",String.class,event)).isEqualTo("CANCELLED");
+  verify(inventoryCancellation).notifyCancelled(event);
+  mvc.perform(post("/api/management/events/"+event+"/cancel").header("X-User-Id",organizer).header("X-User-Role","ORGANIZER")).andExpect(status().isOk());
+  verify(inventoryCancellation,times(2)).notifyCancelled(event);
+  mvc.perform(post("/api/management/events/"+event+"/resume").header("X-User-Id",UUID.randomUUID()).header("X-User-Role","ADMIN")).andExpect(status().isConflict());
+  mvc.perform(post("/api/management/events/"+event+"/suspend").header("X-User-Id",UUID.randomUUID()).header("X-User-Role","ADMIN")).andExpect(status().isConflict());
+  String openApi=mvc.perform(get("/v3/api-docs")).andExpect(status().isOk()).andExpect(jsonPath("$.paths['/api/management/events/{id}/publish'].post").exists()).andExpect(jsonPath("$.paths['/api/management/events/{id}/publish'].post.responses['400']").exists()).andExpect(jsonPath("$.paths['/api/management/events/{id}/suspend'].post.responses['403']").exists()).andExpect(jsonPath("$.paths['/api/management/events/{id}/resume'].post.responses['409']").exists()).andExpect(jsonPath("$.paths['/api/management/events/{id}/cancel'].post.responses['503']").exists()).andReturn().getResponse().getContentAsString();
+  assertThat(openApi).contains("SOLD_OUT","CANCELLED","FINISHED").doesNotContain("/sold-out","/finish");
  }
  @Test void rejectsThirdPartyCreationInvalidOfferingsAndLeavesNoDraft() throws Exception {
   Venue v=new Venue("Arena","Av 1","BA",BigDecimal.ZERO,BigDecimal.ZERO);venues.saveAndFlush(v);
@@ -98,6 +115,15 @@ class EventManagementIntegrationTest {
   assertThat(jdbc.queryForObject("select status from events where id=?",String.class,event)).isEqualTo("DRAFT");
   assertThat(jdbc.queryForObject("select count(*) from event_snapshots where event_id=?",Integer.class,event)).isZero();
   assertThat(jdbc.queryForObject("select count(*) from snapshot_participants",Integer.class)).isZero();
+ }
+ @Test void cancelRollsBackWhenInventoryIsUnavailable() throws Exception {
+  Venue v=new Venue("Arena","Av 1","BA",BigDecimal.ZERO,BigDecimal.ZERO);var sector=v.addGeneralAdmissionSector("Campo",10);venues.saveAndFlush(v);
+  UUID event=createDraft(v.getId(),"2030-01-01T20:00:00-03:00","[\"Band\"]");
+  mvc.perform(put("/api/management/events/"+event+"/offerings").header("X-User-Id",organizer).header("X-User-Role","ORGANIZER").contentType(MediaType.APPLICATION_JSON).content("{\"offerings\":[{\"sectorId\":\"%s\",\"price\":25.50}]}".formatted(sector.getId()))).andExpect(status().isOk());
+  mvc.perform(post("/api/management/events/"+event+"/publish").header("X-User-Id",organizer).header("X-User-Role","ORGANIZER")).andExpect(status().isOk());
+  doThrow(new ApiProblemException(HttpStatus.SERVICE_UNAVAILABLE,"Inventory unavailable","retry")).when(inventoryCancellation).notifyCancelled(event);
+  mvc.perform(post("/api/management/events/"+event+"/cancel").header("X-User-Id",organizer).header("X-User-Role","ORGANIZER")).andExpect(status().isServiceUnavailable());
+  assertThat(jdbc.queryForObject("select status from events where id=?",String.class,event)).isEqualTo("PUBLISHED");
  }
  private UUID createDraft(UUID venueId,String startsAt,String participants) throws Exception {
   String body="{\"name\":\"Show\",\"description\":\"Live show\",\"eventType\":\"MUSIC\",\"startsAt\":\"%s\",\"venueId\":\"%s\",\"participants\":%s}".formatted(startsAt,venueId,participants);

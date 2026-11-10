@@ -22,3 +22,7 @@ management:
     web:
       exposure:
         include: health,info
+inventory:
+  base-url: ${INVENTORY_SERVICE_URL:http://localhost:8082}
+  connect-timeout-ms: ${INVENTORY_CONNECT_TIMEOUT_MS:2000}
+  read-timeout-ms: ${INVENTORY_READ_TIMEOUT_MS:5000}

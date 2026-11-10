@@ -23,6 +23,7 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-ticketya_catalog}
       DB_USER: ${POSTGRES_USER:-ticketya}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-ticketya}
+      INVENTORY_SERVICE_URL: http://inventory-service:8082
     depends_on:
       postgres:
         condition: service_healthy

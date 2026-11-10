@@ -85,3 +85,5 @@ CREATE INDEX IF NOT EXISTS idx_inventory_items_status_expires
 
 CREATE INDEX IF NOT EXISTS idx_inventory_items_reservation
     ON inventory_items (reservation_id);
+
+ALTER TABLE event_inventories ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ;

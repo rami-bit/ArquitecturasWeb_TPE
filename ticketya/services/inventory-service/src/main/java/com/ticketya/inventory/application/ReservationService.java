@@ -44,6 +44,9 @@ public class ReservationService {
     @Transactional(rollbackFor = Exception.class)
     public ReservationResult create(ReservationRequest request) {
         InventoryStore.InventoryRow inventory = initialization.ensure(request.eventId());
+        if (store.isCancelled(request.eventId())) {
+            throw ApiProblemException.conflict("The event was cancelled and no longer accepts reservations");
+        }
         expiry.expireDueForEvent(inventory.id());
 
         String fingerprint = fingerprint(request);
@@ -121,7 +124,9 @@ public class ReservationService {
             throw ApiProblemException.conflict(
                     "The reservation is not active and cannot be confirmed");
         }
-
+        if (store.isCancelled(reservation.eventId())) {
+            throw ApiProblemException.conflict("The event was cancelled and its reservations cannot be confirmed");
+        }
         int transitioned = store.confirmReservation(reservationId);
         if (transitioned == 0) {
             InventoryStore.ReservationRow current = store.findReservationById(reservationId)
