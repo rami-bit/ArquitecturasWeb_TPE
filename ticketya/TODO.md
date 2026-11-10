@@ -42,6 +42,60 @@ Basado en `TPE-ArqWeb-TicketYa-2026.pdf`, secciones “Modalidad de entrega”, 
 - [x] [x] Permitir buscar eventos por tipo, organizador, participante, ciudad y rango de fechas, ordenando por fecha, precio o relevancia.
 - [ ] [ ] Proveer una pasarela de pagos simulada (mock) para el flujo de compra.
 
+## Roadmap funcional: user stories y dependencias
+
+Este roadmap convierte F1-F12 del PDF en historias priorizadas. Los IDs ayudan a abrir cambios OpenSpec, relacionar tareas y ver el orden. Las capacidades existentes son el punto de partida; Purchase, pago y los flujos E2E siguen pendientes.
+
+### Base disponible
+
+- **US-F1/F2/F3/F9 - Catalog:** lugares, eventos, borradores, publicacion, busqueda y detalle ya estan implementados. La cancelacion esta iniciada, pero la orquestacion de reintegros aun no.
+- **US-F5 - Inventory:** disponibilidad, reservas temporales, expiracion y prevencion de doble reserva bajo concurrencia estan implementadas.
+- **US-F4 QR - Ticket:** `issue-ticket-qr` implementa emision interna e idempotente. Falta invocarla desde una compra con pago aprobado.
+
+### Prioridad y secuencia
+
+| Orden | Historia / criterio de aceptacion | Dependencias y paralelismo |
+|---|---|---|
+| **P0 / siguiente** | **US-F4.1 - Crear orden.** Registrar cliente, evento, items, sector/asiento, snapshot de precio, medio de pago y estado. Aplicar el limite por cliente/evento de forma atomica e idempotente. | Catalog e Inventory existentes. Iniciar como OpenSpec `establish-purchase-and-ticketing`; definir primero contratos de orden e idempotencia. |
+| **P0 / paralelo** | **US-F4.2 - Simular pago.** Payment Mock autoriza/cobra con respuestas configurables (aprobado/rechazado), conserva referencia y resuelve reintentos sin duplicar cargos. | Puede avanzar en paralelo con US-F4.1 despues de acordar contrato, estados y clave de idempotencia. |
+| **P0 / luego** | **US-F4.3 - Completar compra.** Purchase reserva Inventory, solicita pago y, ante aprobacion, confirma inventario; ante rechazo o vencimiento, libera la reserva. Los estados parciales quedan consultables y recuperables. | Depende de US-F4.1, US-F4.2 y los comandos internos de Inventory. Este es el primer flujo vertical E2E. |
+| **P0 / luego** | **US-F4.4 - Emitir y consultar entradas compradas.** Solo emitir QR despues de pago aprobado y reserva confirmada; asociar cada ticket al cliente/orden y permitir consultar el detalle de compra y sus entradas. | Depende de US-F4.3 y del contrato interno existente de Ticket Service. |
+| **P1** | **US-F7.1 - Solicitar devolucion.** El titular puede solicitarla hasta 72 horas antes; se guarda estado y se impiden solicitudes duplicadas. | Depende de ordenes/tickets de US-F4.4 y fecha del evento de Catalog. |
+| **P1** | **US-F7.2 - Resolver devolucion.** ADMIN aprueba o rechaza. Al aprobar: revocar ticket, solicitar reintegro idempotente y solo despues liberar la unidad/cupo; fallos parciales quedan reintentables. | Depende de US-F7.1, Ticket revocable, Payment Mock con reintegro e Inventory con liberacion de unidad vendida. |
+| **P1** | **US-F7.3 - Cancelar evento con reintegros.** ADMIN inicia el proceso; Catalog marca `CANCELLED`; Purchase revoca tickets, procesa reintegros y cierra inventario de forma idempotente. | Depende de US-F4.3/4.4 y de las primitivas de US-F7.2. Alinear con el blueprint: Purchase orquesta; Catalog no orquesta reintegros. La notificacion a compradores se completa en US-F11 (E2). |
+| **P1 / cierre E1** | **US-E1-05 - Integrar y entregar el core.** Gateway publica las rutas necesarias; OpenAPI/Postman cubren los flujos; README/datos de prueba permiten ejecutar; pruebas integradas verifican compra, rechazo, vencimiento, idempotencia y competencia. | Depende de US-F4.1-F4.4 y US-F7.1-F7.3. Se pueden preparar contratos y ejemplos en paralelo, pero cerrar la verificacion E2E al final. |
+| **P2 / E2** | **US-F6 - Fila virtual.** Para evento de alta demanda, informar posicion y habilitar tandas ordenadas; el token de admision no garantiza disponibilidad de inventario. | Se puede especificar en paralelo con P0; la integracion depende del endpoint de compra de US-F4.3 e Inventory. |
+| **P2 / E2** | **US-F8 - Validar acceso QR.** Personal valida existencia, evento correcto y no usado; el primer escaneo marca uso atomico y los siguientes se rechazan. | Depende del contrato de tickets emitidos de US-F4.4. Puede implementarse en paralelo con devoluciones cuando se acuerden los estados de revocacion/uso. |
+| **P2 / E2** | **US-F10 - Preferencias y recomendaciones.** Guardar tipos, artistas y ciudad; sugerir eventos por preferencias e historial de compras. | Catalog ya existe; historial depende de US-F4.1-F4.4. Definir NoSQL y su justificacion en esta historia. |
+| **P2 / E2** | **US-F11 - Notificar al cliente.** Enviar confirmacion de compra, cancelacion/cambio y eventos de artistas favoritos en su ciudad. | Confirmacion depende de US-F4.3; cancelacion de US-F7.3; alertas personalizadas de US-F10. Se puede desarrollar el adaptador de notificaciones en paralelo una vez acordado el contrato de eventos. |
+| **P2 / E2** | **US-F12 - Reportes del organizador.** Mostrar vendidos/devueltos por sector, ocupacion y recaudacion por evento propio. | Depende de compras de US-F4 y devoluciones/cancelacion de US-F7; requiere filtrar por ownership del organizador. |
+
+### Grafo de dependencias y trabajo paralelo
+
+```mermaid
+flowchart TD
+    CAT["Catalog: F1-F3/F9"] --> INV["Inventory: F5"]
+    INV --> CONTRACTS["Contratos de E1-03 aprobados"]
+    CONTRACTS --> ORDER["US-F4.1 Orden"]
+    CONTRACTS --> PAY["US-F4.2 Payment Mock"]
+    ORDER --> SAGA["US-F4.3 Compra / saga"]
+    PAY --> SAGA
+    SAGA --> QR["US-F4.4 Integrar emision QR"]
+    QR --> REF["US-F7.1-F7.2 Devoluciones"]
+    QR --> CANCEL["US-F7.3 Cancelacion y reintegros"]
+    REF --> CORE["E1-05 Integracion core"]
+    CANCEL --> CORE
+    SAGA --> QUEUE["E2 F6 Fila virtual"]
+    QR --> ACCESS["E2 F8 Acceso QR"]
+    SAGA --> PREF["E2 F10 Preferencias"]
+    CANCEL --> NOTIFY["E2 F11 Notificaciones"]
+    PREF --> NOTIFY
+    REF --> REPORT["E2 F12 Reportes"]
+    SAGA --> REPORT
+```
+
+**Como elegir la siguiente tarea:** abrir primero el cambio OpenSpec `establish-purchase-and-ticketing` y acordar los contratos de orden, pago y uso del contrato Ticket. Una vez aprobada esa especificacion, asignar US-F4.1 y US-F4.2 en paralelo; integrar en US-F4.3 solo despues de que ambos contratos esten estables. Luego avanzar en emision QR, devoluciones/cancelacion y cierre E1 en ese orden. E2 puede refinarse en paralelo cuando sus dependencias contractuales esten definidas.
+
 ## Historias y especificaciones
 
 - [ ] [ ] Transformar los requerimientos del sistema completo en features y user stories.
