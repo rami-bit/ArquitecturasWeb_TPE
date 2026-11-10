@@ -161,6 +161,20 @@ public class InventoryStore {
                 ttlSeconds, eventId);
     }
 
+    public int cancelInventory(UUID eventId) {
+        return jdbc.update(
+                "UPDATE event_inventories SET cancelled_at = COALESCE(cancelled_at, CURRENT_TIMESTAMP) "
+                        + "WHERE event_id = ?",
+                eventId);
+    }
+
+    public boolean isCancelled(UUID eventId) {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM event_inventories WHERE event_id = ? AND cancelled_at IS NOT NULL",
+                Integer.class, eventId);
+        return count != null && count > 0;
+    }
+
     // ---------------------------------------------------------------- reservations
 
     public int insertReservation(UUID id, UUID orderId, UUID inventoryId, String fingerprint,
@@ -320,20 +334,4 @@ public class InventoryStore {
                   AND expires_at <= CURRENT_TIMESTAMP
                 """, UUID.class, inventoryId);
     }
-
-public int cancelInventory(UUID eventId) {
-    return jdbc.update(
-            "UPDATE event_inventories SET cancelled_at = COALESCE(cancelled_at, CURRENT_TIMESTAMP) "
-                    + "WHERE event_id = ?",
-            eventId);
-}
-
-public boolean isCancelled(UUID eventId) {
-    Integer count = jdbc.queryForObject(
-            "SELECT COUNT(*) FROM event_inventories WHERE event_id = ? AND cancelled_at IS NOT NULL",
-            Integer.class, eventId);
-    return count != null && count > 0;
-}
-
-
 }

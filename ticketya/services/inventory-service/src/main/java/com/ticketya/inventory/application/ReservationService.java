@@ -125,7 +125,8 @@ public class ReservationService {
                     "The reservation is not active and cannot be confirmed");
         }
         if (store.isCancelled(reservation.eventId())) {
-            throw ApiProblemException.conflict("The event was cancelled and its reservations cannot be confirmed");
+            throw ApiProblemException.conflict(
+                    "The event was cancelled and its reservations cannot be confirmed");
         }
         int transitioned = store.confirmReservation(reservationId);
         if (transitioned == 0) {
