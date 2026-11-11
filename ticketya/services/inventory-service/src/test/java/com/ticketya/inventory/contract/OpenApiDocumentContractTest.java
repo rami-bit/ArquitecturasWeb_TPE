@@ -132,9 +132,14 @@ class OpenApiDocumentContractTest {
     void contractDeclaresExactlyTheExpectedPathsAndMethods() {
         Set<String> expectedPaths = OPERATIONS.keySet();
 
+        // docs/openapi.yaml es el contrato consolidado: además de los 8 paths de
+        // Inventory declara paths de Catalog, Purchase y Payment Mock. Por eso no se
+        // puede exigir que contenga SOLO los paths de Inventory; se verifica que los
+        // 8 paths de Inventory estén presentes y completos (un único método cada uno),
+        // sin prohibir los paths de los demás servicios.
         assertThat(paths().keySet())
-                .as("el contrato versionado sólo declara los paths de Inventory")
-                .containsExactlyInAnyOrderElementsOf(expectedPaths);
+                .as("el contrato versionado declara los 8 paths de Inventory")
+                .containsAll(expectedPaths);
 
         for (String path : expectedPaths) {
             Map<String, Object> item = (Map<String, Object>) paths().get(path);

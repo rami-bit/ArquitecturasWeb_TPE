@@ -8,5 +8,11 @@ import java.util.UUID;
 public record ReservationItem(
         UUID sectorId,
         UUID seatId,
-        int quantity) {
+        int quantity,
+        UUID sourceSectorId,
+        UUID sourceSeatId,
+        String sectorName,
+        String sectorType,
+        String rowLabel,
+        Integer seatNumber) {
 }

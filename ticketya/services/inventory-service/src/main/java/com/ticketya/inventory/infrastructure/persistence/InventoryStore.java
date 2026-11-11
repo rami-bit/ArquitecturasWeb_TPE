@@ -36,7 +36,10 @@ public class InventoryStore {
                                  OffsetDateTime createdAt, String fingerprint) {
     }
 
-    public record ReservationItemRow(UUID sectorId, UUID inventoryItemId, int quantity) {
+    public record ReservationItemRow(UUID sectorId, UUID inventoryItemId, int quantity,
+                                     UUID sourceSectorId, UUID sourceSeatId,
+                                     String sectorName, String sectorType,
+                                     String rowLabel, Integer seatNumber) {
     }
 
     private static final RowMapper<InventoryRow> INVENTORY_MAPPER = (rs, row) -> new InventoryRow(
@@ -209,14 +212,24 @@ public class InventoryStore {
 
     public List<ReservationItemRow> findReservationItems(UUID reservationId) {
         return jdbc.query("""
-                SELECT sector_id, inventory_item_id, quantity
-                FROM reservation_items
-                WHERE reservation_id = ?
-                ORDER BY sector_id ASC, inventory_item_id ASC NULLS LAST
+                SELECT ri.sector_id, ri.inventory_item_id, ri.quantity,
+                       s.source_sector_id, s.name, s.type,
+                       i.source_seat_id, i.row_label, i.seat_number
+                FROM reservation_items ri
+                JOIN inventory_sectors s ON s.id = ri.sector_id
+                LEFT JOIN inventory_items i ON i.id = ri.inventory_item_id
+                WHERE ri.reservation_id = ?
+                ORDER BY ri.sector_id ASC, ri.inventory_item_id ASC NULLS LAST
                 """, (rs, row) -> new ReservationItemRow(
                 rs.getObject("sector_id", UUID.class),
                 rs.getObject("inventory_item_id", UUID.class),
-                rs.getInt("quantity")), reservationId);
+                rs.getInt("quantity"),
+                rs.getObject("source_sector_id", UUID.class),
+                rs.getObject("source_seat_id", UUID.class),
+                rs.getString("name"),
+                rs.getString("type"),
+                rs.getString("row_label"),
+                rs.getObject("seat_number", Integer.class)), reservationId);
     }
 
     public int holdSeat(UUID itemId, UUID sectorId, UUID reservationId,

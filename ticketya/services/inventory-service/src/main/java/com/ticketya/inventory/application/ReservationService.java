@@ -262,7 +262,9 @@ public class ReservationService {
     private ReservationResponse toResponse(InventoryStore.ReservationRow reservation) {
         List<ReservationItem> items = store.findReservationItems(reservation.id()).stream()
                 .map(item -> new ReservationItem(
-                        item.sectorId(), item.inventoryItemId(), item.quantity()))
+                        item.sectorId(), item.inventoryItemId(), item.quantity(),
+                        item.sourceSectorId(), item.sourceSeatId(), item.sectorName(),
+                        item.sectorType(), item.rowLabel(), item.seatNumber()))
                 .toList();
         return new ReservationResponse(
                 reservation.id(),
