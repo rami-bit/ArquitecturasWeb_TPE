@@ -13,7 +13,6 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -58,7 +57,7 @@ public class RefundRequestController {
         } catch (Exception ex) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Event date unavailable");
         }
-        if (!startsAt.toInstant().isAfter(clock.instant().plus(Duration.ofHours(72)))) {
+        if (!RefundPolicy.isWithinRequestWindow(startsAt, clock.instant())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Refund window has closed");
         }
         UUID id = UUID.randomUUID();

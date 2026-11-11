@@ -63,14 +63,13 @@ public class RefundDecisionController {
             @RequestHeader(value = "X-Correlation-Id", required = false) String correlationId,
             @PathVariable("refundId") UUID refundId, @RequestBody DecisionRequest request) {
         if (!"ADMIN".equals(role)) throw problem(HttpStatus.FORBIDDEN, "ADMIN role required");
-        if (request == null || request.decision() == null
-                || !("APPROVED".equals(request.decision()) || "REJECTED".equals(request.decision()))) {
+        if (request == null || !RefundPolicy.isValidDecision(request.decision())) {
             throw problem(HttpStatus.BAD_REQUEST, "Decision must be APPROVED or REJECTED");
         }
         String decision = request.decision();
         transactions.executeWithoutResult(tx -> {
             RefundRow current = row(refundId);
-            if (current.decision() != null && !current.decision().equals(decision)) {
+            if (!RefundPolicy.canSetDecision(current.decision(), decision)) {
                 throw problem(HttpStatus.CONFLICT, "Refund decision cannot be changed");
             }
             if (current.decision() == null) {

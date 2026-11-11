@@ -1,5 +1,33 @@
 # Verificación de Entrega 1
 
+## Cierre de pruebas expresas del PDF (2026-11-11)
+
+Se agregaron pruebas unitarias de reglas de compra (`PurchaseBusinessRulesTest`, 2), devoluciones (`RefundPolicyTest`, 4) y búsqueda/ordenamiento (`EventDiscoveryServiceTest`, 4). La regla de devolución de 72 horas y la inmutabilidad de la decisión se extrajeron a `RefundPolicy` sin cambiar las rutas ni las respuestas. La concurrencia se verifica con `postman/concurrent-purchases.py`, que crea un evento y asiento propios por corrida y dispara 12 compras completas por Gateway, cada una con comprador y clave de idempotencia distintos.
+
+| Verificación | Comando / entorno | Resultado |
+|---|---|---|
+| Módulo Catalog | `docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "${PWD}:/workspace" -w /workspace -e TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal maven:3.9.9-eclipse-temurin-21-alpine mvn -q -pl services/catalog-service -am verify` | 48 pruebas de Catalog, 0 fallos, 0 errores, 0 omisiones; 4 pruebas nuevas de búsqueda. |
+| Módulo Purchase | Mismo contenedor Java 21 con `mvn -q -pl services/purchase-service -am verify` | XML recientes de las clases actuales; la corrida inicial falló al compilar un test nuevo, se corrigió antes del reactor final. |
+| Reactor completo | Mismo contenedor Java 21 con `mvn -q verify` | Código 0; 231 pruebas en los seis módulos, 0 fallos, 0 errores, 0 omisiones. Los XML de las clases fuente actuales están presentes; se excluyó un XML antiguo de `PurchaseFlowIntegrationTest` porque ya no existe su fuente. |
+| Compose limpio | `docker compose -p ticketya_e1_core_20261111 up --build -d --wait` y `ps --format json` | 11/11 servicios `healthy`, incluidas las imágenes recompiladas de Catalog y Purchase. |
+| Colección completa por Gateway | `postman collection run postman/ticketya.postman_collection.json --env-var baseUrl=http://localhost:8080 --no-report-events` | 42 requests, 72 aserciones, 0 fallos. Incluye compra aprobada y rechazada, compra numerada, devoluciones y cancelación. |
+| Muchas compras del mismo asiento por Gateway | `python postman/concurrent-purchases.py` | 12 compras simultáneas, una `201 CONFIRMED`, 11 respuestas `409`, un asiento `SOLD` y contadores `sold=1`, `reserved=0`. Evento nuevo `bbe6adb6-f090-4f2f-8f71-76fd61b7e8bf`. |
+
+La prueba multi-instancia de Inventory sigue siendo evidencia complementaria de la exclusión entre procesos. El stack Compose de esta corrida usa un nombre de proyecto nuevo y conserva sus volúmenes; no se borraron volúmenes existentes. Las pruebas adicionales de compra vencida E2E, fallos parciales downstream y reintento QR siguen abiertas en `establish-purchase-and-ticketing`.
+
+## Evidencia de liberación por vencimiento (US-E1-05, tarea 3.1)
+
+Fecha: 2026-11-11. Se revisaron implementación, pruebas fuente y XML Surefire de Inventory, sin modificar código ni ejecutar Maven nuevamente. Los XML son posteriores al último commit del módulo (`56b4c55`, 15:42 -0300) y no hay diferencias locales en su código o tests.
+
+| Clase | Tests | Fallos | Errores | Omitidos | Evidencia |
+|---|---:|---:|---:|---:|---|
+| `ReservationLifecycleContractTest` | 9 | 0 | 0 | 0 | Una reserva vencida no se confirma; la consulta de disponibilidad libera el asiento. La liberación posterior devuelve `EXPIRED` y mantiene los contadores de venta en cero. |
+| `HoldTtlContractTest` | 5 | 0 | 0 | 0 | El vencimiento se configura por evento: 600 s por defecto y 300 s tras configurarlo. Esta clase comprueba el TTL, no la liberación. |
+| `InventoryAvailabilityContractTest` | 8 | 0 | 0 | 0 | Tras forzar el vencimiento, el asiento queda `AVAILABLE` y el cupo general recupera su disponibilidad completa. |
+| `InventoryConcurrencyContractTest` | 4 | 0 | 0 | 0 | Dos instancias disparan la expiración concurrente; la reserva queda `EXPIRED`, el asiento `AVAILABLE` y los contadores generales en cero. |
+
+`ReservationExpiryService` cambia a `EXPIRED` sólo reservas activas vencidas y, en la misma transacción, libera asientos y cupos generales. `AvailabilityService` y `ReservationService.create` disparan esa expiración al consultar disponibilidad o intentar otra reserva. El SQL permite retener de nuevo un asiento `AVAILABLE` y reservar cupo general cuando el contador recupera capacidad. Esto respalda que el lugar vuelve a estar disponible para otra compra; no se ejecutó una compra E2E de vencimiento, que no es una prueba específica exigida por el PDF para Entrega 1. No se requirió corregir el comportamiento.
+
 ## Verificación de US-E1-05
 
 Fecha: 2026-11-11. Se reutilizó el stack Compose existente `ticketya_verification`; no se creó uno nuevo en esta corrida. El usuario interrumpió la repetición del reactor Maven porque los cambios de este turno se limitaron a documentación y Postman.

@@ -181,7 +181,7 @@ El proyecto compila para Java 19 y usa Spring Boot 3.2.5. No se incluye Maven Wr
 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "${PWD}:/workspace" -w /workspace -e TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal maven:3.9.9-eclipse-temurin-21-alpine mvn -q verify
 ```
 
-Después hay que revisar los XML Surefire recientes: `skipped=0` en las clases Testcontainers, además de cero fallos y errores. La guía breve de Docker Desktop está en [`NEXT.md`](NEXT.md). Si sólo cambian documentación o la colección Postman, se puede reutilizar un stack ya saludable y ejecutar la colección con datos nuevos; al cambiar código o configuración, reconstruir el proyecto Compose aislado.
+Después hay que revisar los XML Surefire recientes: `skipped=0` en las clases Testcontainers, además de cero fallos y errores. Los comandos y resultados de la última corrida están en [`docs/verification.md`](docs/verification.md). Si sólo cambian documentación o la colección Postman, se puede reutilizar un stack ya saludable y ejecutar la colección con datos nuevos; al cambiar código o configuración, reconstruir el proyecto Compose aislado.
 
 Los tests de contrato de Inventory, Purchase y Payment Mock, y de persistencia contra PostgreSQL, usan Testcontainers: requieren Docker disponible. Si Docker no está disponible, esas clases se omiten automáticamente y el resto de los tests sigue ejecutándose; un test omitido no cuenta como verificado.
 
@@ -241,6 +241,8 @@ npx --yes newman run postman/ticketya.postman_collection.json \
 ```
 
 La colección es repetible: cada corrida genera un `runId` único para evitar colisiones. Cubre Catalog e Inventory, compras aprobadas de admisión general y asiento numerado con QR, reintento idempotente, consulta de tickets por su titular, pago rechazado con liberación del cupo y límite de seis entradas por cliente y evento. También prueba solicitud y resolución de devoluciones, cancelación con reintegros, suspensión y reanudación del evento. Todas las rutas públicas se recorren por el Gateway. Inventory materializa el inventario de forma perezosa a partir del snapshot publicado de Catalog en la primera consulta.
+
+Para comprobar muchas compras completas simultáneas del mismo asiento con compradores y claves distintas, sobre un stack saludable ejecuta `python postman/concurrent-purchases.py`. La prueba crea sus propios datos, espera una compra confirmada y once conflictos, y comprueba que Inventory registra un solo asiento vendido.
 
 ## Flujo interno de inventario (no publicado por el Gateway)
 
