@@ -197,8 +197,8 @@ abstract class PurchaseContractTestBase {
 
     protected static String orderBody(UUID eventId, String itemsJson, String method,
                                       String token) {
-        return "{\"eventId\":\"%s\",\"items\":[%s],\"payment\":{\"method\":\"%s\","
-                + "\"token\":\"%s\"}}".formatted(eventId, itemsJson, method, token);
+        return ("{\"eventId\":\"%s\",\"items\":[%s],\"payment\":{\"method\":\"%s\","
+                + "\"token\":\"%s\"}}").formatted(eventId, itemsJson, method, token);
     }
 
     protected static String seatItem(UUID sectorId, UUID... seatIds) {
@@ -567,7 +567,7 @@ abstract class PurchaseContractTestBase {
                   "orderId": "%s",
                   "eventId": "%s",
                   "status": "%s",
-                  "expiresAt": %s,
+                  "expiresAt": "%s",
                   "createdAt": "%s",
                   "items": [%s]
                 }

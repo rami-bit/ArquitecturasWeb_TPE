@@ -8,13 +8,18 @@ spring:
     url: ${DB_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:purchase_db}}
     username: ${DB_USER:ticketya}
     password: ${DB_PASSWORD:ticketya}
+  sql:
+    init:
+      mode: always
 
 purchase:
   catalog:
-    base-url: ${CATALOG_SERVICE_URL:http://localhost:8081}
+    url: ${CATALOG_SERVICE_URL:http://localhost:8081}
   inventory:
-    base-url: ${INVENTORY_SERVICE_URL:http://localhost:8082}
+    url: ${INVENTORY_SERVICE_URL:http://localhost:8082}
   payment:
-    base-url: ${PAYMENT_SERVICE_URL:http://localhost:8085}
+    url: ${PAYMENT_SERVICE_URL:http://localhost:8085}
   ticket:
-    base-url: ${TICKET_SERVICE_URL:http://localhost:8083}
+    url: ${TICKET_SERVICE_URL:http://localhost:8083}
+  ticket-limit: ${PURCHASE_TICKET_LIMIT:6}
+  hold-ttl-seconds: ${INVENTORY_HOLD_TTL_SECONDS:600}
