@@ -11,6 +11,7 @@
 - [ ] 2.3 Add unit and persistence tests and document its internal contract.
 
 ## 3. Purchase orchestration and ticket integration
+- [ ] 3.0 Align Inventory availability and reservation sector IDs with Catalog source sector IDs.
 - [ ] 3.1 Implement persisted purchase transitions calling Inventory hold/confirm/release and Payment charge/refund contracts.
 - [ ] 3.2 Integrate idempotent Ticket issuance after successful payment and inventory confirmation; return tickets from order lookup.
 - [ ] 3.3 Cover approval, rejection, duplicate request, limit/concurrency, expiry, downstream failure, and ticket retry behavior with tests.

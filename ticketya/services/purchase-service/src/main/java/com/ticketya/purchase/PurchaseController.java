@@ -15,6 +15,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.client.RestClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -26,6 +28,7 @@ import java.util.*;
 @RestController
 @RequestMapping("/api/purchases")
 public class PurchaseController {
+    private static final Logger log=LoggerFactory.getLogger(PurchaseController.class);
     private final JdbcTemplate jdbc;
     private final RestClient http;
     private final ObjectMapper mapper;
@@ -126,12 +129,13 @@ public class PurchaseController {
             List<Map<String,Object>> lines=jdbc.query("SELECT * FROM purchase_order_items WHERE order_id=? ORDER BY id",(r,n)->{Map<String,Object> m=new HashMap<>();m.put("id",r.getObject("id",UUID.class));m.put("sectorId",r.getObject("sector_id",UUID.class));m.put("sectorName",r.getString("sector_name"));m.put("quantity",r.getInt("quantity"));m.put("seatId",r.getObject("seat_id",UUID.class));m.put("row",r.getString("row_label"));m.put("seat",r.getObject("seat_number"));return m;},orderId);
             for(Map<String,Object> line:lines) {
                 List<Map<String,Object>> units=new ArrayList<>(); int q=(int)line.get("quantity"); for(int n=1;n<=q;n++){Map<String,Object> unit=new LinkedHashMap<>();unit.put("unitNumber",n);unit.put("rowLabel",line.get("row"));unit.put("seatNumber",line.get("seat"));units.add(unit);}
-                Map<String,Object> ticketBody=Map.of("customerId",o.path("customer_id").asText(),"eventId",o.path("event_id").asText(),"eventName",o.path("event_name").asText(),"eventStartsAt",o.path("event_starts_at").asText(),"venueName",o.path("venue_name").asText(),"venueCity",o.path("venue_city").asText(),"sectorName",line.get("sectorName"),"tickets",units);
+                Map<String,Object> ticketBody=ticketBody(o,line,units);
                 JsonNode tickets=call(ticketUrl+"/internal/orders/"+orderId+"/items/"+line.get("id")+"/tickets",trace,ticketBody);
                 jdbc.update("UPDATE purchase_order_items SET ticket_payload=? WHERE id=?",tickets.toString(),line.get("id"));
             }
             jdbc.update("UPDATE purchase_orders SET status='PAID' WHERE id=?",orderId);
         } catch(Exception e) {
+            log.error("Purchase processing failed orderId={} correlationId={}",orderId,trace,e);
             String current=jdbc.queryForObject("SELECT status FROM purchase_orders WHERE id=?",String.class,orderId);
             if("PAYMENT_APPROVED".equals(current)) {
                 UUID paymentId=jdbc.queryForObject("SELECT payment_id FROM purchase_orders WHERE id=?",UUID.class,orderId);
@@ -147,6 +151,18 @@ public class PurchaseController {
         JsonNode order=jdbc.queryForObject("SELECT to_jsonb(purchase_orders) FROM purchase_orders WHERE id=?",(r,n)->read(r.getString(1)),id);
         List<ItemView> items=jdbc.query("SELECT id,sector_name,unit_price,quantity,seat_id,ticket_payload FROM purchase_order_items WHERE order_id=? ORDER BY id",(r,n)->{JsonNode t=r.getString("ticket_payload")==null?null:read(r.getString("ticket_payload"));return new ItemView(r.getObject("id",UUID.class),r.getString("sector_name"),r.getBigDecimal("unit_price"),r.getInt("quantity"),r.getObject("seat_id",UUID.class),t);},id);
         return new PurchaseView(id,order.path("event_id").asText(),order.path("status").asText(),order.path("total").decimalValue(),items);
+    }
+    static Map<String,Object> ticketBody(JsonNode order,Map<String,Object> line,List<Map<String,Object>> units) {
+        Map<String,Object> body=new LinkedHashMap<>();
+        body.put("customerId",order.path("customer_id").asText());
+        body.put("eventId",order.path("event_id").asText());
+        body.put("eventName",order.path("event_name").asText());
+        body.put("eventStartsAt",order.path("event_starts_at").asText());
+        body.put("venueName",order.path("venue_name").asText());
+        body.put("venueCity",order.path("venue_city").asText());
+        body.put("sectorName",line.get("sectorName"));
+        body.put("tickets",units);
+        return body;
     }
     private JsonNode call(String url,String trace) { return call(url,trace,null); }
     private JsonNode callGet(String url,String trace) { try{return read(http.get().uri(url).header("X-Correlation-Id",trace).retrieve().body(String.class));}catch(Exception ex){throw new IllegalStateException("Downstream request failed: "+url,ex);} }

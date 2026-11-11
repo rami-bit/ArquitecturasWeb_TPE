@@ -2,7 +2,7 @@ FROM maven:3.9.9-eclipse-temurin-21-alpine AS build
 WORKDIR /workspace
 COPY services/purchase-service/pom.xml ./pom.xml
 COPY services/purchase-service/src ./src
-RUN mvn -q -DskipTests package
+RUN mvn -q package
 FROM amazoncorretto:19-alpine
 WORKDIR /app
 RUN addgroup -S ticketya && adduser -S ticketya -G ticketya

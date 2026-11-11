@@ -134,7 +134,7 @@ public class InventoryStore {
         return jdbc.query("""
                 SELECT id, source_sector_id, name, type, capacity, sold, reserved
                 FROM inventory_sectors
-                WHERE event_inventory_id = ? AND id = ?
+                WHERE event_inventory_id = ? AND source_sector_id = ?
                 """, SECTOR_MAPPER, inventoryId, sectorId).stream().findFirst();
     }
 
