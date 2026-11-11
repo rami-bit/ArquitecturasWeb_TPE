@@ -104,38 +104,46 @@ flowchart TD
 
 ## Historias y especificaciones
 
-- [ ] [ ] Transformar los requerimientos del sistema completo en features y user stories.
-- [ ] [ ] Incluir criterios de aceptación para las historias.
-- [x] [ ] Versionar las especificaciones en el repositorio si se usa OpenSpec u otra práctica similar.
+- [x] [x] Transformar los requerimientos del sistema completo en features y user stories.
+- [x] [x] Incluir criterios de aceptación para las historias.
+- [x] [x] Versionar las especificaciones en el repositorio si se usa OpenSpec u otra práctica similar.
+
+Evidencia: [`docs/Documentacion-de-diseño.md`](docs/Documentacion-de-diseño.md) reúne features y user stories con criterios de aceptación; [`openspec/`](openspec/) versiona los cambios con `proposal.md`, `design.md`, `specs/` y `tasks.md`.
 
 ## Arquitectura y diseño
 
-- [ ] [ ] Definir los microservicios, sus responsabilidades y su API pública.
-- [ ] [ ] Implementar cada microservicio como proyecto Spring Boot independiente, construible y ejecutable por separado.
-- [ ] [ ] Usar APIs REST síncronas para la comunicación de esta entrega.
+- [x] [x] Definir los microservicios, sus responsabilidades y su API pública.
+- [x] [x] Implementar cada microservicio como proyecto Spring Boot independiente, construible y ejecutable por separado.
+- [x] [x] Usar APIs REST síncronas para la comunicación de esta entrega.
 - [x] [x] Centralizar el acceso externo mediante un API Gateway (punto de entrada único).
-- [ ] [ ] Definir una base de datos relacional por microservicio (se permiten esquemas separados en una misma tecnología).
+- [x] [x] Definir una base de datos relacional por microservicio (se permiten esquemas separados en una misma tecnología).
 - [x] [x] Diseñar y documentar el mecanismo contra la doble venta, válido aunque haya varias instancias del microservicio.
-- [ ] [ ] Crear un diagrama de módulos de la arquitectura de solución.
-- [ ] [ ] Crear un diagrama de secuencia de compra de una entrada numerada, incluidos pago rechazado y vencimiento de la reserva.
-- [ ] [ ] Crear un diagrama entidad-relación por microservicio, con claves y relaciones entre servicios.
-- [ ] [ ] Indicar entidades solapadas entre las bases de datos de los servicios, si las hubiera.
+- [x] [x] Crear un diagrama de módulos de la arquitectura de solución.
+- [x] [x] Crear un diagrama de secuencia de compra de una entrada numerada, incluidos pago rechazado y vencimiento de la reserva.
+- [x] [x] Crear un diagrama entidad-relación por microservicio, con claves y relaciones entre servicios.
+- [x] [x] Indicar entidades solapadas entre las bases de datos de los servicios, si las hubiera.
+
+Evidencia: [`docs/architecture.md`](docs/architecture.md) reúne servicios y responsabilidades, diagrama de módulos, secuencia de compra, mecanismo contra la doble venta, ER por servicio (Catalog, Inventory, Ticket, Purchase y Payment) y la tabla de entidades solapadas. Los diagramas están en Mermaid y se renderizan desde el README y desde el propio documento.
 
 ## API REST
 
-- [ ] [ ] Documentar los endpoints con método HTTP, ruta, parámetros y códigos de respuesta.
-- [ ] [ ] Incluir ejemplos JSON de request y response.
-- [ ] [ ] Documentar la API con OpenAPI/Swagger, incluyendo descripciones, ejemplos y códigos de error.
+- [x] [x] Documentar los endpoints con método HTTP, ruta, parámetros y códigos de respuesta.
+- [x] [x] Incluir ejemplos JSON de request y response.
+- [x] [x] Documentar la API con OpenAPI/Swagger, incluyendo descripciones, ejemplos y códigos de error.
+
+Evidencia: [`docs/openapi.yaml`](docs/openapi.yaml) es el contrato consolidado de la entrega (16 paths, 17 operaciones) con ejemplos, errores `application/problem+json` y los esquemas de Purchase, Payment, Catalog e Inventory. Cada servicio expone además su `/v3/api-docs` y Swagger UI en su puerto interno.
 
 ## Implementación y ejecución
 
-- [ ] [ ] Implementar completamente en Spring Boot los microservicios y el API Gateway necesarios para el alcance de Entrega 1.
-- [ ] [ ] No exigir autenticación en esta entrega; identificar al usuario mediante parámetro o encabezado.
-- [ ] [ ] Preparar instrucciones de ejecución local de los microservicios; las bases de datos pueden iniciarse con Docker.
-- [ ] [ ] Incluir README con instrucciones para ejecutar el sistema.
-- [ ] [ ] Incluir documentación técnica adicional de diseño.
-- [ ] [ ] Incluir datos de prueba.
-- [ ] [ ] Incluir una colección de requests de Postman o herramienta similar para probar los endpoints.
+- [x] [x] Implementar completamente en Spring Boot los microservicios y el API Gateway necesarios para el alcance de Entrega 1.
+- [x] [x] No exigir autenticación en esta entrega; identificar al usuario mediante parámetro o encabezado.
+- [x] [x] Preparar instrucciones de ejecución local de los microservicios; las bases de datos pueden iniciarse con Docker.
+- [x] [x] Incluir README con instrucciones para ejecutar el sistema.
+- [x] [x] Incluir documentación técnica adicional de diseño.
+- [x] [x] Incluir datos de prueba.
+- [x] [x] Incluir una colección de requests de Postman o herramienta similar para probar los endpoints.
+
+Evidencia: el `README.md` documenta requisitos, variables de entorno, build, Compose, healthchecks, OpenAPI, Postman y reset de volúmenes. La identidad viaja en `X-User-Id` (y `X-User-Role` para ADMIN), sin autenticación. Los datos de prueba los genera la colección Postman con un `runId` por corrida sobre un stack limpio; el README incluye ejemplos de compra y la colección cubre desde la creación del lugar hasta la compra aprobada y rechazada.
 
 ## Pruebas
 
@@ -148,4 +156,4 @@ flowchart TD
 
 ## Entrega del repositorio
 
-- [ ] [ ] Incluir especificaciones (si se utilizó OpenSpec u otra práctica similar), documentación de diseño, README, datos de prueba y colección de requests.
+- [x] [x] Incluir especificaciones (si se utilizó OpenSpec u otra práctica similar), documentación de diseño, README, datos de prueba y colección de requests.

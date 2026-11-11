@@ -1,5 +1,15 @@
 # Documento de Diseño Arquitectónico y Requerimientos - TicketYa (Entrega 1)
 
+> **Estado del documento.** Esta es la propuesta de diseño inicial del equipo: features, user stories, diagramas y una primera versión de los contratos REST. La implementación evolucionó esos contratos. La fuente de verdad de lo implementado es [`docs/openapi.yaml`](openapi.yaml) (16 paths, 17 operaciones) y el resumen de arquitectura está en [`docs/architecture.md`](architecture.md). Diferencias concretas respecto de las secciones 5.1 a 5.3:
+>
+> - El alta y la consulta de la orden usan `POST /api/orders` y `GET /api/orders/{orderId}` (no `/api/v1/orders`). El comprador se identifica con `X-User-Id` y el reintento se protege con `Idempotency-Key`, en lugar de `clientId` en el cuerpo.
+> - No hay endpoint `/pay` separado: la saga es síncrona y el cobro se dispara en el mismo `POST /api/orders`, con `payment.method` y un token de simulación (`tok_approved`, `tok_rejected`, `tok_pending`).
+> - Los asientos se identifican por `seatIds` (UUID de Inventory), no por texto libre como `"Fila 3, Asiento 14"`; la admisión general usa `quantity`. Los precios nunca viajan en el request: se toman del snapshot de Catalog.
+> - Los estados persistidos son `CONFIRMED`, `REJECTED`, `PAYMENT_PENDING`, `PAID_PENDING_TICKETS` y `COMPENSATED`.
+> - Los comandos internos de Inventory viven en `/internal/reservations/**` y los de Payment Mock en `/internal/payments/**`; ninguno se publica por el Gateway.
+>
+> Los diagramas de las secciones 3 y 4 y las imágenes de la sección 6 se conservan como material de diseño; las versiones vigentes en Mermaid están en `docs/architecture.md`.
+
 ## 1. Features y User Stories (con Criterios de Aceptación)
 
 ### Feature 1: Gestión de Catálogo (Eventos y Lugares)

@@ -1,30 +1,50 @@
-# TicketYa - Catálogo de Eventos e Inventario (Entrega 1)
+# TicketYa - Plataforma de venta de entradas (Entrega 1)
 
 ## Compra local (Purchase + Payment Mock)
 
-El flujo de compra se expone en `POST /api/purchases` y `GET /api/purchases/{orderId}` a través del Gateway. Cada compra requiere `X-User-Id` y `Idempotency-Key`; el body incluye `eventId`, `items`, `paymentMethod` y el control local opcional `paymentOutcome` (`APPROVED` por defecto o `REJECTED`). El límite por cliente/evento es cuatro entradas por defecto y se cambia con `PURCHASE_TICKET_LIMIT`.
+El flujo de compra se expone a través del Gateway:
+
+| Método | Ruta | Propósito |
+|---|---|---|
+| `POST` | `/api/orders` | Crear una orden y ejecutar la saga de compra |
+| `GET` | `/api/orders` | Listar las órdenes del cliente (`page`, `size`, `status`) |
+| `GET` | `/api/orders/{orderId}` | Consultar una orden propia con ítems, unidades, pago y tickets |
+| `POST` | `/api/orders/{orderId}/reconcile` | Reintentar una orden `PAYMENT_PENDING` o `PAID_PENDING_TICKETS` |
+
+Cada solicitud requiere `X-User-Id` (UUID) y, para crear una orden, `Idempotency-Key` (1 a 120 caracteres). El encabezado opcional `X-User-Role: ADMIN` permite listar y consultar órdenes de cualquier cliente. El cuerpo **no incluye precios**: `eventId`, `items` y `payment`. Cada ítem informa exactamente uno de `seatIds` (sector numerado) o `quantity` (admisión general), usando los identificadores de Inventory que devuelve la consulta de disponibilidad. El límite de entradas por cliente y evento es seis y se cambia con `PURCHASE_TICKET_LIMIT`.
 
 Ejemplo de compra:
 
 ```http
-POST http://localhost:8080/api/purchases
+POST http://localhost:8080/api/orders
 X-User-Id: 66bd0a43-1baa-4f7b-8316-930593b84d7c
 Idempotency-Key: demo-purchase-001
 Content-Type: application/json
 
 {
   "eventId": "e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b",
-  "paymentMethod": "CARD",
-  "paymentOutcome": "APPROVED",
-  "items": [{"sectorId":"a88d7b2d-9019-4c3c-8bc4-e0ecc43c955b","quantity":2}]
+  "items": [
+    {"sectorId": "0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f", "seatIds": ["f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601", "f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f602"]},
+    {"sectorId": "9c8d7e6f-5a4b-4c3d-8e2f-1a0b9c8d7e6f", "quantity": 2}
+  ],
+  "payment": {"method": "CARD", "token": "tok_approved"}
 }
 ```
 
-Para demostrar un rechazo, repetir el ejemplo con una clave nueva y `paymentOutcome: "REJECTED"`. La respuesta contiene el estado de la orden; una orden recuperable se responde como `202 Accepted` y se puede volver a procesar repitiendo el POST con la misma clave. `GET /api/purchases/{orderId}` devuelve el detalle y los QR emitidos al titular. Payment Mock y los comandos `/internal/**` sólo son accesibles dentro de Compose.
+El token de simulación decide el cobro: `tok_approved` aprueba, `tok_rejected` rechaza y `tok_pending` deja el pago pendiente. Los códigos de respuesta son:
 
-Incremento actual de TicketYa: administración de lugares, borradores de eventos, publicación con snapshot inmutable, descubrimiento público, inventario de disponibilidad y reservas temporales. Ticket Service también está disponible para emitir entradas QR mediante un contrato interno; la compra que lo invoca todavía no está implementada.
+- `201`: orden `CONFIRMED`, con pago aprobado y tickets emitidos.
+- `200`: repetición idempotente con la misma clave y el mismo contenido; devuelve la orden existente sin reservar, cobrar ni emitir de nuevo.
+- `202`: orden `PAYMENT_PENDING` (`tok_pending` o timeout de la pasarela) u orden `PAID_PENDING_TICKETS` (el cobro se aprobó pero la emisión falló). Ambas se reintentan con `POST /api/orders/{orderId}/reconcile`.
+- `402`: pago rechazado; la reserva y el límite se liberan y la orden queda `REJECTED`.
+- `409`: falta de disponibilidad, límite excedido, `Idempotency-Key` reutilizada con otro contenido u orden `COMPENSATED` tras reintegrar un pago que no pudo confirmarse.
+- `400`, `403`, `404` y `503`: validación, identidad, evento no comprable y dependencia no disponible.
 
-El Catálogo es dueño del snapshot publicado y de los precios. Inventory es dueño de la disponibilidad y de las reservas: materializa el layout desde el snapshot de Catalog (sin copiar precios) y expone `GET /api/inventory/events/{eventId}/availability`. Los comandos de reserva (`/internal/**`) son internos y no se publican por el Gateway; los consumirá el futuro Purchase Service.
+Un timeout de pago nunca se interpreta como rechazo. Payment Mock y los comandos `/internal/**` sólo son accesibles dentro de Compose; el contrato completo está en [`docs/openapi.yaml`](docs/openapi.yaml).
+
+Incremento actual de TicketYa: administración de lugares, borradores de eventos, publicación con snapshot inmutable, descubrimiento público, inventario de disponibilidad con reservas temporales, y la compra completa que orquesta Catalog, Inventory, Payment Mock y Ticket Service.
+
+El Catálogo es dueño del snapshot publicado y de los precios. Inventory es dueño de la disponibilidad y de las reservas: materializa el layout desde el snapshot de Catalog (sin copiar precios) y expone `GET /api/inventory/events/{eventId}/availability`. Purchase es dueño de la orden, del snapshot de precios y del límite por cliente y evento, y es quien consume los comandos internos de Inventory, Payment Mock y Ticket. La arquitectura, los diagramas de secuencia y los modelos de datos están en [`docs/architecture.md`](docs/architecture.md).
 
 ## Requisitos
 
@@ -48,7 +68,7 @@ Docker Compose carga automáticamente el archivo `.env` de esta carpeta. Mantenl
 | `POSTGRES_USER` | `ticketya` | Usuario de ambas bases PostgreSQL |
 | `POSTGRES_PASSWORD` | `ticketya` | Contraseña de ambas bases PostgreSQL |
 | `GATEWAY_PORT` | `8080` | Puerto publicado del API Gateway en el host |
-| `PURCHASE_TICKET_LIMIT` | `4` | Máximo de entradas por cliente y evento |
+| `PURCHASE_TICKET_LIMIT` | `6` | Máximo de entradas por cliente y evento |
 | `TICKET_QR_SIGNING_SECRET` | Clave local definida en `.env` | Clave estable de al menos 32 bytes para firmar los QR |
 
 Ticket Service requiere `TICKET_QR_SIGNING_SECRET`; el `.env` incluye una clave local de desarrollo para arrancar el stack directamente. Conserva el mismo valor entre reinicios si quieres validar QR ya emitidos. Al cambiarlo, los QR existentes dejarán de validarse. No reutilices esta clave fuera del entorno didáctico local.
@@ -72,9 +92,23 @@ Los servicios internos reciben su configuración a través de variables de Compo
 | ticket-service | `DB_USER` | `ticketya` |
 | ticket-service | `DB_PASSWORD` | `ticketya` |
 | ticket-service | `TICKET_QR_SIGNING_SECRET` | Obligatoria; clave HMAC estable |
+| purchase-service | `SERVER_PORT` | `8084` |
+| purchase-service | `DB_URL` | `jdbc:postgresql://purchase-db:5432/ticketya_purchase` |
+| purchase-service | `DB_USER` | `ticketya` |
+| purchase-service | `DB_PASSWORD` | `ticketya` |
+| purchase-service | `CATALOG_SERVICE_URL` | `http://catalog-service:8081` |
+| purchase-service | `INVENTORY_SERVICE_URL` | `http://inventory-service:8082` |
+| purchase-service | `PAYMENT_SERVICE_URL` | `http://payment-mock:8085` |
+| purchase-service | `TICKET_SERVICE_URL` | `http://ticket-service:8083` |
+| purchase-service | `PURCHASE_TICKET_LIMIT` | `6` |
+| payment-mock | `SERVER_PORT` | `8085` |
+| payment-mock | `DB_URL` | `jdbc:postgresql://payment-db:5432/ticketya_payment` |
+| payment-mock | `DB_USER` | `ticketya` |
+| payment-mock | `DB_PASSWORD` | `ticketya` |
 | api-gateway | `SERVER_PORT` | `8080` |
 | api-gateway | `CATALOG_SERVICE_URL` | `http://catalog-service:8081` |
 | api-gateway | `INVENTORY_SERVICE_URL` | `http://inventory-service:8082` |
+| api-gateway | `PURCHASE_SERVICE_URL` | `http://purchase-service:8084` |
 
 Ninguna variable contiene rutas personales ni secretos de producción.
 
@@ -91,22 +125,23 @@ mvn verify -pl services/api-gateway
 mvn verify -pl services/catalog-service
 mvn verify -pl services/inventory-service
 mvn verify -pl services/ticket-service
+mvn verify -pl services/purchase-service
+mvn verify -pl services/payment-mock
 ```
 
 El proyecto usa Java 19 y Spring Boot 3.2.5. No se incluye Maven Wrapper (`mvnw`); se asume Maven 3.9+ instalado en el entorno.
 
-Los tests de contrato de Inventory y de persistencia contra PostgreSQL usan Testcontainers: requieren Docker disponible. Si Docker no está disponible, esas clases se omiten automáticamente y el resto de los tests sigue ejecutándose.
+Los tests de contrato de Inventory, Purchase y Payment Mock, y de persistencia contra PostgreSQL, usan Testcontainers: requieren Docker disponible. Si Docker no está disponible, esas clases se omiten automáticamente y el resto de los tests sigue ejecutándose; un test omitido no cuenta como verificado.
 
-La verificación del nuevo Ticket Service, incluidos los tests omitidos y los
-pasos que siguen pendientes por falta de Docker, está registrada en
-[`services/ticket-service/docs/ticket-verification.md`](services/ticket-service/docs/ticket-verification.md).
+La verificación del Ticket Service está registrada en
+[`services/ticket-service/docs/ticket-verification.md`](services/ticket-service/docs/ticket-verification.md) y el resumen de toda la entrega en [`docs/verification.md`](docs/verification.md).
 
 ## Construcción de imágenes y Compose
 
 Desde la carpeta `ticketya/`:
 
 ```bash
-# Construir todas las imágenes (Gateway, Catalog, Inventory y Ticket Service)
+# Construir todas las imágenes (Gateway, Catalog, Inventory, Ticket, Purchase y Payment Mock)
 docker compose build
 
 # Levantar el incremento completo (reconstruye imágenes y espera las comprobaciones de estado)
@@ -128,17 +163,18 @@ docker compose down
 docker compose down -v
 ```
 
-El Gateway expone el único puerto publicado (`${GATEWAY_PORT:-8080}:8080`). Catalog Service, Inventory Service, Ticket Service y sus bases no publican puertos al host; se comunican por nombres de servicio de la red de Compose.
+El Gateway expone el único puerto publicado (`${GATEWAY_PORT:-8080}:8080`). Catalog, Inventory, Ticket, Purchase, Payment Mock y sus bases no publican puertos al host; se comunican por nombres de servicio de la red de Compose.
 
 ## Salud de los servicios
 
 Cada servicio tiene una comprobación de estado basada en `wget` contra su endpoint de actuator:
 
-- `postgres` (Catálogo) e `inventory-db` (Inventory): `pg_isready`
-- `ticket-db`: `pg_isready`
+- `postgres` (Catálogo), `inventory-db`, `ticket-db`, `purchase-db` y `payment-db`: `pg_isready`
 - Catalog Service: `http://localhost:8081/actuator/health`
 - Inventory Service: `http://localhost:8082/actuator/health`
 - Ticket Service: `http://localhost:8083/actuator/health`
+- Purchase Service: `http://localhost:8084/actuator/health`
+- Payment Mock: `http://localhost:8085/actuator/health`
 - API Gateway: `http://localhost:8080/actuator/health`
 
 Espera a que todos informen `healthy` antes de ejecutar la colección Postman.
@@ -152,7 +188,7 @@ npx --yes newman run postman/ticketya.postman_collection.json \
   --env-var baseUrl=http://localhost:8080
 ```
 
-La colección es repetible: cada corrida genera un `runId` único para nombre de lugar y participante, evitando colisiones entre ejecuciones. Cubre: crear lugar, crear/configurar borrador, publicar, buscar, consultar, suspender y reanudar, más la consulta pública de disponibilidad de Inventory a través del Gateway. Inventory materializa el inventario de forma perezosa a partir del snapshot publicado de Catalog en la primera consulta.
+La colección es repetible: cada corrida genera un `runId` único para nombre de lugar y participante, evitando colisiones entre ejecuciones. Cubre: crear lugar, crear/configurar borrador, publicar, buscar, consultar, suspender y reanudar, la consulta pública de disponibilidad de Inventory, y el flujo de compra completo por Gateway (orden aprobada, reintento idempotente, consulta del titular, orden ajena, pago rechazado y listado paginado). Inventory materializa el inventario de forma perezosa a partir del snapshot publicado de Catalog en la primera consulta.
 
 ## Flujo interno de inventario (no publicado por el Gateway)
 
@@ -182,9 +218,22 @@ docker compose exec -T inventory-service wget -qO- \
   http://localhost:8082/internal/reservations/by-order/<orderId>
 ```
 
+## Pasarela de pagos simulada (interna)
+
+Payment Mock escucha en `payment-mock:8085`, dentro de la red de Compose. Purchase la invoca durante la saga y nunca se publica por el Gateway:
+
+| Método | Ruta | Propósito |
+|---|---|---|
+| `POST` | `/internal/payments` | Cobrar de forma idempotente por `orderId`; el token decide `APPROVED`, `REJECTED` o `PENDING` |
+| `GET` | `/internal/payments/{paymentId}` | Consultar un pago |
+| `GET` | `/internal/payments/by-order/{orderId}` | Recuperar el pago de una orden |
+| `POST` | `/internal/payments/{paymentId}/refund` | Reintegrar un pago `APPROVED`; repetir el reintegro no duplica el movimiento |
+
+Reutilizar un `orderId` con el mismo contenido devuelve el pago existente; con otro contenido responde `409`. Reintegrar un pago `PENDING` o `REJECTED` responde `409` y conserva el estado. La base `ticketya_payment` sólo guarda el pago: ni el comprador ni datos de `purchase_db`.
+
 ## Emisión interna de entradas QR
 
-Ticket Service escucha en `ticket-service:8083`, dentro de la red de Compose. Purchase invocará este contrato **después** de confirmar pago e inventario:
+Ticket Service escucha en `ticket-service:8083`, dentro de la red de Compose. Purchase invoca este contrato **después** de confirmar pago e inventario:
 
 | Método | Ruta | Propósito |
 |---|---|---|
@@ -192,7 +241,7 @@ Ticket Service escucha en `ticket-service:8083`, dentro de la red de Compose. Pu
 
 La solicitud incluye al comprador, el snapshot del evento y las unidades del item; para asientos numerados cada unidad lleva fila y número. La primera emisión devuelve `201`; un reintento idéntico devuelve `200` con los mismos tickets y QR. Reutilizar la pareja `orderId + orderItemId` con distinto contenido devuelve `409`.
 
-La respuesta contiene `qrPayload` y `qrPngBase64`. La imagen PNG se genera al responder; PostgreSQL conserva el hash del payload, no el token. La API es interna y no tiene ruta en el Gateway. **Como Purchase Service todavía no existe, la emisión se puede verificar por contrato, pero aún no hay flujo real de compra que la invoque.**
+La respuesta contiene `qrPayload` y `qrPngBase64`. La imagen PNG se genera al responder; PostgreSQL conserva el hash del payload, no el token. La API es interna y no tiene ruta en el Gateway; las entradas emitidas se consultan desde `GET /api/orders/{orderId}`.
 
 Valida la documentación y el estado del servicio desde el contenedor:
 
@@ -205,15 +254,17 @@ El contrato versionado está en `services/ticket-service/docs/ticket-openapi.yam
 
 ## Validar OpenAPI (interno, vía contenedor)
 
-OpenAPI y Swagger UI están expuestos en Catalog Service (puerto interno 8081), Inventory Service (puerto interno 8082) y Ticket Service (puerto interno 8083); no se publican por el Gateway. Valida desde dentro de cada contenedor:
+OpenAPI y Swagger UI están expuestos en Catalog Service (puerto interno 8081), Inventory Service (8082), Ticket Service (8083), Purchase Service (8084) y Payment Mock (8085); no se publican por el Gateway. Valida desde dentro de cada contenedor:
 
 ```bash
 docker compose exec -T catalog-service wget -qO- http://localhost:8081/v3/api-docs
 docker compose exec -T inventory-service wget -qO- http://localhost:8082/v3/api-docs
 docker compose exec -T ticket-service wget -qO- http://localhost:8083/v3/api-docs
+docker compose exec -T purchase-service wget -qO- http://localhost:8084/v3/api-docs
+docker compose exec -T payment-mock wget -qO- http://localhost:8085/v3/api-docs
 ```
 
-Deben contener los paths de cada flujo. Los contratos versionados de Inventory y Ticket están en `docs/openapi.yaml` y `services/ticket-service/docs/ticket-openapi.yaml`.
+Deben contener los paths de cada flujo. El contrato consolidado de la entrega está en `docs/openapi.yaml`; Ticket mantiene además `services/ticket-service/docs/ticket-openapi.yaml`.
 
 ## Verificación desde una copia limpia del repositorio
 
@@ -237,11 +288,15 @@ Ningún paso requiere rutas absolutas de la máquina del autor ni secretos versi
 ticketya/
 +-- pom.xml
 +-- docker-compose.yml
++-- .env
 +-- README.md
 +-- postman/
 |   +-- ticketya.postman_collection.json
 +-- docs/
+|   +-- openapi.yaml
+|   +-- architecture.md
 |   +-- verification.md
+|   +-- Documentacion-de-diseño.md
 +-- services/
 |   +-- api-gateway/
 |   |   +-- pom.xml, Dockerfile, src/
@@ -250,7 +305,11 @@ ticketya/
 |   +-- inventory-service/
 |   |   +-- pom.xml, Dockerfile, src/
 |   +-- ticket-service/
-|       +-- pom.xml, Dockerfile, docs/, src/
+|   |   +-- pom.xml, Dockerfile, docs/, src/
+|   +-- purchase-service/
+|   |   +-- pom.xml, Dockerfile, src/
+|   +-- payment-mock/
+|       +-- pom.xml, Dockerfile, src/
 +-- openspec/
 +-- OpenSpec.md
 ```
@@ -264,4 +323,4 @@ docker compose down -v
 docker compose up -d
 ```
 
-Esto elimina los volúmenes `catalog-postgres-data`, `inventory-postgres-data` y `ticket-postgres-data` y los recrea vacíos. Los esquemas se inicializan automáticamente con el `schema.sql` de cada servicio al arrancar Catalog, Inventory y Ticket Service.
+Esto elimina los volúmenes `catalog-postgres-data`, `inventory-postgres-data`, `ticket-postgres-data`, `purchase-postgres-data` y `payment-postgres-data` y los recrea vacíos. Los esquemas se inicializan automáticamente con el `schema.sql` de cada servicio al arrancar Catalog, Inventory, Ticket, Purchase y Payment Mock.

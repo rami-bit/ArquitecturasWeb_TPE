@@ -58,6 +58,42 @@
       "value": "a1b2c3d4-1111-2222-3333-444455556666",
       "type": "string",
       "description": "UUID de usuario provisional para ADMIN"
+    },
+    {
+      "key": "buyerUserId",
+      "value": "66bd0a43-1baa-4f7b-8316-930593b84d7c",
+      "type": "string",
+      "description": "UUID de usuario provisional para CLIENT (comprador)"
+    },
+    {
+      "key": "inventorySectorNumeradoId",
+      "value": "",
+      "type": "string",
+      "description": "ID de Inventory del sector numerado (guardado tras la consulta de disponibilidad)"
+    },
+    {
+      "key": "inventorySectorGeneralId",
+      "value": "",
+      "type": "string",
+      "description": "ID de Inventory del sector de admisión general (guardado tras la consulta de disponibilidad)"
+    },
+    {
+      "key": "inventorySeatId",
+      "value": "",
+      "type": "string",
+      "description": "ID de Inventory de un asiento disponible (guardado tras la consulta de disponibilidad)"
+    },
+    {
+      "key": "orderId",
+      "value": "",
+      "type": "string",
+      "description": "ID de la orden creada en el flujo de compra"
+    },
+    {
+      "key": "orderIdempotencyKey",
+      "value": "",
+      "type": "string",
+      "description": "Idempotency-Key usada para crear la orden aprobada"
     }
   ],
   "item": [
@@ -88,33 +124,16 @@
         },
         "url": {
           "raw": "{{baseUrl}}/api/venues",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "venues"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "venues"
+          ]
         },
         "description": "Crea un lugar con un sector numerado y uno de admisión general. Guarda venueId, sectorNumeradoId y sectorGeneralId."
       },
-      "event": [
-        {
-          "listen": "prerequest",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "if (!pm.variables.get('runId')) {",
-              "  const runId = 'tky-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);",
-              "  pm.variables.set('runId', runId);",
-              "}"
-            ]
-          }
-        }
-      ],
-      "response": [
-        {
-          "name": "201 Created",
-          "status": "OK",
-          "code": 201,
-          "body": "{\n  \"id\": \"{{venueId}}\",\n  \"name\": \"Estadio {{runId}}\",\n  \"sectors\": [\n    {\"id\": \"{{sectorNumeradoId}}\", \"type\": \"NUMBERED\"},\n    {\"id\": \"{{sectorGeneralId}}\", \"type\": \"GENERAL_ADMISSION\"}\n  ]\n}"
-        }
-      ],
       "event": [
         {
           "listen": "test",
@@ -139,6 +158,14 @@
               "});"
             ]
           }
+        }
+      ],
+      "response": [
+        {
+          "name": "201 Created",
+          "status": "OK",
+          "code": 201,
+          "body": "{\n  \"id\": \"{{venueId}}\",\n  \"name\": \"Estadio {{runId}}\",\n  \"sectors\": [\n    {\"id\": \"{{sectorNumeradoId}}\", \"type\": \"NUMBERED\"},\n    {\"id\": \"{{sectorGeneralId}}\", \"type\": \"GENERAL_ADMISSION\"}\n  ]\n}"
         }
       ]
     },
@@ -174,8 +201,14 @@
         },
         "url": {
           "raw": "{{baseUrl}}/api/management/events",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "management", "events"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "management",
+            "events"
+          ]
         },
         "description": "Crea un borrador de evento para el organizador autenticado. Guarda eventId."
       },
@@ -239,8 +272,15 @@
         },
         "url": {
           "raw": "{{baseUrl}}/api/management/events/{{eventId}}",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "management", "events", "{{eventId}}"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "management",
+            "events",
+            "{{eventId}}"
+          ]
         },
         "description": "Edita los datos del borrador mientras está en DRAFT. Cambia nombres de participantes para evitar violar unicidad."
       },
@@ -302,8 +342,16 @@
         },
         "url": {
           "raw": "{{baseUrl}}/api/management/events/{{eventId}}/offerings",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "management", "events", "{{eventId}}", "offerings"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "management",
+            "events",
+            "{{eventId}}",
+            "offerings"
+          ]
         },
         "description": "Configura precios por sector para el borrador. Ambos sectores pertenecen al lugar creado."
       },
@@ -357,8 +405,16 @@
         "body": {},
         "url": {
           "raw": "{{baseUrl}}/api/management/events/{{eventId}}/publish",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "management", "events", "{{eventId}}", "publish"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "management",
+            "events",
+            "{{eventId}}",
+            "publish"
+          ]
         },
         "description": "Publica el borrador: crea snapshot inmutable y cambia estado a PUBLISHED."
       },
@@ -396,8 +452,13 @@
         "body": {},
         "url": {
           "raw": "{{baseUrl}}/api/events?participant=Artista {{runId}}&city=Buenos Aires&sort=price&direction=asc",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "events"],
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "events"
+          ],
           "query": [
             {
               "key": "participant",
@@ -463,8 +524,14 @@
         "body": {},
         "url": {
           "raw": "{{baseUrl}}/api/events/{{eventId}}",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "events", "{{eventId}}"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "events",
+            "{{eventId}}"
+          ]
         },
         "description": "Detalle público del evento publicado: lugar, sectores, precios, participantes. Sin afirmación de disponibilidad de entradas."
       },
@@ -505,8 +572,16 @@
         "body": {},
         "url": {
           "raw": "{{baseUrl}}/api/inventory/events/{{eventId}}/availability",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "inventory", "events", "{{eventId}}", "availability"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "inventory",
+            "events",
+            "{{eventId}}",
+            "availability"
+          ]
         },
         "description": "Inventory materializa el inventario desde el snapshot publicado de Catalog y devuelve la disponibilidad por sector. Sin precios ni datos sensibles."
       },
@@ -546,6 +621,18 @@
               "});",
               "pm.test('Toda respuesta lleva X-Correlation-Id', function () {",
               "  pm.expect(pm.response.headers.get('X-Correlation-Id')).to.not.be.empty;",
+              "});",
+              "pm.test('Guarda los ids de Inventory para la compra', function () {",
+              "  const json = pm.response.json();",
+              "  const numerado = json.sectors.find(s => s.type === 'NUMBERED');",
+              "  const general = json.sectors.find(s => s.type === 'GENERAL_ADMISSION');",
+              "  pm.expect(numerado.sectorId).to.not.be.empty;",
+              "  pm.expect(general.sectorId).to.not.be.empty;",
+              "  pm.expect(numerado.seats.length).to.be.at.least(1);",
+              "  const libre = numerado.seats.find(s => s.status === 'AVAILABLE') || numerado.seats[0];",
+              "  pm.variables.set('inventorySectorNumeradoId', numerado.sectorId);",
+              "  pm.variables.set('inventorySectorGeneralId', general.sectorId);",
+              "  pm.variables.set('inventorySeatId', libre.seatId);",
               "});"
             ]
           }
@@ -576,8 +663,16 @@
         "body": {},
         "url": {
           "raw": "{{baseUrl}}/api/management/events/{{eventId}}/suspend",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "management", "events", "{{eventId}}", "suspend"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "management",
+            "events",
+            "{{eventId}}",
+            "suspend"
+          ]
         },
         "description": "Suspende el evento publicado. Solo ADMIN puede hacerlo. Guarda el snapshot sin modificaciones."
       },
@@ -615,8 +710,14 @@
         "body": {},
         "url": {
           "raw": "{{baseUrl}}/api/events/{{eventId}}",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "events", "{{eventId}}"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "events",
+            "{{eventId}}"
+          ]
         },
         "description": "Después de suspender, el evento deja de ser público y el detalle retorna 404."
       },
@@ -672,8 +773,16 @@
         "body": {},
         "url": {
           "raw": "{{baseUrl}}/api/management/events/{{eventId}}/resume",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "management", "events", "{{eventId}}", "resume"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "management",
+            "events",
+            "{{eventId}}",
+            "resume"
+          ]
         },
         "description": "Reanuda el evento suspendido. Solo ADMIN. Reusa el snapshot existente."
       },
@@ -711,8 +820,14 @@
         "body": {},
         "url": {
           "raw": "{{baseUrl}}/api/events/{{eventId}}",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "events", "{{eventId}}"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "events",
+            "{{eventId}}"
+          ]
         },
         "description": "Después de reanudar, el evento vuelve a ser público y el detalle retorna 200."
       },
@@ -746,7 +861,392 @@
       ]
     },
     {
-      "name": "13 - Eco de X-Correlation-Id (ADMIN)",
+      "name": "13 - Crear orden con pago aprobado (cliente)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{buyerUserId}}",
+            "type": "text"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "purchase-{{runId}}-approved",
+            "type": "text"
+          },
+          {
+            "key": "X-Correlation-Id",
+            "value": "purchase-approved-{{runId}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"items\": [\n    {\"sectorId\": \"{{inventorySectorNumeradoId}}\", \"seatIds\": [\"{{inventorySeatId}}\"]},\n    {\"sectorId\": \"{{inventorySectorGeneralId}}\", \"quantity\": 1}\n  ],\n  \"payment\": {\"method\": \"CARD\", \"token\": \"tok_approved\"}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "orders"
+          ]
+        },
+        "description": "Crea la orden con un asiento numerado y un cupo de admisión general. Purchase consulta el snapshot de Catalog, reserva en Inventory, cobra en Payment Mock, confirma el inventario y emite los tickets. Devuelve 201 con la orden CONFIRMED."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status es 201', function () {",
+              "  pm.response.to.have.status(201);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.test('La orden queda CONFIRMED con pago aprobado', function () {",
+              "  pm.expect(json.status).to.eql('CONFIRMED');",
+              "  pm.expect(json.payment.status).to.eql('APPROVED');",
+              "  pm.expect(json.currency).to.eql('ARS');",
+              "  pm.expect(json.totalAmount).to.be.above(0);",
+              "});",
+              "pm.test('Cada unidad tiene su ticket con QR', function () {",
+              "  const tickets = json.items.flatMap(i => i.tickets);",
+              "  pm.expect(tickets.length).to.eql(2);",
+              "  tickets.forEach(t => {",
+              "    pm.expect(t.status).to.eql('ISSUED');",
+              "    pm.expect(t.qrPayload).to.not.be.empty;",
+              "    pm.expect(t.qrPngBase64).to.not.be.empty;",
+              "  });",
+              "});",
+              "pm.test('Eco de X-Correlation-Id', function () {",
+              "  pm.response.to.have.header('X-Correlation-Id', 'purchase-approved-' + pm.variables.get('runId'));",
+              "});",
+              "pm.test('Guarda orderId e Idempotency-Key', function () {",
+              "  pm.variables.set('orderId', json.orderId);",
+              "  pm.variables.set('orderIdempotencyKey', 'purchase-' + pm.variables.get('runId') + '-approved');",
+              "  pm.expect(json.orderId).to.not.be.empty;",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "14 - Reintento idempotente de la compra (cliente)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{buyerUserId}}",
+            "type": "text"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "purchase-{{runId}}-approved",
+            "type": "text"
+          },
+          {
+            "key": "X-Correlation-Id",
+            "value": "purchase-replay-{{runId}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"items\": [\n    {\"sectorId\": \"{{inventorySectorNumeradoId}}\", \"seatIds\": [\"{{inventorySeatId}}\"]},\n    {\"sectorId\": \"{{inventorySectorGeneralId}}\", \"quantity\": 1}\n  ],\n  \"payment\": {\"method\": \"CARD\", \"token\": \"tok_approved\"}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "orders"
+          ]
+        },
+        "description": "Repite la misma compra con la misma Idempotency-Key y el mismo contenido. Debe devolver 200 con la orden existente, sin reservar ni cobrar de nuevo."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status es 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.test('Devuelve la misma orden sin duplicar tickets', function () {",
+              "  pm.expect(json.orderId).to.eql(pm.variables.get('orderId'));",
+              "  pm.expect(json.status).to.eql('CONFIRMED');",
+              "  const tickets = json.items.flatMap(i => i.tickets);",
+              "  pm.expect(tickets.length).to.eql(2);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "15 - Consultar la orden del titular (cliente)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{buyerUserId}}",
+            "type": "text"
+          }
+        ],
+        "body": {},
+        "url": {
+          "raw": "{{baseUrl}}/api/orders/{{orderId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "orders",
+            "{{orderId}}"
+          ]
+        },
+        "description": "Consulta la orden creada. Sólo el comprador (o un ADMIN) puede verla; devuelve ítems con precios históricos, unidades y tickets con QR."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status es 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.test('Expone items, unidades y tickets del titular', function () {",
+              "  pm.expect(json.orderId).to.eql(pm.variables.get('orderId'));",
+              "  pm.expect(json.customerId).to.eql(pm.variables.get('buyerUserId'));",
+              "  pm.expect(json.items.length).to.eql(2);",
+              "  json.items.forEach(i => {",
+              "    pm.expect(i.quantity).to.eql(i.units.length);",
+              "    pm.expect(i.tickets.length).to.eql(i.quantity);",
+              "  });",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "16 - Consultar la orden con otro usuario es 404 (cliente)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{userId}}",
+            "type": "text"
+          }
+        ],
+        "body": {},
+        "url": {
+          "raw": "{{baseUrl}}/api/orders/{{orderId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "orders",
+            "{{orderId}}"
+          ]
+        },
+        "description": "Otro cliente no puede ver la orden ajena: Purchase responde 404 problem+json sin revelar su existencia."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status es 404', function () {",
+              "  pm.response.to.have.status(404);",
+              "});",
+              "pm.test('Problem+json con correlationId', function () {",
+              "  const json = pm.response.json();",
+              "  pm.expect(json.status).to.eql(404);",
+              "  pm.expect(json.correlationId).to.not.be.empty;",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "17 - Listar las órdenes del cliente (cliente)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{buyerUserId}}",
+            "type": "text"
+          }
+        ],
+        "body": {},
+        "url": {
+          "raw": "{{baseUrl}}/api/orders?page=0&size=10&status=CONFIRMED",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "orders"
+          ],
+          "query": [
+            {
+              "key": "page",
+              "value": "0",
+              "disabled": false
+            },
+            {
+              "key": "size",
+              "value": "10",
+              "disabled": false
+            },
+            {
+              "key": "status",
+              "value": "CONFIRMED",
+              "disabled": false
+            }
+          ]
+        },
+        "description": "Lista paginada de órdenes del comprador, ordenada por fecha de creación descendente y filtrada por estado."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status es 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.test('Página con la orden creada', function () {",
+              "  pm.expect(json.page).to.eql(0);",
+              "  pm.expect(json.size).to.eql(10);",
+              "  pm.expect(json.totalElements).to.be.at.least(1);",
+              "  pm.expect(json.items.some(o => o.orderId === pm.variables.get('orderId'))).to.be.true;",
+              "  json.items.forEach(o => pm.expect(o.status).to.eql('CONFIRMED'));",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "18 - Pago rechazado devuelve 402 (cliente)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{buyerUserId}}",
+            "type": "text"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "purchase-{{runId}}-rejected",
+            "type": "text"
+          },
+          {
+            "key": "X-Correlation-Id",
+            "value": "purchase-rejected-{{runId}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"items\": [\n    {\"sectorId\": \"{{inventorySectorNumeradoId}}\", \"seatIds\": [\"{{inventorySeatId}}\"]},\n    {\"sectorId\": \"{{inventorySectorGeneralId}}\", \"quantity\": 1}\n  ],\n  \"payment\": {\"method\": \"CARD\", \"token\": \"tok_rejected\"}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "orders"
+          ]
+        },
+        "description": "Crea una orden con una clave nueva y el token de rechazo. Purchase libera la reserva y el límite, deja la orden REJECTED y responde 402 problem+json."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status es 402', function () {",
+              "  pm.response.to.have.status(402);",
+              "});",
+              "pm.test('Problem+json con correlationId y estado de la orden', function () {",
+              "  const json = pm.response.json();",
+              "  pm.expect(json.status).to.eql(402);",
+              "  pm.expect(json.correlationId).to.eql('purchase-rejected-' + pm.variables.get('runId'));",
+              "});",
+              "pm.test('El rechazo no emite tickets', function () {",
+              "  const body = pm.response.text();",
+              "  pm.expect(body).to.not.include('qrPayload');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "19 - Eco de X-Correlation-Id (ADMIN)",
       "request": {
         "method": "POST",
         "header": [
@@ -774,19 +1274,19 @@
         "body": {},
         "url": {
           "raw": "{{baseUrl}}/api/management/events/{{eventId}}/suspend",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "management", "events", "{{eventId}}", "suspend"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "management",
+            "events",
+            "{{eventId}}",
+            "suspend"
+          ]
         },
         "description": "Envía un X-Correlation-Id conocido y valida que el Gateway y Catalog Service lo ecoen en el encabezado de respuesta y en el cuerpo problem+json."
       },
-      "event": [],
-      "response": [
-        {
-          "name": "200 OK o 409",
-          "status": "OK",
-          "code": 200
-        }
-      ],
       "event": [
         {
           "listen": "test",
@@ -805,6 +1305,13 @@
               "});"
             ]
           }
+        }
+      ],
+      "response": [
+        {
+          "name": "200 OK o 409",
+          "status": "OK",
+          "code": 200
         }
       ]
     }
