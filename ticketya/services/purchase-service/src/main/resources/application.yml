@@ -1,0 +1,20 @@
+server:
+  port: ${SERVER_PORT:8084}
+
+spring:
+  application:
+    name: purchase-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:purchase_db}}
+    username: ${DB_USER:ticketya}
+    password: ${DB_PASSWORD:ticketya}
+
+purchase:
+  catalog:
+    base-url: ${CATALOG_SERVICE_URL:http://localhost:8081}
+  inventory:
+    base-url: ${INVENTORY_SERVICE_URL:http://localhost:8082}
+  payment:
+    base-url: ${PAYMENT_SERVICE_URL:http://localhost:8085}
+  ticket:
+    base-url: ${TICKET_SERVICE_URL:http://localhost:8083}
