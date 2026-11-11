@@ -31,5 +31,11 @@ class GatewayDefaultRouteTest {
                 .singleElement()
                 .satisfies(route -> assertThat(route.getUri().toString())
                         .isEqualTo("http://localhost:8082"));
+
+        assertThat(routes)
+                .filteredOn(route -> "purchase-service".equals(route.getId()))
+                .singleElement()
+                .satisfies(route -> assertThat(route.getUri().toString())
+                        .isEqualTo("http://localhost:8084"));
     }
 }

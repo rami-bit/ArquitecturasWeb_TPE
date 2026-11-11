@@ -14,6 +14,8 @@
         <module>services/catalog-service</module>
         <module>services/inventory-service</module>
         <module>services/ticket-service</module>
+        <module>services/purchase-service</module>
+        <module>services/payment-mock</module>
     </modules>
 
     <properties>

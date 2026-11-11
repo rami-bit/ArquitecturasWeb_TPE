@@ -114,6 +114,93 @@ services:
     networks:
       - ticketya
 
+  purchase-db:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_DB: ${PURCHASE_POSTGRES_DB:-ticketya_purchase}
+      POSTGRES_USER: ${POSTGRES_USER:-ticketya}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ticketya}
+    volumes:
+      - purchase-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - ticketya
+
+  payment-db:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_DB: ${PAYMENT_POSTGRES_DB:-ticketya_payment}
+      POSTGRES_USER: ${POSTGRES_USER:-ticketya}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ticketya}
+    volumes:
+      - payment-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - ticketya
+
+  payment-mock:
+    build:
+      context: .
+      dockerfile: services/payment-mock/Dockerfile
+    environment:
+      SERVER_PORT: 8085
+      DB_URL: jdbc:postgresql://payment-db:5432/${PAYMENT_POSTGRES_DB:-ticketya_payment}
+      DB_USER: ${POSTGRES_USER:-ticketya}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-ticketya}
+    depends_on:
+      payment-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8085/actuator/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 15s
+    networks:
+      - ticketya
+
+  purchase-service:
+    build:
+      context: .
+      dockerfile: services/purchase-service/Dockerfile
+    environment:
+      SERVER_PORT: 8084
+      DB_URL: jdbc:postgresql://purchase-db:5432/${PURCHASE_POSTGRES_DB:-ticketya_purchase}
+      DB_USER: ${POSTGRES_USER:-ticketya}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-ticketya}
+      CATALOG_SERVICE_URL: http://catalog-service:8081
+      INVENTORY_SERVICE_URL: http://inventory-service:8082
+      PAYMENT_SERVICE_URL: http://payment-mock:8085
+      TICKET_SERVICE_URL: http://ticket-service:8083
+      PURCHASE_TICKET_LIMIT: ${PURCHASE_TICKET_LIMIT:-4}
+    depends_on:
+      purchase-db:
+        condition: service_healthy
+      catalog-service:
+        condition: service_healthy
+      inventory-service:
+        condition: service_healthy
+      payment-mock:
+        condition: service_healthy
+      ticket-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8084/actuator/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 15s
+    networks:
+      - ticketya
+
   api-gateway:
     build:
       context: ./services/api-gateway
@@ -121,10 +208,13 @@ services:
       SERVER_PORT: 8080
       CATALOG_SERVICE_URL: http://catalog-service:8081
       INVENTORY_SERVICE_URL: http://inventory-service:8082
+      PURCHASE_SERVICE_URL: http://purchase-service:8084
     depends_on:
       catalog-service:
         condition: service_healthy
       inventory-service:
+        condition: service_healthy
+      purchase-service:
         condition: service_healthy
     ports:
       - "${GATEWAY_PORT:-8080}:8080"
@@ -144,3 +234,5 @@ volumes:
   catalog-postgres-data:
   inventory-postgres-data:
   ticket-postgres-data:
+  purchase-postgres-data:
+  payment-postgres-data:

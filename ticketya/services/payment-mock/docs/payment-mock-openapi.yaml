@@ -1,0 +1,85 @@
+openapi: 3.0.3
+info:
+  title: TicketYa Payment Mock (internal)
+  version: 0.1.0
+  description: Simulated idempotent payments and refunds for local purchase flows.
+servers:
+  - url: http://payment-mock:8084
+paths:
+  /internal/payments:
+    post:
+      summary: Create or recover a simulated charge
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRequest'
+            example:
+              orderId: 4ef45f2a-87eb-4c40-9840-e08d4db5e345
+              amount: 25000.00
+              currency: ARS
+              paymentMethod: CARD
+              idempotencyKey: order-4ef45f2a-charge
+              outcome: APPROVED
+      responses:
+        '201':
+          description: Charge created or recovered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+        '400':
+          description: Invalid charge
+        '409':
+          description: Idempotency conflict
+  /internal/payments/{paymentId}/refunds:
+    post:
+      summary: Create or recover a refund for an approved charge
+      parameters:
+        - in: path
+          name: paymentId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [idempotencyKey]
+              properties:
+                idempotencyKey:
+                  type: string
+                  example: order-4ef45f2a-refund
+      responses:
+        '201':
+          description: Refund created or recovered
+        '404':
+          description: Payment not found
+        '409':
+          description: Payment not refundable or idempotency conflict
+components:
+  schemas:
+    PaymentRequest:
+      type: object
+      required: [orderId, amount, currency, paymentMethod, idempotencyKey, outcome]
+      properties:
+        orderId: { type: string, format: uuid }
+        amount: { type: number, minimum: 0.01 }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        paymentMethod: { type: string }
+        idempotencyKey: { type: string }
+        outcome: { type: string, enum: [APPROVED, REJECTED] }
+    Payment:
+      type: object
+      properties:
+        paymentId: { type: string, format: uuid }
+        orderId: { type: string, format: uuid }
+        amount: { type: number }
+        currency: { type: string }
+        paymentMethod: { type: string }
+        status: { type: string, enum: [APPROVED, REJECTED] }
+        createdAt: { type: string, format: date-time }

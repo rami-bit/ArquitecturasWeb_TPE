@@ -1,0 +1,55 @@
+openapi: 3.0.3
+info:
+  title: TicketYa Purchase API
+  version: 1.0.0
+  description: Public purchase endpoints. Internal service calls are not exposed through the Gateway.
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/purchases:
+    post:
+      summary: Create and process an idempotent purchase
+      parameters:
+        - in: header
+          name: X-User-Id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string, maxLength: 120 }
+        - in: header
+          name: X-Correlation-Id
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              eventId: "e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b"
+              paymentMethod: "CARD"
+              paymentOutcome: "APPROVED"
+              items:
+                - sectorId: "a88d7b2d-9019-4c3c-8bc4-e0ecc43c955b"
+                  quantity: 2
+      responses:
+        "200": { description: Existing order replay }
+        "201": { description: Order accepted and processed }
+        "400": { description: Invalid request, application/problem+json }
+        "404": { description: Published event not found, application/problem+json }
+        "409": { description: Availability, idempotency, or ticket limit conflict, application/problem+json }
+  /api/purchases/{orderId}:
+    get:
+      summary: Get an order and its issued tickets
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-User-Id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Order details and ticket QR payloads }
+        "404": { description: Order not found, application/problem+json }
