@@ -114,10 +114,10 @@ class InventoryConcurrencyContractTest extends InventoryContractTestBase {
         assertThat(responses).filteredOn(r -> r.statusCode() == 409).hasSize(5);
 
         int capacity = jdbc().queryForObject(
-                "SELECT capacity FROM inventory_sectors WHERE id = ?",
+                "SELECT capacity FROM inventory_sectors WHERE source_sector_id = ?",
                 Integer.class, layout.generalSectorId());
         int committed = jdbc().queryForObject(
-                "SELECT sold + reserved FROM inventory_sectors WHERE id = ?",
+                "SELECT sold + reserved FROM inventory_sectors WHERE source_sector_id = ?",
                 Integer.class, layout.generalSectorId());
         assertThat(committed).isEqualTo(3).isEqualTo(capacity);
 
@@ -155,10 +155,10 @@ class InventoryConcurrencyContractTest extends InventoryContractTestBase {
 
         assertThat(seatStatus(layout.seatTwoId())).isEqualTo("SOLD");
         assertThat(jdbc().queryForObject(
-                "SELECT sold FROM inventory_sectors WHERE id = ?",
+                "SELECT sold FROM inventory_sectors WHERE source_sector_id = ?",
                 Integer.class, layout.generalSectorId())).isEqualTo(1);
         assertThat(jdbc().queryForObject(
-                "SELECT reserved FROM inventory_sectors WHERE id = ?",
+                "SELECT reserved FROM inventory_sectors WHERE source_sector_id = ?",
                 Integer.class, layout.generalSectorId())).isZero();
         assertThat(jdbc().queryForObject(
                 "SELECT COUNT(*) FROM reservation_items WHERE reservation_id = ?",
@@ -182,7 +182,7 @@ class InventoryConcurrencyContractTest extends InventoryContractTestBase {
                 "SELECT COUNT(*) FROM reservations WHERE order_id = ?",
                 Integer.class, orderId)).isEqualTo(1);
         assertThat(jdbc().queryForObject(
-                "SELECT sold FROM inventory_sectors WHERE id = ?",
+                "SELECT sold FROM inventory_sectors WHERE source_sector_id = ?",
                 Integer.class, layout.generalSectorId())).isEqualTo(1);
     }
 
@@ -221,10 +221,10 @@ class InventoryConcurrencyContractTest extends InventoryContractTestBase {
                 Boolean.class, reservationId)).isTrue();
         assertThat(seatStatus(layout.seatOneId())).isEqualTo("AVAILABLE");
         assertThat(jdbc().queryForObject(
-                "SELECT reserved FROM inventory_sectors WHERE id = ?",
+                "SELECT reserved FROM inventory_sectors WHERE source_sector_id = ?",
                 Integer.class, layout.generalSectorId())).isZero();
         assertThat(jdbc().queryForObject(
-                "SELECT sold FROM inventory_sectors WHERE id = ?",
+                "SELECT sold FROM inventory_sectors WHERE source_sector_id = ?",
                 Integer.class, layout.generalSectorId())).isZero();
     }
 

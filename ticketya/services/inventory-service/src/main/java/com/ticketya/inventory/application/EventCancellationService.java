@@ -14,9 +14,10 @@ public class EventCancellationService {
         this.store = store;
     }
 
-    /** Idempotente: si el inventario no existe todavía, no hay nada que bloquear. */
+    /** Idempotente: conserva el bloqueo incluso si el inventario aún no se materializó. */
     @Transactional
     public void cancel(UUID eventId) {
+        store.lockEvent(eventId);
         store.cancelInventory(eventId);
     }
 }

@@ -30,8 +30,11 @@ public class EventManagementService {
  public Event suspend(String user,String role,UUID id){identity(user,role);if(!"ADMIN".equals(role))throw forbidden();Event e=events.findById(id).orElseThrow(()->notFound("Event not found"));if(e.getStatus()!=EventStatus.PUBLISHED)throw conflict("Only PUBLISHED events can be suspended");e.getOfferings().size();e.getVenue().getId();e.setStatus(EventStatus.SUSPENDED);return e;}
  public Event resume(String user,String role,UUID id){identity(user,role);if(!"ADMIN".equals(role))throw forbidden();Event e=events.findById(id).orElseThrow(()->notFound("Event not found"));if(e.getStatus()!=EventStatus.SUSPENDED)throw conflict("Only SUSPENDED events can be resumed");e.getOfferings().size();e.getVenue().getId();e.setStatus(EventStatus.PUBLISHED);return e;}
  public Event cancel(String user,String role,UUID id){
-  Event e=authorized(user,role,id);
-  if(e.getStatus()!=EventStatus.PUBLISHED&&e.getStatus()!=EventStatus.CANCELLED)throw conflict("Only PUBLISHED events can be cancelled");
+  identity(user,role);
+  if(!"ADMIN".equals(role))throw forbidden();
+  Event e=events.findById(id).orElseThrow(()->notFound("Event not found"));
+  if(e.getStatus()!=EventStatus.PUBLISHED&&e.getStatus()!=EventStatus.SUSPENDED&&e.getStatus()!=EventStatus.CANCELLED)throw conflict("Only PUBLISHED or SUSPENDED events can be cancelled");
+  e.getOfferings().size();
   e.getVenue().getId();
   e.setStatus(EventStatus.CANCELLED);
   inventory.notifyCancelled(e.getId());

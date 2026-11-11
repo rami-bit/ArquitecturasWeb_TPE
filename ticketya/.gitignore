@@ -1,0 +1,2 @@
+# Keep the repository's local Docker Compose defaults available to contributors.
+!.env

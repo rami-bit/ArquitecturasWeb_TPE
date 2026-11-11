@@ -1,0 +1,28 @@
+server:
+  port: ${SERVER_PORT:8084}
+spring:
+  application:
+    name: purchase-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/ticketya_purchase}
+    username: ${DB_USER:ticketya}
+    password: ${DB_PASSWORD:ticketya}
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+purchase:
+  catalog-url: ${CATALOG_SERVICE_URL:http://localhost:8081}
+  inventory-url: ${INVENTORY_SERVICE_URL:http://localhost:8082}
+  payment-url: ${PAYMENT_SERVICE_URL:http://localhost:8085}
+  ticket-url: ${TICKET_SERVICE_URL:http://localhost:8083}
+  ticket-limit: ${PURCHASE_TICKET_LIMIT:4}
+  hold-ttl-seconds: ${PURCHASE_HOLD_TTL_SECONDS:600}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+springdoc:
+  api-docs:
+    path: /v3/api-docs

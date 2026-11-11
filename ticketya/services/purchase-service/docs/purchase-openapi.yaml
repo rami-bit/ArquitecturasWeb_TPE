@@ -1,0 +1,241 @@
+openapi: 3.0.3
+info:
+  title: TicketYa Purchase API
+  version: 1.0.0
+  description: Public purchase endpoints. Internal service calls are not exposed through the Gateway.
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/events/{eventId}/cancellation:
+    post:
+      summary: Cancel an event and process its sold tickets as ADMIN
+      description: >
+        Purchase asks Catalog to cancel the event, then processes a bounded batch
+        of its paid tickets. Repeat this call while status is PROCESSING; each
+        ticket has one effective refund even when a prior customer request was rejected.
+      parameters:
+        - in: path
+          name: eventId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-User-Id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-User-Role
+          required: true
+          schema: { type: string, enum: [ADMIN] }
+        - in: header
+          name: X-Correlation-Id
+          schema: { type: string }
+      responses:
+        "200":
+          description: Cancellation refunds completed, including idempotent replay
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CancellationProgress' }
+              example: { eventId: "e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b", status: COMPLETED, totalTickets: 2, completedTickets: 2, pendingTickets: 0 }
+        "202":
+          description: Cancellation started; repeat POST to continue pending work
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CancellationProgress' }
+              example: { eventId: "e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b", status: PROCESSING, totalTickets: 2, completedTickets: 1, pendingTickets: 1 }
+        "400": { description: Invalid event ID or identity, application/problem+json }
+        "403": { description: Only ADMIN can cancel, application/problem+json }
+        "404": { description: Event not found, application/problem+json }
+        "409": { description: Event cannot be cancelled from its current status, application/problem+json }
+    get:
+      summary: Inspect cancellation refund progress as ADMIN
+      description: Read-only progress; repeat POST to process the next batch or retry failed steps.
+      parameters:
+        - in: path
+          name: eventId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-User-Role
+          required: true
+          schema: { type: string, enum: [ADMIN] }
+      responses:
+        "200":
+          description: Aggregate progress for the event's paid tickets
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CancellationProgress' }
+        "403": { description: Only ADMIN can inspect progress, application/problem+json }
+        "404": { description: Cancellation not started, application/problem+json }
+  /api/refunds/tickets/{ticketId}:
+    post:
+      summary: Request a refund for an owned paid ticket at least 72 hours before the event
+      parameters:
+        - in: path
+          name: ticketId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-User-Id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-Correlation-Id
+          schema: { type: string }
+      responses:
+        "201": { description: Refund request created with PENDING status }
+        "200": { description: Existing request returned }
+        "404": { description: Ticket not owned or not found }
+        "409": { description: Refund window closed or ticket is not refundable }
+  /api/refunds/{refundId}:
+    get:
+      summary: Inspect an owned refund request
+      parameters:
+        - in: path
+          name: refundId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-User-Id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Refund status, decision, amount and progress }
+        "404": { description: Refund request not owned or not found }
+  /api/refunds/{refundId}/decision:
+    post:
+      summary: Approve or reject a refund request as ADMIN
+      description: >
+        A decision is final. Repeating the same decision resumes incomplete approved
+        refunds without repeating revocation, payment refund, or inventory release.
+        Approval revokes the ticket, refunds its original amount and then releases
+        the sold unit. Rejection leaves the ticket and inventory untouched.
+      parameters:
+        - in: path
+          name: refundId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-User-Role
+          required: true
+          schema: { type: string, enum: [ADMIN] }
+        - in: header
+          name: X-Correlation-Id
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [APPROVED, REJECTED] }
+            examples:
+              approve:
+                value: { decision: APPROVED }
+              reject:
+                value: { decision: REJECTED }
+      responses:
+        "200":
+          description: Rejected or approved refund finished, including idempotent replay
+          content:
+            application/json:
+              examples:
+                approved:
+                  value:
+                    id: "b766df75-bfc3-4d64-b502-ea24dca4ef34"
+                    ticketId: "2a2383ad-0396-4465-820f-5d75710c0206"
+                    orderId: "c3d0a75d-ac17-4d33-a240-aa91c492cd89"
+                    eventId: "e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b"
+                    amount: 12000.00
+                    status: COMPLETED
+                    decision: APPROVED
+                    progress: COMPLETED
+                    createdAt: "2026-11-10T12:00:00Z"
+                rejected:
+                  value:
+                    id: "b766df75-bfc3-4d64-b502-ea24dca4ef34"
+                    ticketId: "2a2383ad-0396-4465-820f-5d75710c0206"
+                    orderId: "c3d0a75d-ac17-4d33-a240-aa91c492cd89"
+                    eventId: "e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b"
+                    amount: 12000.00
+                    status: REJECTED
+                    decision: REJECTED
+                    progress: NOT_STARTED
+                    createdAt: "2026-11-10T12:00:00Z"
+        "202":
+          description: Decision saved; a downstream step failed and is retryable
+          content:
+            application/json:
+              example:
+                id: "b766df75-bfc3-4d64-b502-ea24dca4ef34"
+                ticketId: "2a2383ad-0396-4465-820f-5d75710c0206"
+                orderId: "c3d0a75d-ac17-4d33-a240-aa91c492cd89"
+                eventId: "e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b"
+                amount: 12000.00
+                status: APPROVED
+                decision: APPROVED
+                progress: TICKET_REVOKED
+                createdAt: "2026-11-10T12:00:00Z"
+        "400": { description: Invalid decision, application/problem+json }
+        "403": { description: Only ADMIN can decide, application/problem+json }
+        "404": { description: Refund request not found, application/problem+json }
+        "409": { description: A different decision was already saved, application/problem+json }
+  /api/purchases:
+    post:
+      summary: Create and process an idempotent purchase
+      parameters:
+        - in: header
+          name: X-User-Id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string, maxLength: 120 }
+        - in: header
+          name: X-Correlation-Id
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              eventId: "e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b"
+              paymentMethod: "CARD"
+              paymentOutcome: "APPROVED"
+              items:
+                - sectorId: "a88d7b2d-9019-4c3c-8bc4-e0ecc43c955b"
+                  quantity: 2
+      responses:
+        "200": { description: Existing order replay }
+        "201": { description: Order accepted and processed }
+        "400": { description: Invalid request, application/problem+json }
+        "404": { description: Published event not found, application/problem+json }
+        "409": { description: Availability, idempotency, or ticket limit conflict, application/problem+json }
+  /api/purchases/{orderId}:
+    get:
+      summary: Get an order and its issued tickets
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-User-Id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Order details and ticket QR payloads }
+        "404": { description: Order not found, application/problem+json }
+components:
+  schemas:
+    CancellationProgress:
+      type: object
+      required: [eventId, status, totalTickets, completedTickets, pendingTickets]
+      properties:
+        eventId: { type: string, format: uuid }
+        status: { type: string, enum: [PROCESSING, COMPLETED] }
+        totalTickets: { type: integer, minimum: 0 }
+        completedTickets: { type: integer, minimum: 0 }
+        pendingTickets: { type: integer, minimum: 0 }

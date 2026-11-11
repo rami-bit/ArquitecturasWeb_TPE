@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.OffsetDateTime;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -45,6 +46,8 @@ class InventoryAvailabilityContractTest extends InventoryContractTestBase {
 
         JsonNode numbered = findSector(sectors, "NUMBERED");
         assertThat(numbered).isNotNull();
+        assertThat(numbered.path("sectorId").asText())
+                .isEqualTo(sourceSectorId(eventId, "sector:platea").toString());
         assertThat(numbered.path("name").asText()).isEqualTo("Platea");
         assertThat(numbered.path("capacity").asInt()).isEqualTo(2);
         assertThat(numbered.path("sold").asInt()).isEqualTo(0);
@@ -61,6 +64,8 @@ class InventoryAvailabilityContractTest extends InventoryContractTestBase {
 
         JsonNode general = findSector(sectors, "GENERAL_ADMISSION");
         assertThat(general).isNotNull();
+        assertThat(general.path("sectorId").asText())
+                .isEqualTo(sourceSectorId(eventId, "sector:campo").toString());
         assertThat(general.path("name").asText()).isEqualTo("Campo");
         assertThat(general.path("capacity").asInt()).isEqualTo(3);
         assertThat(general.path("sold").asInt()).isEqualTo(0);
@@ -193,6 +198,11 @@ class InventoryAvailabilityContractTest extends InventoryContractTestBase {
 
     private static String UNKNOWN_AVAILABILITY_PATH() {
         return "/api/inventory/events/" + UNKNOWN_EVENT + "/availability";
+    }
+
+    private static UUID sourceSectorId(UUID eventId, String label) {
+        return UUID.nameUUIDFromBytes(
+                (label + "|" + eventId).getBytes(StandardCharsets.UTF_8));
     }
 
     private static JsonNode seatOf(JsonNode numberedSector, UUID seatId) {

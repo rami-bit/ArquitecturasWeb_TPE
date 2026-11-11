@@ -56,10 +56,11 @@ class EventDiscoveryIntegrationTest {
                 .andExpect(status().isBadRequest()).andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
         mvc.perform(get("/api/events").param("sort", "relevance"))
                 .andExpect(status().isBadRequest());
+        String sourceSectorId=jdbc.queryForObject("select ss.source_sector_id from snapshot_sectors ss join event_snapshots s on s.id=ss.snapshot_id where s.event_id=?",UUID.class,UUID.fromString("20000000-0000-0000-0000-000000000001")).toString();
         mvc.perform(get("/api/events/{id}", "20000000-0000-0000-0000-000000000001"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.description").value("Alpha outdoor festival"))
                 .andExpect(jsonPath("$.participants[0]").value("Band Alpha"))
-                .andExpect(jsonPath("$.sectors[0].price").value(20.00)).andExpect(jsonPath("$.availability").doesNotExist());
+                .andExpect(jsonPath("$.sectors[0].id").value(sourceSectorId)).andExpect(jsonPath("$.sectors[0].price").value(20.00)).andExpect(jsonPath("$.availability").doesNotExist());
         mvc.perform(get("/api/events/{id}", "20000000-0000-0000-0000-000000000003")).andExpect(status().isNotFound());
         mvc.perform(get("/api/events/{id}", UUID.randomUUID())).andExpect(status().isNotFound());
         String api = mvc.perform(get("/v3/api-docs")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();

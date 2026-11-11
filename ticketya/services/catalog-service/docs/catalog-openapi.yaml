@@ -1,0 +1,41 @@
+openapi: 3.0.3
+info:
+  title: TicketYa Catalog Event Cancellation API
+  version: 1.0.0
+  description: Administrative event cancellation through the Gateway. Purchase owns ticket refunds.
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/management/events/{eventId}/cancel:
+    post:
+      summary: Cancel a published or suspended event as ADMIN
+      description: >
+        Marks the event CANCELLED and tells Inventory to reject new reservations.
+        Repeating the command returns the same CANCELLED state. To refund sold
+        tickets, use Purchase POST /api/events/{eventId}/cancellation.
+      parameters:
+        - in: path
+          name: eventId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-User-Id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-User-Role
+          required: true
+          schema: { type: string, enum: [ADMIN] }
+        - in: header
+          name: X-Correlation-Id
+          schema: { type: string }
+      responses:
+        "200":
+          description: Event is CANCELLED, including idempotent replay
+          content:
+            application/json:
+              example: { id: "e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b", status: CANCELLED }
+        "400": { description: Invalid event ID or identity, application/problem+json }
+        "403": { description: Only ADMIN may cancel, application/problem+json }
+        "404": { description: Event not found, application/problem+json }
+        "409": { description: Event cannot be cancelled from its current status, application/problem+json }

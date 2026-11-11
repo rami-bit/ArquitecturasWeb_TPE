@@ -1,8 +1,74 @@
 # TicketYa - Catálogo de Eventos e Inventario (Entrega 1)
 
-Incremento actual de TicketYa: administración de lugares, borradores de eventos, publicación con snapshot inmutable, descubrimiento público, inventario de disponibilidad y reservas temporales. Ticket Service también está disponible para emitir entradas QR mediante un contrato interno; la compra que lo invoca todavía no está implementada.
+## Solicitud de devolución (US-F7.1)
 
-El Catálogo es dueño del snapshot publicado y de los precios. Inventory es dueño de la disponibilidad y de las reservas: materializa el layout desde el snapshot de Catalog (sin copiar precios) y expone `GET /api/inventory/events/{eventId}/availability`. Los comandos de reserva (`/internal/**`) son internos y no se publican por el Gateway; los consumirá el futuro Purchase Service.
+El titular de un ticket pagado puede pedir su devolución hasta antes de las 72 horas previas al evento. La solicitud y la consulta pasan por el Gateway; repetir el POST devuelve la misma solicitud.
+
+```http
+POST http://localhost:8080/api/refunds/tickets/{ticketId}
+X-User-Id: 66bd0a43-1baa-4f7b-8316-930593b84d7c
+```
+
+```http
+GET http://localhost:8080/api/refunds/{refundId}
+X-User-Id: 66bd0a43-1baa-4f7b-8316-930593b84d7c
+```
+
+La respuesta inicial indica `PENDING`, decisión nula y progreso `NOT_STARTED`. Otro usuario recibe `404`.
+
+## Decidir una devolución (US-F7.2)
+
+Un administrador aprueba o rechaza una solicitud mediante el Gateway. El rol se simula con el encabezado `X-User-Role`; no hay autenticación en esta entrega.
+
+```http
+POST http://localhost:8080/api/refunds/{refundId}/decision
+X-User-Role: ADMIN
+Content-Type: application/json
+
+{"decision":"APPROVED"}
+```
+
+Para rechazar, usa `{"decision":"REJECTED"}`. El rechazo conserva el ticket y su lugar vendido. Al aprobar, Purchase revoca el ticket, solicita el reintegro idempotente a Payment Mock y libera la unidad vendida en Inventory. Un `200` indica proceso completo; `202` indica que una dependencia falló y se puede repetir la misma decisión para continuar. Una decisión opuesta responde `409`.
+
+
+## Cancelar un evento con reintegros (US-F7.3)
+
+ADMIN inicia la cancelación por el Gateway. Purchase pide a Catalog que marque el evento `CANCELLED` y bloquee nuevas reservas en Inventory; luego procesa los tickets pagados por lotes. Cada ticket se revoca, se reintegra por su importe y libera su unidad vendida. La respuesta `202` indica que queda trabajo; repetir el mismo POST continúa el lote sin duplicar reintegros. `200` y `status: COMPLETED` indican que terminó. La consulta GET muestra el progreso sin procesar otro lote. El rol y la identidad son encabezados simulados para E1.
+
+```http
+POST http://localhost:8080/api/events/{eventId}/cancellation
+X-User-Id: a1b2c3d4-1111-2222-3333-444455556666
+X-User-Role: ADMIN
+```
+
+```http
+GET http://localhost:8080/api/events/{eventId}/cancellation
+X-User-Role: ADMIN
+```
+
+Una respuesta de ejemplo es `{"eventId":"...","status":"PROCESSING","totalTickets":4,"completedTickets":2,"pendingTickets":2}`. Catalog también expone `POST /api/management/events/{eventId}/cancel` para cambiar el estado del evento; esa ruta por sí sola no procesa ventas existentes. Las notificaciones a compradores corresponden a US-F11.
+
+## Compra local (Purchase + Payment Mock)
+
+El flujo de compra se expone en `POST /api/purchases` y `GET /api/purchases/{orderId}` a través del Gateway. Cada compra requiere `X-User-Id` y `Idempotency-Key`; el body incluye `eventId`, `items`, `paymentMethod` y el control local opcional `paymentOutcome` (`APPROVED` por defecto o `REJECTED`). El límite por cliente/evento es cuatro entradas por defecto y se cambia con `PURCHASE_TICKET_LIMIT`.
+
+Ejemplo de compra:
+
+```http
+POST http://localhost:8080/api/purchases
+X-User-Id: 66bd0a43-1baa-4f7b-8316-930593b84d7c
+Idempotency-Key: demo-purchase-001
+Content-Type: application/json
+
+{
+  "eventId": "e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b",
+  "paymentMethod": "CARD",
+  "paymentOutcome": "APPROVED",
+  "items": [{"sectorId":"a88d7b2d-9019-4c3c-8bc4-e0ecc43c955b","quantity":2}]
+}
+```
+
+Para demostrar un rechazo, repetir el ejemplo con una clave nueva y `paymentOutcome: "REJECTED"`. La respuesta contiene el estado de la orden; una orden recuperable se responde como `202 Accepted` y se puede volver a procesar repitiendo el POST con la misma clave. `GET /api/purchases/{orderId}` devuelve el detalle y los QR emitidos al titular. Payment Mock y los comandos `/internal/**` sólo son accesibles dentro de Compose.
 
 ## Requisitos
 
@@ -14,30 +80,22 @@ Todos los comandos de esta guía se ejecutan desde la carpeta `ticketya/` (raíz
 
 ## Variables de entorno
 
-El `docker-compose.yml` de la raíz de `ticketya/` usa los siguientes valores con predeterminados seguros. Sobreescríbelos solo si necesitas cambiar puertos o credenciales de desarrollo.
+Docker Compose carga automáticamente el archivo `.env` de esta carpeta. Mantenlo sincronizado con las variables `${...}` de `docker-compose.yml` cuando se agreguen o renombren opciones. Los valores son para desarrollo local.
 
 | Variable | Predeterminado | Propósito |
 |---|---|---|
 | `POSTGRES_DB` | `ticketya_catalog` | Nombre de la base de datos de catálogo |
 | `INVENTORY_POSTGRES_DB` | `ticketya_inventory` | Nombre de la base de datos de inventario |
 | `TICKET_POSTGRES_DB` | `ticketya_ticket` | Nombre de la base de datos de tickets |
+| `PURCHASE_POSTGRES_DB` | `ticketya_purchase` | Nombre de la base de datos de compras |
+| `PAYMENT_POSTGRES_DB` | `ticketya_payment` | Nombre de la base de datos de pagos simulados |
 | `POSTGRES_USER` | `ticketya` | Usuario de ambas bases PostgreSQL |
 | `POSTGRES_PASSWORD` | `ticketya` | Contraseña de ambas bases PostgreSQL |
 | `GATEWAY_PORT` | `8080` | Puerto publicado del API Gateway en el host |
-| `TICKET_QR_SIGNING_SECRET` | Sin valor predeterminado | Clave estable de al menos 32 bytes para firmar los QR |
+| `PURCHASE_TICKET_LIMIT` | `4` | Máximo de entradas por cliente y evento |
+| `TICKET_QR_SIGNING_SECRET` | Clave local definida en `.env` | Clave estable de al menos 32 bytes para firmar los QR |
 
-Ticket Service requiere `TICKET_QR_SIGNING_SECRET`; Compose falla explícitamente si falta. Para una sesión local de PowerShell, genera una clave de desarrollo antes de levantar el sistema:
-
-```powershell
-$bytes = New-Object byte[] 32
-$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-$rng.GetBytes($bytes)
-$env:TICKET_QR_SIGNING_SECRET = [Convert]::ToBase64String($bytes)
-$rng.Dispose()
-docker compose up --build
-```
-
-La clave debe mantenerse igual entre reinicios e instancias. Si se cambia, los QR existentes ya no podrán validarse. No la guardes en el repositorio ni uses una clave de desarrollo en producción.
+Ticket Service requiere `TICKET_QR_SIGNING_SECRET`; el `.env` incluye una clave local de desarrollo para arrancar el stack directamente. Conserva el mismo valor entre reinicios si quieres validar QR ya emitidos. Al cambiarlo, los QR existentes dejarán de validarse. No reutilices esta clave fuera del entorno didáctico local.
 
 Los servicios internos reciben su configuración a través de variables de Compose (no necesitas definirlas a menos que quieras sobreescribirlas):
 
@@ -138,7 +196,7 @@ npx --yes newman run postman/ticketya.postman_collection.json \
   --env-var baseUrl=http://localhost:8080
 ```
 
-La colección es repetible: cada corrida genera un `runId` único para nombre de lugar y participante, evitando colisiones entre ejecuciones. Cubre: crear lugar, crear/configurar borrador, publicar, buscar, consultar, suspender y reanudar, más la consulta pública de disponibilidad de Inventory a través del Gateway. Inventory materializa el inventario de forma perezosa a partir del snapshot publicado de Catalog en la primera consulta.
+La coleccion es repetible: cada corrida genera un `runId` unico para evitar colisiones. Cubre Catalog e Inventory, compra aprobada con QR, reintento idempotente, consulta de tickets por su titular, pago rechazado con liberacion del cupo y limite de cuatro entradas por cliente y evento; tambien suspende y reanuda eventos. Todas las rutas publicas se recorren por el Gateway. Inventory materializa el inventario de forma perezosa a partir del snapshot publicado de Catalog en la primera consulta.
 
 ## Flujo interno de inventario (no publicado por el Gateway)
 
@@ -178,7 +236,7 @@ Ticket Service escucha en `ticket-service:8083`, dentro de la red de Compose. Pu
 
 La solicitud incluye al comprador, el snapshot del evento y las unidades del item; para asientos numerados cada unidad lleva fila y número. La primera emisión devuelve `201`; un reintento idéntico devuelve `200` con los mismos tickets y QR. Reutilizar la pareja `orderId + orderItemId` con distinto contenido devuelve `409`.
 
-La respuesta contiene `qrPayload` y `qrPngBase64`. La imagen PNG se genera al responder; PostgreSQL conserva el hash del payload, no el token. La API es interna y no tiene ruta en el Gateway. **Como Purchase Service todavía no existe, la emisión se puede verificar por contrato, pero aún no hay flujo real de compra que la invoque.**
+La respuesta contiene `qrPayload` y `qrPngBase64`. La imagen PNG se genera al responder; PostgreSQL conserva el hash del payload, no el token. La API es interna y no tiene ruta en el Gateway. Purchase invoca esta emisión al completar una compra aprobada.
 
 Valida la documentación y el estado del servicio desde el contenedor:
 
@@ -187,7 +245,7 @@ docker compose exec -T ticket-service wget -qO- http://localhost:8083/v3/api-doc
 docker compose exec -T ticket-service wget -qO- http://localhost:8083/actuator/health
 ```
 
-El contrato versionado está en `services/ticket-service/docs/ticket-openapi.yaml`. Este alcance emite QR; validación en acceso, revocación y devoluciones siguen pendientes.
+El contrato versionado está en `services/ticket-service/docs/ticket-openapi.yaml`. Ticket permite revocar internamente una entrada vendida; la validación en acceso queda para US-F8.
 
 ## Validar OpenAPI (interno, vía contenedor)
 

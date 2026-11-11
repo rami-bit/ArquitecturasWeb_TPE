@@ -26,7 +26,7 @@ class InventorySchemaConstraintTest extends InventoryContractTestBase {
                              capacity, sold, reserved)
                         SELECT ?, event_inventory_id, source_sector_id, name, type,
                                capacity, sold, reserved
-                        FROM inventory_sectors WHERE id = ?
+                        FROM inventory_sectors WHERE source_sector_id = ?
                         """, UUID.randomUUID(), layout.numberedSectorId()))
                 .isInstanceOf(DataAccessException.class);
     }
@@ -37,14 +37,14 @@ class InventorySchemaConstraintTest extends InventoryContractTestBase {
         Layout layout = initializeAndDiscoverLayout(eventId);
 
         assertThatThrownBy(() -> jdbc().update(
-                        "UPDATE inventory_sectors SET type = 'BROKEN' WHERE id = ?",
+                        "UPDATE inventory_sectors SET type = 'BROKEN' WHERE source_sector_id = ?",
                         layout.generalSectorId()))
                 .isInstanceOf(DataAccessException.class);
 
-        jdbc().update("UPDATE inventory_sectors SET sold = 2, reserved = 0 WHERE id = ?",
+        jdbc().update("UPDATE inventory_sectors SET sold = 2, reserved = 0 WHERE source_sector_id = ?",
                 layout.generalSectorId());
         assertThatThrownBy(() -> jdbc().update(
-                        "UPDATE inventory_sectors SET capacity = 1 WHERE id = ?",
+                        "UPDATE inventory_sectors SET capacity = 1 WHERE source_sector_id = ?",
                         layout.generalSectorId()))
                 .isInstanceOf(DataAccessException.class);
     }
