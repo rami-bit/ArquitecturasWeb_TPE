@@ -132,4 +132,37 @@ class PaymentQueryRefundContractTest extends PaymentContractTestBase {
 
         assertProblem(response, HttpStatus.NOT_FOUND);
     }
+
+    @Test
+    void partialRefundsAreDurableIdempotentAndCannotExceedTheCharge() {
+        String paymentId = parseBody(post("/internal/payments",
+                paymentBody(newOrderId(), 100.00, "ARS", "CARD", "tok_approved")))
+                .path("paymentId").asText();
+        String path = "/internal/payments/" + paymentId + "/refunds";
+        String firstBody = "{\"idempotencyKey\":\"partial-" + UUID.randomUUID()
+                + "\",\"amount\":40.00}";
+        ResponseEntity<String> first = post(path, firstBody);
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String firstId = parseBody(first).path("refundId").asText();
+        assertThat(parseBody(post(path, firstBody)).path("refundId").asText()).isEqualTo(firstId);
+        assertThat(parseBody(get("/internal/payments/" + paymentId)).path("status").asText())
+                .isEqualTo("APPROVED");
+
+        assertProblem(post(path, "{\"idempotencyKey\":\"partial-" + UUID.randomUUID()
+                + "\",\"amount\":60.01}"), HttpStatus.CONFLICT);
+        ResponseEntity<String> second = post(path, "{\"idempotencyKey\":\"partial-"
+                + UUID.randomUUID() + "\",\"amount\":60.00}");
+        assertThat(second.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(parseBody(second).path("refundId").asText()).isNotEqualTo(firstId);
+        assertThat(parseBody(get("/internal/payments/" + paymentId)).path("status").asText())
+                .isEqualTo("REFUNDED");
+        assertThat(parseBody(post(path, firstBody)).path("refundId").asText()).isEqualTo(firstId);
+
+        String rejectedId = parseBody(post("/internal/payments",
+                paymentBody(newOrderId(), 100.00, "ARS", "CARD", "tok_rejected")))
+                .path("paymentId").asText();
+        assertProblem(post("/internal/payments/" + rejectedId + "/refunds",
+                "{\"idempotencyKey\":\"partial-" + UUID.randomUUID() + "\",\"amount\":10.00}"),
+                HttpStatus.CONFLICT);
+    }
 }

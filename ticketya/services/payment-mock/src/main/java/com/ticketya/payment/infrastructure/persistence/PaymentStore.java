@@ -1,7 +1,9 @@
 package com.ticketya.payment.infrastructure.persistence;
 
 import com.ticketya.payment.application.Payment;
+import com.ticketya.payment.api.RefundResponse;
 
+import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -18,4 +20,8 @@ public interface PaymentStore {
     Optional<Payment> findByOrderId(UUID orderId);
 
     int updateStatus(Payment payment);
+
+    RefundResponse createOrGetRefund(UUID paymentId, BigDecimal amount, String key, String fingerprint);
+
+    BigDecimal refundedAmount(UUID paymentId);
 }

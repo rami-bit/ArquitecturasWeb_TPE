@@ -54,6 +54,22 @@ CREATE TABLE IF NOT EXISTS order_item_units (
   seat_number INTEGER,
   CONSTRAINT order_item_units_order_item_id_unit_number_key UNIQUE (order_item_id, unit_number)
 );
+
+-- One issued ticket per purchased unit. Purchase and refund flows both read this table.
+CREATE TABLE IF NOT EXISTS order_tickets (
+  id UUID PRIMARY KEY,
+  order_id UUID NOT NULL REFERENCES purchase_orders(id),
+  order_item_id UUID NOT NULL REFERENCES purchase_order_items(id),
+  ticket_id UUID NOT NULL UNIQUE,
+  unit_number INTEGER NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  qr_payload TEXT,
+  qr_png_base64 TEXT,
+  row_label VARCHAR(40),
+  seat_number INTEGER,
+  CONSTRAINT order_tickets_order_item_unit_key UNIQUE (order_id, order_item_id, unit_number)
+);
+
 ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS reservation_id UUID;
 CREATE TABLE IF NOT EXISTS refund_requests (
   id UUID PRIMARY KEY,

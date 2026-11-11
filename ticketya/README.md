@@ -223,7 +223,7 @@ npx --yes newman run postman/ticketya.postman_collection.json \
   --env-var baseUrl=http://localhost:8080
 ```
 
-La coleccion es repetible: cada corrida genera un `runId` unico para evitar colisiones. Cubre Catalog e Inventory, compra aprobada con QR, reintento idempotente, consulta de tickets por su titular, pago rechazado con liberacion del cupo y limite de cuatro entradas por cliente y evento; tambien suspende y reanuda eventos. Todas las rutas publicas se recorren por el Gateway. Inventory materializa el inventario de forma perezosa a partir del snapshot publicado de Catalog en la primera consulta.
+La coleccion es repetible: cada corrida genera un `runId` unico para evitar colisiones. Cubre Catalog e Inventory, compra aprobada con QR, reintento idempotente, consulta de tickets por su titular, pago rechazado con liberacion del cupo y limite de seis entradas por cliente y evento; tambien suspende y reanuda eventos. Todas las rutas publicas se recorren por el Gateway. Inventory materializa el inventario de forma perezosa a partir del snapshot publicado de Catalog en la primera consulta.
 
 ## Flujo interno de inventario (no publicado por el Gateway)
 

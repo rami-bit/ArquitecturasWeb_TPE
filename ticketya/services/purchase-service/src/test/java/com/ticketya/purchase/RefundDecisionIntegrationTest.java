@@ -3,6 +3,7 @@ package com.ticketya.purchase;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import com.ticketya.purchase.api.refund.RefundDecisionController;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,6 +46,7 @@ class RefundDecisionIntegrationTest {
     private final UUID item = UUID.randomUUID();
     private final UUID event = UUID.randomUUID();
     private final UUID sector = UUID.randomUUID();
+    private final UUID sourceSector = UUID.randomUUID();
     private final UUID ticket = UUID.randomUUID();
     private final UUID payment = UUID.randomUUID();
     private final UUID reservation = UUID.randomUUID();
@@ -54,6 +56,7 @@ class RefundDecisionIntegrationTest {
     private final AtomicInteger releases = new AtomicInteger();
     private final AtomicReference<String> failOnce = new AtomicReference<>();
     private final AtomicReference<String> paymentBody = new AtomicReference<>();
+    private final AtomicReference<String> releaseBody = new AtomicReference<>();
     private HttpServer server;
     private ExecutorService serverThreads;
     private JdbcTemplate jdbc;
@@ -64,18 +67,27 @@ class RefundDecisionIntegrationTest {
         new ResourceDatabasePopulator(new ClassPathResource("schema.sql")).execute(dataSource);
         jdbc = new JdbcTemplate(dataSource);
         jdbc.update("DELETE FROM refund_requests");
+        jdbc.update("DELETE FROM order_tickets");
+        jdbc.update("DELETE FROM order_item_units");
         jdbc.update("DELETE FROM purchase_order_items");
         jdbc.update("DELETE FROM purchase_orders");
         jdbc.update("""
                 INSERT INTO purchase_orders(id,customer_id,event_id,event_name,event_starts_at,venue_name,venue_city,
-                    payment_method,payment_outcome,status,idempotency_key,request_fingerprint,payment_id,reservation_id,total)
-                VALUES (?,?,?,'Show','2027-01-01T20:00:00Z','Hall','Buenos Aires','CARD','APPROVED','PAID',?,
+                    payment_method,payment_status,status,idempotency_key,request_fingerprint,payment_id,reservation_id,total_amount)
+                VALUES (?,?,?,'Show','2027-01-01T20:00:00Z','Hall','Buenos Aires','CARD','APPROVED','CONFIRMED',?,
                     'fingerprint',?,?,2500)
                 """, order,customer,event,UUID.randomUUID().toString(),payment,reservation);
         jdbc.update("""
-                INSERT INTO purchase_order_items(id,order_id,sector_id,sector_name,unit_price,quantity,ticket_payload)
-                VALUES (?,?,?,'General',2500,1,?::text)
-                """, item,order,sector,"{\"tickets\":[{\"ticketId\":\""+ticket+"\",\"unitNumber\":1}]}");
+                INSERT INTO purchase_order_items(id,order_id,inventory_sector_id,source_sector_id,
+                    sector_name,sector_type,unit_price,quantity,subtotal)
+                VALUES (?,?,?,?,'General','GENERAL_ADMISSION',2500,1,2500)
+                """, item,order,sector,sourceSector);
+        jdbc.update("INSERT INTO order_item_units(id,order_item_id,unit_number) VALUES (?,?,1)",
+                UUID.randomUUID(), item);
+        jdbc.update("""
+                INSERT INTO order_tickets(id,order_id,order_item_id,ticket_id,unit_number,status)
+                VALUES (?,?,?,?,1,'ISSUED')
+                """, UUID.randomUUID(), order, item, ticket);
         jdbc.update("""
                 INSERT INTO refund_requests(id,ticket_id,order_id,order_item_id,customer_id,event_id,amount)
                 VALUES (?,?,?,?,?,?,2500)
@@ -136,6 +148,8 @@ class RefundDecisionIntegrationTest {
             assertEquals(afterRelease,releases.get(),"Completed request must not repeat inventory release");
             assertEquals(2500,new ObjectMapper().readTree(paymentBody.get()).path("amount").decimalValue().intValue());
             assertTrue(paymentBody.get().contains(refund.toString()));
+            assertEquals(sector.toString(), new ObjectMapper().readTree(releaseBody.get())
+                    .path("sectorId").asText());
         }
     }
 
@@ -146,7 +160,7 @@ class RefundDecisionIntegrationTest {
 
     private void resetRequest() {
         jdbc.update("UPDATE refund_requests SET decision=NULL,status='PENDING',progress='NOT_STARTED' WHERE id=?",refund);
-        revokes.set(0);refunds.set(0);releases.set(0);paymentBody.set(null);
+        revokes.set(0);refunds.set(0);releases.set(0);paymentBody.set(null);releaseBody.set(null);
     }
 
     private void respond(HttpExchange exchange) throws IOException {
@@ -163,6 +177,7 @@ class RefundDecisionIntegrationTest {
             body="{\"refundId\":\""+refund+"\",\"status\":\"REFUNDED\"}";
         } else if (path.endsWith("/sold-units/release")) {
             step="release";releases.incrementAndGet();
+            releaseBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             body="{\"reservationId\":\""+reservation+"\",\"alreadyReleased\":false}";
         }
         else {step="unknown";}

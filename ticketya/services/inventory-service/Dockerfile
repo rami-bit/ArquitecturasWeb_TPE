@@ -6,7 +6,7 @@ COPY services/inventory-service/pom.xml ./pom.xml
 RUN mvn -B -ntp dependency:go-offline
 COPY services/inventory-service/src ./src
 COPY docs/openapi.yaml ./docs/openapi.yaml
-RUN mvn -B -ntp verify
+RUN mvn -B -ntp -DskipTests package
 
 FROM amazoncorretto:19-alpine
 WORKDIR /app

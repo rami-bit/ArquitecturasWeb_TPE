@@ -19,16 +19,17 @@ paths:
               orderId: 4ef45f2a-87eb-4c40-9840-e08d4db5e345
               amount: 25000.00
               currency: ARS
-              paymentMethod: CARD
-              idempotencyKey: order-4ef45f2a-charge
-              outcome: APPROVED
+              method: CARD
+              token: tok_approved
       responses:
         '201':
-          description: Charge created or recovered
+          description: Charge created
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Payment'
+        '200':
+          description: Same charge already exists for this order
         '400':
           description: Invalid charge
         '409':
@@ -61,7 +62,7 @@ paths:
                   example: 12500.00
       responses:
         '201':
-          description: Refund created or recovered
+          description: Refund created or recovered with the same idempotency key
           content:
             application/json:
               example:
@@ -73,18 +74,34 @@ paths:
           description: Payment not found
         '409':
           description: Payment not refundable, total refunds exceed charge, or idempotency conflict
+  /internal/payments/{paymentId}/refund:
+    post:
+      summary: Refund the full charge once, for purchase compensation
+      parameters:
+        - in: path
+          name: paymentId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Payment with status REFUNDED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+        '404': { description: Payment not found }
+        '409': { description: Payment cannot be fully refunded }
 components:
   schemas:
     PaymentRequest:
       type: object
-      required: [orderId, amount, currency, paymentMethod, idempotencyKey, outcome]
+      required: [orderId, amount, currency, method, token]
       properties:
         orderId: { type: string, format: uuid }
         amount: { type: number, minimum: 0.01 }
-        currency: { type: string, pattern: '^[A-Z]{3}$' }
-        paymentMethod: { type: string }
-        idempotencyKey: { type: string }
-        outcome: { type: string, enum: [APPROVED, REJECTED] }
+        currency: { type: string, enum: [ARS] }
+        method: { type: string, enum: [CARD, WALLET, CASH] }
+        token: { type: string, enum: [tok_approved, tok_rejected, tok_pending] }
     Payment:
       type: object
       properties:
@@ -92,6 +109,7 @@ components:
         orderId: { type: string, format: uuid }
         amount: { type: number }
         currency: { type: string }
-        paymentMethod: { type: string }
-        status: { type: string, enum: [APPROVED, REJECTED] }
+        method: { type: string, enum: [CARD, WALLET, CASH] }
+        status: { type: string, enum: [APPROVED, REJECTED, PENDING, REFUNDED] }
         createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }

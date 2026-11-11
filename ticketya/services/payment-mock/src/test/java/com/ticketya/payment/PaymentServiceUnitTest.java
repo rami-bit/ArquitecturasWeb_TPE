@@ -1,65 +1,70 @@
 package com.ticketya.payment;
 
-import com.ticketya.payment.api.PaymentRequest;
-import com.ticketya.payment.api.PaymentResponse;
 import com.ticketya.payment.api.RefundRequest;
-import com.ticketya.payment.api.error.ApiProblemException;
+import com.ticketya.payment.api.RefundResponse;
+import com.ticketya.payment.api.payment.CreatePaymentRequest;
+import com.ticketya.payment.application.Payment;
+import com.ticketya.payment.application.PaymentMethod;
 import com.ticketya.payment.application.PaymentService;
-import com.ticketya.payment.infrastructure.PaymentStore;
+import com.ticketya.payment.application.PaymentStatus;
+import com.ticketya.payment.infrastructure.persistence.PaymentStore;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-@ExtendWith(MockitoExtension.class)
 class PaymentServiceUnitTest {
-    @Mock
-    private PaymentStore store;
-
-    @InjectMocks
-    private PaymentService service;
+    private final PaymentStore store = mock(PaymentStore.class);
+    private final PaymentService service = new PaymentService(store);
 
     @Test
-    void chargeStoresAndReturnsConfiguredOutcome() {
+    void sameOrderAndPayloadReturnsExistingPayment() {
         UUID orderId = UUID.randomUUID();
-        PaymentRequest request = new PaymentRequest(orderId, new BigDecimal("25.00"),
-                "ARS", "CARD", "charge-key", PaymentRequest.Outcome.APPROVED);
-        PaymentResponse expected = new PaymentResponse(UUID.randomUUID(), orderId,
-                new BigDecimal("25.00"), "ARS", "CARD", "APPROVED", OffsetDateTime.now());
-        when(store.createOrGetPayment(eq(request), anyString())).thenReturn(expected);
+        Payment payment = payment(orderId, PaymentStatus.APPROVED);
+        when(store.findByOrderId(orderId)).thenReturn(Optional.of(payment));
+        var request = new CreatePaymentRequest(orderId.toString(), new BigDecimal("25.00"),
+                "ARS", PaymentMethod.CARD, "tok_approved");
 
-        PaymentResponse actual = service.charge(request);
+        var outcome = service.createPayment(request);
 
-        assertSame(expected, actual);
-        verify(store).createOrGetPayment(eq(request), anyString());
+        assertFalse(outcome.created());
+        assertEquals(payment.id(), outcome.payment().id());
+        assertThrows(RuntimeException.class, () -> service.createPayment(
+                new CreatePaymentRequest(orderId.toString(), new BigDecimal("26.00"),
+                        "ARS", PaymentMethod.CARD, "tok_approved")));
     }
 
     @Test
-    void rejectedPaymentCannotBeRefunded() {
-        UUID paymentId = UUID.randomUUID();
-        when(store.payment(paymentId)).thenReturn(Optional.of(new PaymentResponse(paymentId,
-                UUID.randomUUID(), new BigDecimal("25.00"), "ARS", "CARD", "REJECTED",
-                OffsetDateTime.now())));
+    void partialRefundLeavesPaymentApprovedUntilTheFullAmountIsRefunded() {
+        Payment payment = payment(UUID.randomUUID(), PaymentStatus.APPROVED);
+        when(store.findById(payment.id())).thenReturn(Optional.of(payment));
+        RefundResponse refund = new RefundResponse(UUID.randomUUID(), payment.id(),
+                new BigDecimal("10.00"), "REFUNDED", OffsetDateTime.now());
+        when(store.createOrGetRefund(eq(payment.id()), eq(new BigDecimal("10.00")),
+                eq("ticket-1"), any())).thenReturn(refund);
+        when(store.refundedAmount(payment.id())).thenReturn(new BigDecimal("10.00"));
 
-        ApiProblemException error = assertThrows(ApiProblemException.class,
-                () -> service.refund(paymentId, new RefundRequest("refund-key", null)));
+        assertEquals(refund, service.refundPartial(payment.id(),
+                new RefundRequest("ticket-1", new BigDecimal("10.00"))));
+        verify(store).createOrGetRefund(eq(payment.id()), eq(new BigDecimal("10.00")),
+                eq("ticket-1"), any());
+    }
 
-        assertEquals(409, error.getStatus().value());
-        verify(store, never()).createOrGetRefund(eq(paymentId), org.mockito.ArgumentMatchers.any(), anyString(), anyString());
+    private static Payment payment(UUID orderId, PaymentStatus status) {
+        Instant now = Instant.now();
+        return new Payment(UUID.randomUUID(), orderId, status, new BigDecimal("25.00"),
+                "ARS", PaymentMethod.CARD, "tok_approved", now, now, null);
     }
 }

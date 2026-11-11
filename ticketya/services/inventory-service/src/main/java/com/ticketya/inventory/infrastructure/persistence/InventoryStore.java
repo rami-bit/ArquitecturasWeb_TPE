@@ -222,11 +222,14 @@ public class InventoryStore {
 
     public List<ReservationItemRow> findReservationItems(UUID reservationId) {
         return jdbc.query("""
-                SELECT s.source_sector_id AS sector_id, ri.inventory_item_id, ri.quantity
+                SELECT ri.sector_id, ri.inventory_item_id, ri.quantity,
+                       s.source_sector_id, s.name, s.type,
+                       ii.source_seat_id, ii.row_label, ii.seat_number
                 FROM reservation_items ri
                 JOIN inventory_sectors s ON s.id = ri.sector_id
+                LEFT JOIN inventory_items ii ON ii.id = ri.inventory_item_id
                 WHERE ri.reservation_id = ?
-                ORDER BY s.source_sector_id ASC, ri.inventory_item_id ASC NULLS LAST
+                ORDER BY ri.sector_id ASC, ri.inventory_item_id ASC NULLS LAST
                 """, (rs, row) -> new ReservationItemRow(
                 rs.getObject("sector_id", UUID.class),
                 rs.getObject("inventory_item_id", UUID.class),
@@ -239,19 +242,18 @@ public class InventoryStore {
                 rs.getObject("seat_number", Integer.class)), reservationId);
     }
 
-    public Optional<SoldItemRow> lockSoldItem(UUID reservationId, UUID sourceSectorId, UUID seatId) {
+    public Optional<SoldItemRow> lockSoldItem(UUID reservationId, UUID sectorId, UUID seatId) {
         return jdbc.query("""
                 SELECT ri.id, ri.sector_id, ri.inventory_item_id, ri.quantity
                 FROM reservation_items ri
-                JOIN inventory_sectors s ON s.id = ri.sector_id
                 JOIN reservations r ON r.id = ri.reservation_id
-                WHERE ri.reservation_id = ? AND s.source_sector_id = ?
+                WHERE ri.reservation_id = ? AND ri.sector_id = ?
                   AND ri.inventory_item_id IS NOT DISTINCT FROM ?
                   AND r.status = 'CONFIRMED'
                 FOR UPDATE OF ri
                 """, (rs, row) -> new SoldItemRow(rs.getObject("id", UUID.class),
                 rs.getObject("sector_id", UUID.class), rs.getObject("inventory_item_id", UUID.class),
-                rs.getInt("quantity")), reservationId, sourceSectorId, seatId).stream().findFirst();
+                rs.getInt("quantity")), reservationId, sectorId, seatId).stream().findFirst();
     }
 
     public boolean soldUnitAlreadyReleased(UUID itemId, int unitNumber) {

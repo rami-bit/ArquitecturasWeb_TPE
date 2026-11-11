@@ -16,7 +16,7 @@ spring:
         - id: purchase-service
           uri: ${PURCHASE_SERVICE_URL:http://localhost:8084}
           predicates:
-            - Path=/api/purchases/**
+            - Path=/api/orders,/api/orders/**
         - id: refund-service
           uri: ${PURCHASE_SERVICE_URL:http://localhost:8084}
           predicates:

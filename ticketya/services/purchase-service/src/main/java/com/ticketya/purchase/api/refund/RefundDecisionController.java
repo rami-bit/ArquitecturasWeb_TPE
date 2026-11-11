@@ -106,8 +106,11 @@ public class RefundDecisionController {
             refund = row(refundId);
             if ("TICKET_REVOKED".equals(refund.progress())) {
                 if (refund.paymentId() == null) throw new IllegalStateException("Payment reference unavailable");
-                JsonNode paidBack = post(paymentUrl + "/internal/payments/" + refund.paymentId() + "/refund",
-                        trace, null);
+                Map<String, Object> paymentRequest = new LinkedHashMap<>();
+                paymentRequest.put("amount", refund.amount());
+                paymentRequest.put("idempotencyKey", refundId.toString());
+                JsonNode paidBack = post(paymentUrl + "/internal/payments/" + refund.paymentId() + "/refunds",
+                        trace, paymentRequest);
                 if (!"REFUNDED".equals(paidBack.path("status").asText())) {
                     throw new IllegalStateException("Refund was not confirmed");
                 }
@@ -153,7 +156,7 @@ public class RefundDecisionController {
     private RefundRow row(UUID id) {
         List<RefundRow> rows = jdbc.query("""
                 SELECT r.ticket_id, r.decision, r.progress, r.amount, o.payment_id, o.reservation_id,
-                       i.source_sector_id AS sector_id,
+                       i.inventory_sector_id AS sector_id,
                        u.inventory_seat_id AS seat_id,
                        t.unit_number
                 FROM refund_requests r

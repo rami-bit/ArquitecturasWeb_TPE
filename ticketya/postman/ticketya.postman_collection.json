@@ -632,7 +632,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"paymentMethod\": \"CARD\",\n  \"paymentOutcome\": \"APPROVED\",\n  \"items\": [{\"sectorId\": \"{{sectorGeneralId}}\", \"quantity\": 1}]\n}",
+          "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"items\": [\n    {\n      \"sectorId\": \"{{inventorySectorGeneralId}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"payment\": {\n    \"method\": \"CARD\",\n    \"token\": \"tok_approved\"\n  }\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -640,13 +640,13 @@
           }
         },
         "url": {
-          "raw": "{{baseUrl}}/api/purchases",
+          "raw": "{{baseUrl}}/api/orders",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "purchases"
+            "orders"
           ]
         },
         "description": "Crea una compra general aprobada y guarda el orderId para consultar sus tickets."
@@ -660,9 +660,9 @@
             "exec": [
               "pm.test('La compra aprobada responde 201', () => pm.response.to.have.status(201));",
               "const json = pm.response.json();",
-              "pm.test('La orden queda pagada y emite QR', () => { pm.expect(json.status).to.eql('PAID'); pm.expect(json.items[0].tickets.tickets).to.have.length(1); pm.expect(json.items[0].tickets.tickets[0].qrPayload).to.be.a('string'); });",
+              "pm.test('La orden queda confirmada y emite QR', () => { pm.expect(json.status).to.eql('CONFIRMED'); pm.expect(json.items[0].tickets).to.have.length(1); pm.expect(json.items[0].tickets[0].qrPayload).to.be.a('string').and.not.empty; });",
               "pm.collectionVariables.set('purchaseOrderId', json.orderId);",
-              "pm.collectionVariables.set('refundTicketId', json.items[0].tickets.tickets[0].ticketId);"
+              "pm.collectionVariables.set('refundTicketId', json.items[0].tickets[0].ticketId);"
             ]
           }
         }
@@ -672,45 +672,285 @@
       "name": "10 - Solicitar devolución del ticket comprado",
       "request": {
         "method": "POST",
-        "header": [{"key":"X-User-Id","value":"{{userId}}"}],
-        "url": {"raw":"{{baseUrl}}/api/refunds/tickets/{{refundTicketId}}","host":["{{baseUrl}}"],"path":["api","refunds","tickets","{{refundTicketId}}"]},
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{userId}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/refunds/tickets/{{refundTicketId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "refunds",
+            "tickets",
+            "{{refundTicketId}}"
+          ]
+        },
         "description": "Ejemplo de solicitud de devolución del titular; conserva refundId para consultar su estado."
       },
-      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Solicitud pendiente', () => { pm.response.to.have.status(201); pm.expect(pm.response.json().status).to.eql('PENDING'); });","pm.collectionVariables.set('refundId', pm.response.json().id);"]}}]
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Solicitud pendiente', () => { pm.response.to.have.status(201); pm.expect(pm.response.json().status).to.eql('PENDING'); });",
+              "pm.collectionVariables.set('refundId', pm.response.json().id);"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "10b - Consultar devolución propia",
       "request": {
         "method": "GET",
-        "header": [{"key":"X-User-Id","value":"{{userId}}"}],
-        "url": {"raw":"{{baseUrl}}/api/refunds/{{refundId}}","host":["{{baseUrl}}"],"path":["api","refunds","{{refundId}}"]}
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{userId}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/refunds/{{refundId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "refunds",
+            "{{refundId}}"
+          ]
+        }
       },
-      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('La solicitud pertenece al titular', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('refundId')); });"]}}]
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('La solicitud pertenece al titular', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('refundId')); });"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "10c - Reintento de solicitud de devolución",
-      "request": {"method":"POST","header":[{"key":"X-User-Id","value":"{{userId}}"}],"url":{"raw":"{{baseUrl}}/api/refunds/tickets/{{refundTicketId}}","host":["{{baseUrl}}"],"path":["api","refunds","tickets","{{refundTicketId}}"]}},
-      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Devuelve la misma solicitud', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('refundId')); });"]}}]
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{userId}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/refunds/tickets/{{refundTicketId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "refunds",
+            "tickets",
+            "{{refundTicketId}}"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Devuelve la misma solicitud', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('refundId')); });"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "10d - Consulta ajena de devolución",
-      "request": {"method":"GET","header":[{"key":"X-User-Id","value":"{{adminUserId}}"}],"url":{"raw":"{{baseUrl}}/api/refunds/{{refundId}}","host":["{{baseUrl}}"],"path":["api","refunds","{{refundId}}"]}},
-      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('La consulta ajena no revela datos', () => pm.response.to.have.status(404));"]}}]
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{adminUserId}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/refunds/{{refundId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "refunds",
+            "{{refundId}}"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('La consulta ajena no revela datos', () => pm.response.to.have.status(404));"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "10d1 - Decisión de devolución sin rol ADMIN",
-      "request": {"method":"POST","header":[{"key":"X-User-Role","value":"CUSTOMER"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"decision\":\"REJECTED\"}","options":{"raw":{"language":"json"}}},"url":{"raw":"{{baseUrl}}/api/refunds/{{refundId}}/decision","host":["{{baseUrl}}"],"path":["api","refunds","{{refundId}}","decision"]}},
-      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Solo ADMIN decide devoluciones', () => pm.response.to.have.status(403));"]}}]
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Role",
+            "value": "CUSTOMER"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"decision\":\"REJECTED\"}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/refunds/{{refundId}}/decision",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "refunds",
+            "{{refundId}}",
+            "decision"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Solo ADMIN decide devoluciones', () => pm.response.to.have.status(403));"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "10d2 - ADMIN rechaza devolución",
-      "request": {"method":"POST","header":[{"key":"X-User-Role","value":"ADMIN"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"decision\":\"REJECTED\"}","options":{"raw":{"language":"json"}}},"url":{"raw":"{{baseUrl}}/api/refunds/{{refundId}}/decision","host":["{{baseUrl}}"],"path":["api","refunds","{{refundId}}","decision"]}},
-      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Rechazo queda registrado', () => { pm.response.to.have.status(200); const r = pm.response.json(); pm.expect(r.status).to.eql('REJECTED'); pm.expect(r.decision).to.eql('REJECTED'); pm.expect(r.progress).to.eql('NOT_STARTED'); });"]}}]
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Role",
+            "value": "ADMIN"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"decision\":\"REJECTED\"}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/refunds/{{refundId}}/decision",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "refunds",
+            "{{refundId}}",
+            "decision"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Rechazo queda registrado', () => { pm.response.to.have.status(200); const r = pm.response.json(); pm.expect(r.status).to.eql('REJECTED'); pm.expect(r.decision).to.eql('REJECTED'); pm.expect(r.progress).to.eql('NOT_STARTED'); });"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "10d3 - Decisión incompatible retorna conflicto",
-      "request": {"method":"POST","header":[{"key":"X-User-Role","value":"ADMIN"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"decision\":\"APPROVED\"}","options":{"raw":{"language":"json"}}},"url":{"raw":"{{baseUrl}}/api/refunds/{{refundId}}/decision","host":["{{baseUrl}}"],"path":["api","refunds","{{refundId}}","decision"]}},
-      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('No cambia una decisión ya guardada', () => pm.response.to.have.status(409));"]}}]
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Role",
+            "value": "ADMIN"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"decision\":\"APPROVED\"}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/refunds/{{refundId}}/decision",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "refunds",
+            "{{refundId}}",
+            "decision"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('No cambia una decisión ya guardada', () => pm.response.to.have.status(409));"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "10e - Reintento idempotente de compra",
@@ -735,7 +975,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"paymentMethod\": \"CARD\",\n  \"paymentOutcome\": \"APPROVED\",\n  \"items\": [{\"sectorId\": \"{{sectorGeneralId}}\", \"quantity\": 1}]\n}",
+          "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"items\": [\n    {\n      \"sectorId\": \"{{inventorySectorGeneralId}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"payment\": {\n    \"method\": \"CARD\",\n    \"token\": \"tok_approved\"\n  }\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -743,13 +983,13 @@
           }
         },
         "url": {
-          "raw": "{{baseUrl}}/api/purchases",
+          "raw": "{{baseUrl}}/api/orders",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "purchases"
+            "orders"
           ]
         },
         "description": "Repite la misma solicitud con la misma clave y verifica que no duplica la orden ni el ticket."
@@ -763,7 +1003,7 @@
             "exec": [
               "pm.test('El reintento responde 200', () => pm.response.to.have.status(200));",
               "const json = pm.response.json();",
-              "pm.test('Devuelve la misma orden y un solo QR', () => { pm.expect(json.orderId).to.eql(pm.collectionVariables.get('purchaseOrderId')); pm.expect(json.items[0].tickets.tickets).to.have.length(1); });"
+              "pm.test('Devuelve la misma orden y un solo QR', () => { pm.expect(json.orderId).to.eql(pm.collectionVariables.get('purchaseOrderId')); pm.expect(json.items[0].tickets).to.have.length(1); });"
             ]
           }
         }
@@ -792,7 +1032,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"paymentMethod\": \"CARD\",\n  \"paymentOutcome\": \"REJECTED\",\n  \"items\": [{\"sectorId\": \"{{sectorGeneralId}}\", \"quantity\": 1}]\n}",
+          "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"items\": [\n    {\n      \"sectorId\": \"{{inventorySectorGeneralId}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"payment\": {\n    \"method\": \"CARD\",\n    \"token\": \"tok_rejected\"\n  }\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -800,13 +1040,13 @@
           }
         },
         "url": {
-          "raw": "{{baseUrl}}/api/purchases",
+          "raw": "{{baseUrl}}/api/orders",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "purchases"
+            "orders"
           ]
         },
         "description": "Reutiliza la clave de la compra aprobada con otro resultado de pago; Purchase debe devolver 409."
@@ -818,9 +1058,8 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('El payload distinto responde 409', function () { pm.response.to.have.status(409); });",
-              "const json = pm.response.json();",
-              "pm.test('La respuesta explica el conflicto idempotente', function () { pm.expect(json.detail).to.include('Idempotency key'); pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'); });"
+              "pm.test('El payload distinto responde 409', () => pm.response.to.have.status(409));",
+              "pm.test('Explica el conflicto idempotente', () => { pm.expect(pm.response.json().detail).to.include('Idempotency-Key'); pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'); });"
             ]
           }
         }
@@ -839,13 +1078,13 @@
         ],
         "body": {},
         "url": {
-          "raw": "{{baseUrl}}/api/purchases/{{purchaseOrderId}}",
+          "raw": "{{baseUrl}}/api/orders/{{purchaseOrderId}}",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "purchases",
+            "orders",
             "{{purchaseOrderId}}"
           ]
         },
@@ -860,7 +1099,7 @@
             "exec": [
               "pm.test('La consulta del titular responde 200', () => pm.response.to.have.status(200));",
               "const json = pm.response.json();",
-              "pm.test('La respuesta incluye el QR emitido', () => { pm.expect(json.status).to.eql('PAID'); pm.expect(json.items[0].tickets.tickets[0].qrPayload).to.be.a('string'); });"
+              "pm.test('La respuesta incluye el QR emitido', () => { pm.expect(json.status).to.eql('CONFIRMED'); pm.expect(json.items[0].tickets[0].qrPayload).to.be.a('string').and.not.empty; });"
             ]
           }
         }
@@ -889,7 +1128,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"paymentMethod\": \"CARD\",\n  \"paymentOutcome\": \"REJECTED\",\n  \"items\": [{\"sectorId\": \"{{sectorGeneralId}}\", \"quantity\": 1}]\n}",
+          "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"items\": [\n    {\n      \"sectorId\": \"{{inventorySectorGeneralId}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"payment\": {\n    \"method\": \"CARD\",\n    \"token\": \"tok_rejected\"\n  }\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -897,13 +1136,13 @@
           }
         },
         "url": {
-          "raw": "{{baseUrl}}/api/purchases",
+          "raw": "{{baseUrl}}/api/orders",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "purchases"
+            "orders"
           ]
         },
         "description": "Simula un pago rechazado; Inventory libera el cupo y no se emiten tickets."
@@ -915,9 +1154,8 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('El rechazo responde 201', () => pm.response.to.have.status(201));",
-              "const json = pm.response.json();",
-              "pm.test('La orden rechazada no emite tickets', () => { pm.expect(json.status).to.eql('REJECTED'); pm.expect(json.items[0].tickets).to.eql(null); });"
+              "pm.test('El pago rechazado responde 402', () => pm.response.to.have.status(402));",
+              "pm.test('Devuelve un problema de pago', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));"
             ]
           }
         }
@@ -983,7 +1221,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\"eventId\":\"{{eventId}}\",\"paymentMethod\":\"CARD\",\"paymentOutcome\":\"APPROVED\",\"items\":[{\"sectorId\":\"{{sectorGeneralId}}\",\"quantity\":3}]}",
+          "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"items\": [\n    {\n      \"sectorId\": \"{{inventorySectorGeneralId}}\",\n      \"quantity\": 5\n    }\n  ],\n  \"payment\": {\n    \"method\": \"CARD\",\n    \"token\": \"tok_approved\"\n  }\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -991,13 +1229,13 @@
           }
         },
         "url": {
-          "raw": "{{baseUrl}}/api/purchases",
+          "raw": "{{baseUrl}}/api/orders",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "purchases"
+            "orders"
           ]
         }
       },
@@ -1008,11 +1246,11 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('Purchase within limit returns 201', function () { pm.response.to.have.status(201); });",
+              "pm.test('La compra dentro del límite responde 201', () => pm.response.to.have.status(201));",
               "const json = pm.response.json();",
-              "pm.test('Purchase reaches four tickets', function () { pm.expect(json.status).to.eql('PAID'); pm.expect(json.items[0].tickets.tickets).to.have.length(3); });",
-              "pm.collectionVariables.set('approvedRefundTicketId', json.items[0].tickets.tickets[0].ticketId);",
-              "pm.collectionVariables.set('secondRefundTicketId', json.items[0].tickets.tickets[1].ticketId);"
+              "pm.test('La compra alcanza seis tickets', () => { pm.expect(json.status).to.eql('CONFIRMED'); pm.expect(json.items[0].tickets).to.have.length(5); });",
+              "pm.collectionVariables.set('approvedRefundTicketId', json.items[0].tickets[0].ticketId);",
+              "pm.collectionVariables.set('secondRefundTicketId', json.items[0].tickets[1].ticketId);"
             ]
           }
         }
@@ -1041,7 +1279,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\"eventId\":\"{{eventId}}\",\"paymentMethod\":\"CARD\",\"paymentOutcome\":\"APPROVED\",\"items\":[{\"sectorId\":\"{{sectorGeneralId}}\",\"quantity\":1}]}",
+          "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"items\": [\n    {\n      \"sectorId\": \"{{inventorySectorGeneralId}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"payment\": {\n    \"method\": \"CARD\",\n    \"token\": \"tok_approved\"\n  }\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -1049,13 +1287,13 @@
           }
         },
         "url": {
-          "raw": "{{baseUrl}}/api/purchases",
+          "raw": "{{baseUrl}}/api/orders",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "purchases"
+            "orders"
           ]
         }
       },
@@ -1066,9 +1304,8 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('Fifth ticket returns 409', function () { pm.response.to.have.status(409); });",
-              "const json = pm.response.json();",
-              "pm.test('Problem explains limit', function () { pm.expect(json.detail).to.include('limit'); });"
+              "pm.test('La séptima entrada responde 409', () => pm.response.to.have.status(409));",
+              "pm.test('El problema explica el límite', () => pm.expect(pm.response.json().detail).to.match(/L.mite de entradas/));"
             ]
           }
         }
@@ -1076,38 +1313,281 @@
     },
     {
       "name": "16a - Solicitar devolución de otro ticket",
-      "request": {"method":"POST","header":[{"key":"X-User-Id","value":"{{userId}}"}],"url":{"raw":"{{baseUrl}}/api/refunds/tickets/{{approvedRefundTicketId}}","host":["{{baseUrl}}"],"path":["api","refunds","tickets","{{approvedRefundTicketId}}"]}},
-      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Segunda solicitud queda pendiente', () => { pm.response.to.have.status(201); pm.expect(pm.response.json().status).to.eql('PENDING'); });","pm.collectionVariables.set('approvedRefundId', pm.response.json().id);"]}}]
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{userId}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/refunds/tickets/{{approvedRefundTicketId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "refunds",
+            "tickets",
+            "{{approvedRefundTicketId}}"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Segunda solicitud queda pendiente', () => { pm.response.to.have.status(201); pm.expect(pm.response.json().status).to.eql('PENDING'); });",
+              "pm.collectionVariables.set('approvedRefundId', pm.response.json().id);"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "16b - ADMIN aprueba y completa devolución",
-      "request": {"method":"POST","header":[{"key":"X-User-Role","value":"ADMIN"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"decision\":\"APPROVED\"}","options":{"raw":{"language":"json"}}},"url":{"raw":"{{baseUrl}}/api/refunds/{{approvedRefundId}}/decision","host":["{{baseUrl}}"],"path":["api","refunds","{{approvedRefundId}}","decision"]}},
-      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Aprobación completa', () => { pm.response.to.have.status(200); const r = pm.response.json(); pm.expect(r.status).to.eql('COMPLETED'); pm.expect(r.decision).to.eql('APPROVED'); pm.expect(r.progress).to.eql('COMPLETED'); });"]}}]
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Role",
+            "value": "ADMIN"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"decision\":\"APPROVED\"}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/refunds/{{approvedRefundId}}/decision",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "refunds",
+            "{{approvedRefundId}}",
+            "decision"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Aprobación completa', () => { pm.response.to.have.status(200); const r = pm.response.json(); pm.expect(r.status).to.eql('COMPLETED'); pm.expect(r.decision).to.eql('APPROVED'); pm.expect(r.progress).to.eql('COMPLETED'); });"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "16c - Reintento de aprobación es idempotente",
-      "request": {"method":"POST","header":[{"key":"X-User-Role","value":"ADMIN"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"decision\":\"APPROVED\"}","options":{"raw":{"language":"json"}}},"url":{"raw":"{{baseUrl}}/api/refunds/{{approvedRefundId}}/decision","host":["{{baseUrl}}"],"path":["api","refunds","{{approvedRefundId}}","decision"]}},
-      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Reintento devuelve mismo estado completo', () => { pm.response.to.have.status(200); const r = pm.response.json(); pm.expect(r.id).to.eql(pm.collectionVariables.get('approvedRefundId')); pm.expect(r.progress).to.eql('COMPLETED'); });"]}}]
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Role",
+            "value": "ADMIN"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"decision\":\"APPROVED\"}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/refunds/{{approvedRefundId}}/decision",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "refunds",
+            "{{approvedRefundId}}",
+            "decision"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Reintento devuelve mismo estado completo', () => { pm.response.to.have.status(200); const r = pm.response.json(); pm.expect(r.id).to.eql(pm.collectionVariables.get('approvedRefundId')); pm.expect(r.progress).to.eql('COMPLETED'); });"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "16d - Cupo devuelto queda disponible",
-      "request": {"method":"GET","header":[],"url":{"raw":"{{baseUrl}}/api/inventory/events/{{eventId}}/availability","host":["{{baseUrl}}"],"path":["api","inventory","events","{{eventId}}","availability"]}},
-      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Solo se libera una unidad vendida', () => { pm.response.to.have.status(200); const general = pm.response.json().sectors.find(s => s.type === 'GENERAL_ADMISSION'); pm.expect(general.sold).to.eql(3); pm.expect(general.available).to.eql(497); });"]}}]
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/inventory/events/{{eventId}}/availability",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "inventory",
+            "events",
+            "{{eventId}}",
+            "availability"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Solo se libera una unidad vendida', () => { pm.response.to.have.status(200); const general = pm.response.json().sectors.find(s => s.type === 'GENERAL_ADMISSION'); pm.expect(general.sold).to.eql(5); pm.expect(general.available).to.eql(495); });"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "16e - Solicitar segundo reintegro del mismo pago",
-      "request": {"method":"POST","header":[{"key":"X-User-Id","value":"{{userId}}"}],"url":{"raw":"{{baseUrl}}/api/refunds/tickets/{{secondRefundTicketId}}","host":["{{baseUrl}}"],"path":["api","refunds","tickets","{{secondRefundTicketId}}"]}},
-      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Segundo ticket tiene solicitud propia', () => { pm.response.to.have.status(201); pm.expect(pm.response.json().id).to.not.eql(pm.collectionVariables.get('approvedRefundId')); });","pm.collectionVariables.set('secondRefundId', pm.response.json().id);"]}}]
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{userId}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/refunds/tickets/{{secondRefundTicketId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "refunds",
+            "tickets",
+            "{{secondRefundTicketId}}"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Segundo ticket tiene solicitud propia', () => { pm.response.to.have.status(201); pm.expect(pm.response.json().id).to.not.eql(pm.collectionVariables.get('approvedRefundId')); });",
+              "pm.collectionVariables.set('secondRefundId', pm.response.json().id);"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "16f - ADMIN reintegra segundo ticket del mismo pago",
-      "request": {"method":"POST","header":[{"key":"X-User-Role","value":"ADMIN"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"decision\":\"APPROVED\"}","options":{"raw":{"language":"json"}}},"url":{"raw":"{{baseUrl}}/api/refunds/{{secondRefundId}}/decision","host":["{{baseUrl}}"],"path":["api","refunds","{{secondRefundId}}","decision"]}},
-      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Segundo reintegro parcial se completa', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().progress).to.eql('COMPLETED'); });"]}}]
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Role",
+            "value": "ADMIN"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"decision\":\"APPROVED\"}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/refunds/{{secondRefundId}}/decision",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "refunds",
+            "{{secondRefundId}}",
+            "decision"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Segundo reintegro parcial se completa', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().progress).to.eql('COMPLETED'); });"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "16g - Dos cupos reintegrados del mismo pago",
-      "request": {"method":"GET","header":[],"url":{"raw":"{{baseUrl}}/api/inventory/events/{{eventId}}/availability","host":["{{baseUrl}}"],"path":["api","inventory","events","{{eventId}}","availability"]}},
-      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Quedan dos unidades menos vendidas', () => { pm.response.to.have.status(200); const general = pm.response.json().sectors.find(s => s.type === 'GENERAL_ADMISSION'); pm.expect(general.sold).to.eql(2); pm.expect(general.available).to.eql(498); });"]}}]
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/inventory/events/{{eventId}}/availability",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "inventory",
+            "events",
+            "{{eventId}}",
+            "availability"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Quedan dos unidades menos vendidas', () => { pm.response.to.have.status(200); const general = pm.response.json().sectors.find(s => s.type === 'GENERAL_ADMISSION'); pm.expect(general.sold).to.eql(4); pm.expect(general.available).to.eql(496); });"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "17 - Suspender evento (ADMIN)",
@@ -1402,33 +1882,247 @@
     },
     {
       "name": "22 - Cliente no puede iniciar cancelacion",
-      "request": {"method":"POST","header":[{"key":"X-User-Id","value":"{{userId}}"},{"key":"X-User-Role","value":"CUSTOMER"}],"url":{"raw":"{{baseUrl}}/api/events/{{eventId}}/cancellation","host":["{{baseUrl}}"],"path":["api","events","{{eventId}}","cancellation"]}},
-      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Solo ADMIN inicia cancelacion', () => pm.response.to.have.status(403));"]}}]
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{userId}}"
+          },
+          {
+            "key": "X-User-Role",
+            "value": "CUSTOMER"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/events/{{eventId}}/cancellation",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "events",
+            "{{eventId}}",
+            "cancellation"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Solo ADMIN inicia cancelacion', () => pm.response.to.have.status(403));"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "23 - ADMIN inicia cancelacion y reintegros",
-      "request": {"method":"POST","header":[{"key":"X-User-Id","value":"{{adminUserId}}"},{"key":"X-User-Role","value":"ADMIN"}],"url":{"raw":"{{baseUrl}}/api/events/{{eventId}}/cancellation","host":["{{baseUrl}}"],"path":["api","events","{{eventId}}","cancellation"]},"description":"El evento tiene cuatro tickets pagados: dos ya reintegrados, uno con solicitud previamente rechazada y otro sin solicitud."},
-      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Inicio aceptado o completo', () => pm.expect([200, 202]).to.include(pm.response.code));","pm.test('El lote cubre los cuatro tickets pagados', () => { const r = pm.response.json(); pm.expect(r.eventId).to.eql(pm.variables.get('eventId')); pm.expect(r.totalTickets).to.eql(4); pm.expect(r.completedTickets + r.pendingTickets).to.eql(4); });"]}}]
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{adminUserId}}"
+          },
+          {
+            "key": "X-User-Role",
+            "value": "ADMIN"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/events/{{eventId}}/cancellation",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "events",
+            "{{eventId}}",
+            "cancellation"
+          ]
+        },
+        "description": "El evento tiene seis tickets pagados: dos ya reintegrados, uno con solicitud previamente rechazada y tres sin solicitud."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Inicio aceptado o completo', () => pm.expect([200, 202]).to.include(pm.response.code));",
+              "pm.test('El lote cubre los seis tickets pagados', () => { const r = pm.response.json(); pm.expect(r.eventId).to.eql(pm.variables.get('eventId')); pm.expect(r.totalTickets).to.eql(6); pm.expect(r.completedTickets + r.pendingTickets).to.eql(6); });"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "24 - ADMIN consulta progreso de cancelacion",
-      "request": {"method":"GET","header":[{"key":"X-User-Role","value":"ADMIN"}],"url":{"raw":"{{baseUrl}}/api/events/{{eventId}}/cancellation","host":["{{baseUrl}}"],"path":["api","events","{{eventId}}","cancellation"]}},
-      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Progreso consultable', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().totalTickets).to.eql(4); });"]}}]
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-User-Role",
+            "value": "ADMIN"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/events/{{eventId}}/cancellation",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "events",
+            "{{eventId}}",
+            "cancellation"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Progreso consultable', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().totalTickets).to.eql(6); });"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "25 - Reintento de cancelacion termina sin duplicar",
-      "request": {"method":"POST","header":[{"key":"X-User-Id","value":"{{adminUserId}}"},{"key":"X-User-Role","value":"ADMIN"}],"url":{"raw":"{{baseUrl}}/api/events/{{eventId}}/cancellation","host":["{{baseUrl}}"],"path":["api","events","{{eventId}}","cancellation"]}},
-      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Todos los tickets tienen reintegro efectivo', () => { pm.response.to.have.status(200); const r = pm.response.json(); pm.expect(r.status).to.eql('COMPLETED'); pm.expect(r.totalTickets).to.eql(4); pm.expect(r.completedTickets).to.eql(4); pm.expect(r.pendingTickets).to.eql(0); });"]}}]
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{adminUserId}}"
+          },
+          {
+            "key": "X-User-Role",
+            "value": "ADMIN"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/events/{{eventId}}/cancellation",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "events",
+            "{{eventId}}",
+            "cancellation"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Todos los tickets tienen reintegro efectivo', () => { pm.response.to.have.status(200); const r = pm.response.json(); pm.expect(r.status).to.eql('COMPLETED'); pm.expect(r.totalTickets).to.eql(6); pm.expect(r.completedTickets).to.eql(6); pm.expect(r.pendingTickets).to.eql(0); });"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "26 - Catalog confirma cancelacion idempotente",
-      "request": {"method":"POST","header":[{"key":"X-User-Id","value":"{{adminUserId}}"},{"key":"X-User-Role","value":"ADMIN"}],"url":{"raw":"{{baseUrl}}/api/management/events/{{eventId}}/cancel","host":["{{baseUrl}}"],"path":["api","management","events","{{eventId}}","cancel"]}},
-      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Catalog conserva CANCELLED', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().status).to.eql('CANCELLED'); });"]}}]
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{adminUserId}}"
+          },
+          {
+            "key": "X-User-Role",
+            "value": "ADMIN"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/management/events/{{eventId}}/cancel",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "management",
+            "events",
+            "{{eventId}}",
+            "cancel"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Catalog conserva CANCELLED', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().status).to.eql('CANCELLED'); });"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "27 - Evento cancelado rechaza nueva compra",
-      "request": {"method":"POST","header":[{"key":"X-User-Id","value":"{{adminUserId}}"},{"key":"Idempotency-Key","value":"cancelled-{{runId}}"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"eventId\":\"{{eventId}}\",\"paymentMethod\":\"CARD\",\"paymentOutcome\":\"APPROVED\",\"items\":[{\"sectorId\":\"{{sectorGeneralId}}\",\"quantity\":1}]}","options":{"raw":{"language":"json"}}},"url":{"raw":"{{baseUrl}}/api/purchases","host":["{{baseUrl}}"],"path":["api","purchases"]}},
-      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('No se vende tras cancelar', () => pm.expect([404, 409]).to.include(pm.response.code));"]}}]
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{adminUserId}}"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "cancelled-{{runId}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"items\": [\n    {\n      \"sectorId\": \"{{inventorySectorGeneralId}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"payment\": {\n    \"method\": \"CARD\",\n    \"token\": \"tok_approved\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "orders"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('No se vende tras cancelar', () => pm.expect([404, 409]).to.include(pm.response.code));"
+            ]
+          }
+        }
+      ]
     }
   ],
   "event": [

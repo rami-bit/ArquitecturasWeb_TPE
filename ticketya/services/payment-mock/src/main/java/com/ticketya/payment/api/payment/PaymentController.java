@@ -1,6 +1,8 @@
 package com.ticketya.payment.api.payment;
 
 import com.ticketya.payment.api.error.ApiProblemException;
+import com.ticketya.payment.api.RefundRequest;
+import com.ticketya.payment.api.RefundResponse;
 import com.ticketya.payment.application.Payment;
 import com.ticketya.payment.application.PaymentService;
 import jakarta.validation.Valid;
@@ -50,6 +52,13 @@ public class PaymentController {
     public ResponseEntity<PaymentResponse> refund(@PathVariable("paymentId") UUID paymentId) {
         Payment payment = paymentService.refund(paymentId);
         return ResponseEntity.ok(toResponse(payment));
+    }
+
+    @PostMapping(value = "/{paymentId}/refunds", consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<RefundResponse> refundPartial(@PathVariable("paymentId") UUID paymentId,
+            @RequestBody @Valid RefundRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(paymentService.refundPartial(paymentId, request));
     }
 
     private static PaymentResponse toResponse(Payment payment) {

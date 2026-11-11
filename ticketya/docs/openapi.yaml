@@ -817,6 +817,133 @@ paths:
                 internalServerError:
                   $ref: '#/components/examples/ProblemInternalServerError'
 
+  /api/events/{eventId}/cancellation:
+    post:
+      tags: [Refunds and cancellation]
+      summary: Cancelar un evento y procesar un lote de reintegros
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/UserId'
+        - in: header
+          name: X-User-Role
+          required: true
+          schema: { type: string, enum: [ADMIN] }
+      responses:
+        '200':
+          description: Todos los tickets procesados, o reintento idempotente
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CancellationProgress' }
+              example: { eventId: 'e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b', status: COMPLETED, totalTickets: 2, completedTickets: 2, pendingTickets: 0 }
+        '202':
+          description: Hay tickets pendientes; repetir POST para continuar
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CancellationProgress' }
+              example: { eventId: 'e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b', status: PROCESSING, totalTickets: 2, completedTickets: 1, pendingTickets: 1 }
+        '403': { description: Solo ADMIN puede cancelar }
+        '404': { description: Evento inexistente }
+        '409': { description: Estado del evento no cancelable }
+    get:
+      tags: [Refunds and cancellation]
+      summary: Consultar avance de reintegros de un evento cancelado
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - in: header
+          name: X-User-Role
+          required: true
+          schema: { type: string, enum: [ADMIN] }
+      responses:
+        '200':
+          description: Progreso actual
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CancellationProgress' }
+        '403': { description: Solo ADMIN puede consultar }
+        '404': { description: Cancelacion no iniciada }
+
+  /api/refunds/tickets/{ticketId}:
+    post:
+      tags: [Refunds and cancellation]
+      summary: Solicitar devolucion de un ticket propio antes de las 72 horas previas al evento
+      parameters:
+        - in: path
+          name: ticketId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '201':
+          description: Solicitud pendiente creada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RefundView' }
+        '200':
+          description: Reintento devuelve la misma solicitud
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RefundView' }
+        '404': { description: Ticket no pertenece al comprador o no existe }
+        '409': { description: Ventana cerrada o ticket no reembolsable }
+
+  /api/refunds/{refundId}:
+    get:
+      tags: [Refunds and cancellation]
+      summary: Consultar devolucion propia
+      parameters:
+        - in: path
+          name: refundId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: Estado, importe, decision y progreso
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RefundView' }
+        '404': { description: Solicitud inexistente o de otro comprador }
+
+  /api/refunds/{refundId}/decision:
+    post:
+      tags: [Refunds and cancellation]
+      summary: Aprobar o rechazar devolucion como ADMIN
+      parameters:
+        - in: path
+          name: refundId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-User-Role
+          required: true
+          schema: { type: string, enum: [ADMIN] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [APPROVED, REJECTED] }
+            examples:
+              approve: { value: { decision: APPROVED } }
+              reject: { value: { decision: REJECTED } }
+      responses:
+        '200':
+          description: Rechazada o reintegro completado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RefundView' }
+        '202':
+          description: Decision guardada; falta completar un paso interno reintentable
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RefundView' }
+        '403': { description: Solo ADMIN puede decidir }
+        '404': { description: Solicitud inexistente }
+        '409': { description: Decision incompatible con la ya guardada }
+
   /api/orders:
     post:
       tags:
@@ -1583,6 +1710,39 @@ components:
         example: trace-inventory-1
 
   schemas:
+    CancellationProgress:
+      type: object
+      required: [eventId, status, totalTickets, completedTickets, pendingTickets]
+      properties:
+        eventId: { type: string, format: uuid }
+        status: { type: string, enum: [PROCESSING, COMPLETED] }
+        totalTickets: { type: integer, minimum: 0 }
+        completedTickets: { type: integer, minimum: 0 }
+        pendingTickets: { type: integer, minimum: 0 }
+      example: { eventId: 'e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b', status: COMPLETED, totalTickets: 2, completedTickets: 2, pendingTickets: 0 }
+    RefundView:
+      type: object
+      required: [id, ticketId, orderId, eventId, amount, status, progress, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        ticketId: { type: string, format: uuid }
+        orderId: { type: string, format: uuid }
+        eventId: { type: string, format: uuid }
+        amount: { type: number, format: double, minimum: 0 }
+        status: { type: string, enum: [PENDING, APPROVED, REJECTED, COMPLETED] }
+        decision: { type: string, enum: [APPROVED, REJECTED], nullable: true }
+        progress: { type: string, enum: [NOT_STARTED, TICKET_REVOKED, PAYMENT_REFUNDED, COMPLETED] }
+        createdAt: { type: string, format: date-time }
+      example:
+        id: 'b766df75-bfc3-4d64-b502-ea24dca4ef34'
+        ticketId: '2a2383ad-0396-4465-820f-5d75710c0206'
+        orderId: 'c3d0a75d-ac17-4d33-a240-aa91c492cd89'
+        eventId: 'e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b'
+        amount: 12000.00
+        status: COMPLETED
+        decision: APPROVED
+        progress: COMPLETED
+        createdAt: '2026-11-10T12:00:00Z'
     AvailabilityResponse:
       type: object
       description: |

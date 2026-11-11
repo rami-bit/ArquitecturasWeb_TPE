@@ -3,6 +3,8 @@ package com.ticketya.purchase;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import com.ticketya.purchase.api.cancellation.EventCancellationController;
+import com.ticketya.purchase.api.refund.RefundDecisionController;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -54,18 +56,27 @@ class EventCancellationIntegrationTest {
         jdbc = new JdbcTemplate(dataSource);
         jdbc.update("DELETE FROM event_cancellations");
         jdbc.update("DELETE FROM refund_requests");
+        jdbc.update("DELETE FROM order_tickets");
+        jdbc.update("DELETE FROM order_item_units");
         jdbc.update("DELETE FROM purchase_order_items");
         jdbc.update("DELETE FROM purchase_orders");
         jdbc.update("""
                 INSERT INTO purchase_orders(id,customer_id,event_id,event_name,event_starts_at,venue_name,venue_city,
-                    payment_method,payment_outcome,status,idempotency_key,request_fingerprint,payment_id,reservation_id,total)
-                VALUES (?,?,?,'Show','2027-01-01T20:00:00Z','Hall','Buenos Aires','CARD','APPROVED','PAID',?,
+                    payment_method,payment_status,status,idempotency_key,request_fingerprint,payment_id,reservation_id,total_amount)
+                VALUES (?,?,?,'Show','2027-01-01T20:00:00Z','Hall','Buenos Aires','CARD','APPROVED','CONFIRMED',?,
                     'fingerprint',?,?,2500)
                 """, order, customer, event, UUID.randomUUID().toString(), payment, reservation);
         jdbc.update("""
-                INSERT INTO purchase_order_items(id,order_id,sector_id,sector_name,unit_price,quantity,ticket_payload)
-                VALUES (?,?,?,'General',2500,1,?)
-                """, item, order, UUID.randomUUID(), "{\"tickets\":[{\"ticketId\":\"" + ticket + "\",\"unitNumber\":1}]}");
+                INSERT INTO purchase_order_items(id,order_id,inventory_sector_id,source_sector_id,
+                    sector_name,sector_type,unit_price,quantity,subtotal)
+                VALUES (?,?,?,?,'General','GENERAL_ADMISSION',2500,1,2500)
+                """, item, order, UUID.randomUUID(), UUID.randomUUID());
+        jdbc.update("INSERT INTO order_item_units(id,order_item_id,unit_number) VALUES (?,?,1)",
+                UUID.randomUUID(), item);
+        jdbc.update("""
+                INSERT INTO order_tickets(id,order_id,order_item_id,ticket_id,unit_number,status)
+                VALUES (?,?,?,?,1,'ISSUED')
+                """, UUID.randomUUID(), order, item, ticket);
         jdbc.update("""
                 INSERT INTO refund_requests(id,ticket_id,order_id,order_item_id,customer_id,event_id,
                                             amount,status,decision)
@@ -103,6 +114,35 @@ class EventCancellationIntegrationTest {
         assertEquals(1, revokes.get());
         assertEquals(1, repayments.get());
         assertEquals(1, releases.get());
+    }
+
+    @Test void processesMoreThanOnePageAndReportsDurableProgress() throws Exception {
+        jdbc.update("UPDATE purchase_order_items SET quantity=21,subtotal=52500 WHERE id=?", item);
+        jdbc.update("UPDATE purchase_orders SET total_amount=52500 WHERE id=?", order);
+        for (int unit = 2; unit <= 21; unit++) {
+            jdbc.update("INSERT INTO order_item_units(id,order_item_id,unit_number) VALUES (?,?,?)",
+                    UUID.randomUUID(), item, unit);
+            jdbc.update("""
+                    INSERT INTO order_tickets(id,order_id,order_item_id,ticket_id,unit_number,status)
+                    VALUES (?,?,?,?,?,'ISSUED')
+                    """, UUID.randomUUID(), order, item, UUID.randomUUID(), unit);
+        }
+        String path = "/api/events/" + event + "/cancellation";
+        mvc.perform(post(path).header("X-User-Role", "ADMIN").header("X-User-Id", customer))
+                .andExpect(status().isAccepted()).andExpect(jsonPath("$.totalTickets").value(21))
+                .andExpect(jsonPath("$.completedTickets").value(20));
+        mvc.perform(get(path).header("X-User-Role", "ADMIN"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.pendingTickets").value(1));
+        mvc.perform(post(path).header("X-User-Role", "ADMIN").header("X-User-Id", customer))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.completedTickets").value(21));
+        assertEquals(21, jdbc.queryForObject("""
+                SELECT COUNT(DISTINCT ticket_id) FROM refund_requests
+                WHERE event_id=? AND progress='COMPLETED'
+                """, Integer.class, event));
+        assertEquals(21, repayments.get());
+        mvc.perform(post(path).header("X-User-Role", "ADMIN").header("X-User-Id", customer))
+                .andExpect(status().isOk());
+        assertEquals(21, repayments.get());
     }
 
     private void respond(HttpExchange exchange) throws IOException {
