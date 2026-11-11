@@ -58,8 +58,8 @@ public class RefundRequestController {
         UUID id = UUID.randomUUID();
         try {
             transactions.executeWithoutResult(status -> jdbc.update("""
-                    INSERT INTO refund_requests(id,ticket_id,order_id,order_item_id,customer_id,event_id,amount)
-                    VALUES (?,?,?,?,?,?,?) ON CONFLICT (ticket_id) DO NOTHING
+                    INSERT INTO refund_requests(id,ticket_id,order_id,order_item_id,customer_id,event_id,amount,source)
+                    VALUES (?,?,?,?,?,?,?,'CUSTOMER') ON CONFLICT (ticket_id,source) DO NOTHING
                     """, id,ticketId,ticket.orderId(),ticket.orderItemId(),customerId,ticket.eventId(),ticket.price()));
         } catch (Exception ex) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Refund request could not be created");
@@ -81,7 +81,7 @@ public class RefundRequestController {
     private RefundView byTicket(UUID ticketId) {
         List<RefundView> found = jdbc.query("""
                 SELECT id,ticket_id,order_id,event_id,amount,status,decision,progress,created_at
-                FROM refund_requests WHERE ticket_id=?
+                FROM refund_requests WHERE ticket_id=? AND source='CUSTOMER'
                 """, (rs,n) -> map(rs), ticketId);
         return found.isEmpty() ? null : found.get(0);
     }

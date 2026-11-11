@@ -75,12 +75,16 @@ class EventManagementIntegrationTest {
   mvc.perform(post("/api/management/events/"+event+"/resume").header("X-User-Id",UUID.randomUUID()).header("X-User-Role","ADMIN")).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("PUBLISHED"));
   mvc.perform(post("/api/management/events/"+event+"/resume").header("X-User-Id",UUID.randomUUID()).header("X-User-Role","ADMIN")).andExpect(status().isConflict());
   assertThat(jdbc.queryForObject("select venue_name from event_snapshots where event_id=?",String.class,event)).isEqualTo(snapshotName);
-  // --- cancelacion: dueno u ADMIN, PUBLISHED -> CANCELLED, notifica a Inventory ---
+  // --- cancelacion ADMIN de evento suspendido, idempotente y con snapshot intacto ---
+  mvc.perform(post("/api/management/events/"+event+"/suspend").header("X-User-Id",UUID.randomUUID()).header("X-User-Role","ADMIN")).andExpect(status().isOk());
   mvc.perform(post("/api/management/events/"+event+"/cancel").header("X-User-Id",UUID.randomUUID()).header("X-User-Role","ORGANIZER")).andExpect(status().isForbidden());
-  mvc.perform(post("/api/management/events/"+event+"/cancel").header("X-User-Id",organizer).header("X-User-Role","ORGANIZER")).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CANCELLED"));
+  mvc.perform(post("/api/management/events/"+event+"/cancel").header("X-User-Id",organizer).header("X-User-Role","ORGANIZER")).andExpect(status().isForbidden());
+  mvc.perform(post("/api/management/events/"+event+"/cancel").header("X-User-Id",UUID.randomUUID()).header("X-User-Role","CLIENT")).andExpect(status().isForbidden());
+  mvc.perform(post("/api/management/events/"+event+"/cancel").header("X-User-Id",UUID.randomUUID()).header("X-User-Role","ADMIN")).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CANCELLED"));
   assertThat(jdbc.queryForObject("select status from events where id=?",String.class,event)).isEqualTo("CANCELLED");
+  assertThat(jdbc.queryForObject("select venue_name from event_snapshots where event_id=?",String.class,event)).isEqualTo(snapshotName);
   verify(inventoryCancellation).notifyCancelled(event);
-  mvc.perform(post("/api/management/events/"+event+"/cancel").header("X-User-Id",organizer).header("X-User-Role","ORGANIZER")).andExpect(status().isOk());
+  mvc.perform(post("/api/management/events/"+event+"/cancel").header("X-User-Id",UUID.randomUUID()).header("X-User-Role","ADMIN")).andExpect(status().isOk());
   verify(inventoryCancellation,times(2)).notifyCancelled(event);
   mvc.perform(post("/api/management/events/"+event+"/resume").header("X-User-Id",UUID.randomUUID()).header("X-User-Role","ADMIN")).andExpect(status().isConflict());
   mvc.perform(post("/api/management/events/"+event+"/suspend").header("X-User-Id",UUID.randomUUID()).header("X-User-Role","ADMIN")).andExpect(status().isConflict());
@@ -122,7 +126,7 @@ class EventManagementIntegrationTest {
   mvc.perform(put("/api/management/events/"+event+"/offerings").header("X-User-Id",organizer).header("X-User-Role","ORGANIZER").contentType(MediaType.APPLICATION_JSON).content("{\"offerings\":[{\"sectorId\":\"%s\",\"price\":25.50}]}".formatted(sector.getId()))).andExpect(status().isOk());
   mvc.perform(post("/api/management/events/"+event+"/publish").header("X-User-Id",organizer).header("X-User-Role","ORGANIZER")).andExpect(status().isOk());
   doThrow(new ApiProblemException(HttpStatus.SERVICE_UNAVAILABLE,"Inventory unavailable","retry")).when(inventoryCancellation).notifyCancelled(event);
-  mvc.perform(post("/api/management/events/"+event+"/cancel").header("X-User-Id",organizer).header("X-User-Role","ORGANIZER")).andExpect(status().isServiceUnavailable());
+  mvc.perform(post("/api/management/events/"+event+"/cancel").header("X-User-Id",UUID.randomUUID()).header("X-User-Role","ADMIN")).andExpect(status().isServiceUnavailable());
   assertThat(jdbc.queryForObject("select status from events where id=?",String.class,event)).isEqualTo("PUBLISHED");
  }
  private UUID createDraft(UUID venueId,String startsAt,String participants) throws Exception {

@@ -52,6 +52,7 @@ Purchase SHALL revocar el ticket, solicitar un reintegro idempotente por su impo
 
 ### Requirement: Cancelar ventas de un evento
 Purchase SHALL procesar cada ticket pagado del evento cancelado con reintegro idempotente y SHALL exponer el progreso del lote para reintentos.
+Una solicitud individual rechazada SHALL conservar su decisión y no impedir una operación de reintegro por cancelación del mismo ticket.
 
 #### Scenario: Cancelación con ventas
 - **WHEN** ADMIN cancela un evento con tickets pagados
@@ -60,3 +61,8 @@ Purchase SHALL procesar cada ticket pagado del evento cancelado con reintegro id
 #### Scenario: Repetir cancelación
 - **WHEN** se repite el procesamiento de un evento cancelado
 - **THEN** se conserva una sola operación de reintegro por ticket y se completa lo pendiente
+
+#### Scenario: Solicitud individual previamente rechazada
+- **GIVEN** un ticket pagado con una solicitud individual rechazada
+- **WHEN** ADMIN cancela el evento
+- **THEN** se conserva el rechazo individual y se inicia una única operación de reintegro por cancelación para ese ticket

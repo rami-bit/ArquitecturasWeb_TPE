@@ -88,6 +88,15 @@ CREATE INDEX IF NOT EXISTS idx_inventory_items_reservation
 
 ALTER TABLE event_inventories ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ;
 
+CREATE TABLE IF NOT EXISTS event_cancellations (
+    event_id UUID PRIMARY KEY,
+    cancelled_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO event_cancellations (event_id, cancelled_at)
+SELECT event_id, cancelled_at FROM event_inventories WHERE cancelled_at IS NOT NULL
+ON CONFLICT (event_id) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS sold_unit_releases (
     reservation_item_id UUID NOT NULL REFERENCES reservation_items (id),
     unit_number INTEGER NOT NULL CHECK (unit_number > 0),

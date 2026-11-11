@@ -171,7 +171,7 @@ public class PurchaseController {
         return body;
     }
     private JsonNode call(String url,String trace) { return call(url,trace,null); }
-    private JsonNode callGet(String url,String trace) { try{return read(http.get().uri(url).header("X-Correlation-Id",trace).retrieve().body(String.class));}catch(Exception ex){throw new IllegalStateException("Downstream request failed: "+url,ex);} }
+    private JsonNode callGet(String url,String trace) { try{return read(http.get().uri(url).header("X-Correlation-Id",trace).retrieve().body(String.class));}catch(org.springframework.web.client.HttpClientErrorException.NotFound ex){throw problem(HttpStatus.NOT_FOUND,"Event or availability not found");}catch(Exception ex){throw new IllegalStateException("Downstream request failed: "+url,ex);} }
     private JsonNode call(String url,String trace,Object body) {
         try { var req=http.post().uri(url).header("X-Correlation-Id",trace); if(body==null) return mapper.readTree(req.retrieve().body(String.class)); return mapper.readTree(req.body(body).retrieve().body(String.class)); }
         catch(Exception ex) { throw new IllegalStateException("Downstream request failed: "+url,ex); }

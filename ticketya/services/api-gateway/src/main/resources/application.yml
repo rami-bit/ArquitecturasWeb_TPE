@@ -21,6 +21,10 @@ spring:
           uri: ${PURCHASE_SERVICE_URL:http://localhost:8084}
           predicates:
             - Path=/api/refunds/**
+        - id: event-cancellation-service
+          uri: ${PURCHASE_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/events/*/cancellation
         - id: catalog-service
           uri: ${CATALOG_SERVICE_URL:http://localhost:8081}
           predicates:

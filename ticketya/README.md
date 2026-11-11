@@ -31,6 +31,23 @@ Content-Type: application/json
 Para rechazar, usa `{"decision":"REJECTED"}`. El rechazo conserva el ticket y su lugar vendido. Al aprobar, Purchase revoca el ticket, solicita el reintegro idempotente a Payment Mock y libera la unidad vendida en Inventory. Un `200` indica proceso completo; `202` indica que una dependencia falló y se puede repetir la misma decisión para continuar. Una decisión opuesta responde `409`.
 
 
+## Cancelar un evento con reintegros (US-F7.3)
+
+ADMIN inicia la cancelación por el Gateway. Purchase pide a Catalog que marque el evento `CANCELLED` y bloquee nuevas reservas en Inventory; luego procesa los tickets pagados por lotes. Cada ticket se revoca, se reintegra por su importe y libera su unidad vendida. La respuesta `202` indica que queda trabajo; repetir el mismo POST continúa el lote sin duplicar reintegros. `200` y `status: COMPLETED` indican que terminó. La consulta GET muestra el progreso sin procesar otro lote. El rol y la identidad son encabezados simulados para E1.
+
+```http
+POST http://localhost:8080/api/events/{eventId}/cancellation
+X-User-Id: a1b2c3d4-1111-2222-3333-444455556666
+X-User-Role: ADMIN
+```
+
+```http
+GET http://localhost:8080/api/events/{eventId}/cancellation
+X-User-Role: ADMIN
+```
+
+Una respuesta de ejemplo es `{"eventId":"...","status":"PROCESSING","totalTickets":4,"completedTickets":2,"pendingTickets":2}`. Catalog también expone `POST /api/management/events/{eventId}/cancel` para cambiar el estado del evento; esa ruta por sí sola no procesa ventas existentes. Las notificaciones a compradores corresponden a US-F11.
+
 ## Compra local (Purchase + Payment Mock)
 
 El flujo de compra se expone en `POST /api/purchases` y `GET /api/purchases/{orderId}` a través del Gateway. Cada compra requiere `X-User-Id` y `Idempotency-Key`; el body incluye `eventId`, `items`, `paymentMethod` y el control local opcional `paymentOutcome` (`APPROVED` por defecto o `REJECTED`). El límite por cliente/evento es cuatro entradas por defecto y se cambia con `PURCHASE_TICKET_LIMIT`.

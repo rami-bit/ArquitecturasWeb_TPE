@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS purchase_order_items (
 ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS reservation_id UUID;
 CREATE TABLE IF NOT EXISTS refund_requests (
   id UUID PRIMARY KEY,
-  ticket_id UUID NOT NULL UNIQUE,
+  ticket_id UUID NOT NULL,
   order_id UUID NOT NULL REFERENCES purchase_orders(id),
   order_item_id UUID NOT NULL REFERENCES purchase_order_items(id),
   customer_id UUID NOT NULL,
@@ -40,7 +40,16 @@ CREATE TABLE IF NOT EXISTS refund_requests (
   status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
   decision VARCHAR(16),
   progress VARCHAR(32) NOT NULL DEFAULT 'NOT_STARTED',
+  source VARCHAR(16) NOT NULL DEFAULT 'CUSTOMER',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT refund_amount_positive CHECK (amount > 0)
 );
+ALTER TABLE refund_requests ADD COLUMN IF NOT EXISTS source VARCHAR(16) NOT NULL DEFAULT 'CUSTOMER';
+ALTER TABLE refund_requests DROP CONSTRAINT IF EXISTS refund_requests_ticket_id_key;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_refunds_ticket_source ON refund_requests(ticket_id,source);
 CREATE INDEX IF NOT EXISTS ix_refunds_customer ON refund_requests(customer_id,created_at);
+CREATE TABLE IF NOT EXISTS event_cancellations (
+  event_id UUID PRIMARY KEY,
+  last_ticket_id UUID,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

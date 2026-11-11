@@ -10,16 +10,16 @@
 
 - [x] 2.1 Exponer decisión ADMIN idempotente y rechazo sin efectos colaterales; verificar roles y decisión incompatible en pruebas.
 - [ ] 2.2 Implementar revocación idempotente en Ticket y documentar su contrato; verificar estado y reintento en PostgreSQL real.
-- [ ] 2.3 Implementar liberación de unidad vendida en Inventory; verificar asiento, cupo general, reintento y competencia con pruebas PostgreSQL.
+- [x] 2.3 Implementar liberación de unidad vendida en Inventory; verificar asiento, cupo general, reintento y competencia con pruebas PostgreSQL.
 - [ ] 2.3a Extender Payment Mock para varios reintegros parciales idempotentes por cobro, con límite por importe y pruebas de persistencia.
 - [ ] 2.4 Orquestar revocación, reintegro y liberación en Purchase con progreso durable; verificar fallo en cada dependencia y recuperación sin dobles efectos.
 - [x] 2.5 Documentar flujo aprobado/rechazado en OpenAPI/Postman; verificarlo por Gateway en Compose.
 
 ## 3. Cancelación masiva
 
-- [ ] 3.1 Asegurar cancelación solo ADMIN en Catalog y bloqueo de nuevas reservas en Inventory; verificar idempotencia y carreras con pruebas.
-- [ ] 3.2 Crear procesamiento reintentable de todos los tickets pagados del evento en Purchase; verificar que cada ticket reciba un único reintegro y que se exponga progreso.
-- [ ] 3.3 Publicar ruta administrativa en Gateway y documentar contrato y ejemplo en OpenAPI/Postman; verificar evento con ventas por Compose.
+- [x] 3.1 Asegurar cancelación solo ADMIN en Catalog y bloqueo de nuevas reservas en Inventory; verificar idempotencia y carreras con pruebas.
+- [ ] 3.2 Crear procesamiento reintentable de todos los tickets pagados del evento en Purchase; verificar que cada ticket reciba un único reintegro y que se exponga progreso, incluso si una solicitud individual previa fue rechazada.
+- [x] 3.3 Publicar ruta administrativa en Gateway y documentar contrato y ejemplo en OpenAPI/Postman; verificar evento con ventas por Compose.
 
 ## 4. Integración
 

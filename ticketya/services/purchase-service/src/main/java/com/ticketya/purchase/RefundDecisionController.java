@@ -80,13 +80,14 @@ public class RefundDecisionController {
         if ("REJECTED".equals(decision)) return ResponseEntity.ok(view(refundId));
         String trace = correlationId == null || correlationId.isBlank()
                 ? UUID.randomUUID().toString() : correlationId;
-        boolean completed = resume(refundId, trace);
+        boolean completed = resumeApproved(refundId, trace);
         return ResponseEntity.status(completed ? HttpStatus.OK : HttpStatus.ACCEPTED).body(view(refundId));
     }
 
-    private boolean resume(UUID refundId, String trace) {
+    boolean resumeApproved(UUID refundId, String trace) {
         try {
             RefundRow refund = row(refundId);
+            if (!"APPROVED".equals(refund.decision())) return false;
             if ("COMPLETED".equals(refund.progress())) return true;
             if ("NOT_STARTED".equals(refund.progress())) {
                 JsonNode revoked = post(ticketUrl + "/internal/tickets/" + refund.ticketId() + "/revoke", trace, null);

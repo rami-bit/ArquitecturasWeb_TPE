@@ -18,7 +18,7 @@ Basado en `TPE-ArqWeb-TicketYa-2026.pdf`, secciones “Modalidad de entrega”, 
 - [x] [x] Permitir al organizador crear eventos en borrador, configurar sectores y precios por sector, y publicar eventos.
 - [ ] [ ] Permitir a administradores suspender o cancelar eventos.
   - [x] [x] Suspender eventos publicados con rol ADMIN.
-  - [ ] [x] Cancelar eventos desde Catalog y bloquear nuevas reservas en Inventory.
+  - [ ] [x] Cancelar eventos desde Catalog con rol ADMIN y bloquear nuevas reservas en Inventory.
 - [x] [ ] Permitir al cliente seleccionar evento, sector y, cuando corresponda, asientos específicos.
   - [x] [x] Consultar eventos publicados y su detalle, incluidos sectores, precios y asientos.
   - [x] [x] Inventory acepta el sector/asientos seleccionados en la solicitud interna de reserva.
@@ -42,7 +42,7 @@ Basado en `TPE-ArqWeb-TicketYa-2026.pdf`, secciones “Modalidad de entrega”, 
   - [ ] [x] Implementar aprobacion de devolucion de un ticket vendido, liberar su lugar y solicitar el reintegro.
 - [ ] [ ] Al cancelar un evento, pasar las entradas vendidas a reintegro y notificar a sus compradores.
   - [ ] [x] Catalog permite cancelar un evento y notifica a Inventory para bloquear nuevas reservas.
-  - [ ] [ ] Invalidar los tickets vendidos, iniciar reintegros y notificar a los compradores.
+  - [ ] [x] Revocar los tickets vendidos e iniciar reintegros de forma reintentable; la notificación a compradores queda en US-F11 (E2).
 - [x] [x] Permitir buscar eventos por tipo, organizador, participante, ciudad y rango de fechas, ordenando por fecha, precio o relevancia.
 - [ ] [x] Proveer una pasarela de pagos simulada (mock) para el flujo de compra.
   - [ ] [x] Payment Mock implementa cobros aprobados/rechazados, persistencia e idempotencia; Purchase integra el contrato.
@@ -68,7 +68,7 @@ Este roadmap convierte F1-F12 del PDF en historias priorizadas. Los IDs ayudan a
 | **P0 / pruebas** | **US-F4.4 - Emitir y consultar entradas compradas (implementado; E2E verificado).** Purchase invoca Ticket tras aprobacion y confirmacion; QR emitido y consulta autorizada del titular comprobados por Gateway. Falta automatizar reintento de emision y recuperación ante fallos. | Depende de US-F4.3 y del contrato interno existente de Ticket Service. |
 | **P1** | **US-F7.1 - Solicitar devolucion (implementado; E2E basico verificado).** El titular puede solicitarla hasta 72 horas antes; se guarda estado y se impiden solicitudes duplicadas. Postman verifico solicitud, consulta, reintento y 404 para otro usuario por Gateway (25 requests, 51 aserciones, 0 fallos); falta ejecutar la prueba Testcontainers del borde de 72 horas. | Depende de ordenes/tickets de US-F4.4 y fecha del evento de Catalog. |
 | **P1 / pruebas** | **US-F7.2 - Resolver devolucion (implementado; E2E basico verificado).** ADMIN aprueba o rechaza; la aprobacion revoca el ticket, reintegra su importe y libera la unidad vendida con progreso reintentable. Postman paso 35 requests y 61 aserciones, incluidos dos reintegros parciales de un mismo pago. Falta ejecutar Testcontainers para fallos parciales y persistencia. | Depende de US-F7.1, Ticket revocable, Payment Mock con reintegro parcial e Inventory con liberacion de unidad vendida. |
-| **P1** | **US-F7.3 - Cancelar evento con reintegros.** ADMIN inicia el proceso; Catalog marca `CANCELLED`; Purchase revoca tickets, procesa reintegros y cierra inventario de forma idempotente. | Depende de US-F4.3/4.4 y de las primitivas de US-F7.2. Alinear con el blueprint: Purchase orquesta; Catalog no orquesta reintegros. La notificacion a compradores se completa en US-F11 (E2). |
+| **P1 / pruebas** | **US-F7.3 - Cancelar evento con reintegros (implementado; E2E verificado).** ADMIN inicia el proceso; Catalog marca `CANCELLED`; Purchase revoca tickets, procesa reintegros y cierra inventario de forma idempotente. Postman pasó 41 requests y 68 aserciones, incluidos cuatro tickets vendidos, rechazo previo, reintento y bloqueo de compra posterior. | Depende de US-F4.3/4.4 y de las primitivas de US-F7.2. Purchase orquesta; Catalog no orquesta reintegros. La notificacion a compradores se completa en US-F11 (E2). |
 | **P1 / cierre E1** | **US-E1-05 - Integrar y entregar el core.** Gateway publica las rutas necesarias; OpenAPI/Postman cubren los flujos; README/datos de prueba permiten ejecutar; pruebas integradas verifican compra, rechazo, vencimiento, idempotencia y competencia. | Depende de US-F4.1-F4.4 y US-F7.1-F7.3. Se pueden preparar contratos y ejemplos en paralelo, pero cerrar la verificacion E2E al final. |
 | **P2 / E2** | **US-F6 - Fila virtual.** Para evento de alta demanda, informar posicion y habilitar tandas ordenadas; el token de admision no garantiza disponibilidad de inventario. | Se puede especificar en paralelo con P0; la integracion depende del endpoint de compra de US-F4.3 e Inventory. |
 | **P2 / E2** | **US-F8 - Validar acceso QR.** Personal valida existencia, evento correcto y no usado; el primer escaneo marca uso atomico y los siguientes se rechazan. | Depende del contrato de tickets emitidos de US-F4.4. Puede implementarse en paralelo con devoluciones cuando se acuerden los estados de revocacion/uso. |

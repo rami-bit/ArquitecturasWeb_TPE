@@ -43,10 +43,11 @@ public class ReservationService {
 
     @Transactional(rollbackFor = Exception.class)
     public ReservationResult create(ReservationRequest request) {
-        InventoryStore.InventoryRow inventory = initialization.ensure(request.eventId());
+        store.lockEvent(request.eventId());
         if (store.isCancelled(request.eventId())) {
             throw ApiProblemException.conflict("The event was cancelled and no longer accepts reservations");
         }
+        InventoryStore.InventoryRow inventory = initialization.ensure(request.eventId());
         expiry.expireDueForEvent(inventory.id());
 
         String fingerprint = fingerprint(request);
@@ -116,6 +117,8 @@ public class ReservationService {
     public ReservationResponse confirm(UUID reservationId) {
         InventoryStore.ReservationRow reservation = store.findReservationById(reservationId)
                 .orElseThrow(() -> ApiProblemException.notFound("Reservation not found"));
+
+        store.lockEvent(reservation.eventId());
 
         if ("CONFIRMED".equals(reservation.status())) {
             return toResponse(reservation);

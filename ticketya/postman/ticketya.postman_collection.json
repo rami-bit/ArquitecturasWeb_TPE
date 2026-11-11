@@ -1387,6 +1387,36 @@
           "code": 200
         }
       ]
+    },
+    {
+      "name": "22 - Cliente no puede iniciar cancelacion",
+      "request": {"method":"POST","header":[{"key":"X-User-Id","value":"{{userId}}"},{"key":"X-User-Role","value":"CUSTOMER"}],"url":{"raw":"{{baseUrl}}/api/events/{{eventId}}/cancellation","host":["{{baseUrl}}"],"path":["api","events","{{eventId}}","cancellation"]}},
+      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Solo ADMIN inicia cancelacion', () => pm.response.to.have.status(403));"]}}]
+    },
+    {
+      "name": "23 - ADMIN inicia cancelacion y reintegros",
+      "request": {"method":"POST","header":[{"key":"X-User-Id","value":"{{adminUserId}}"},{"key":"X-User-Role","value":"ADMIN"}],"url":{"raw":"{{baseUrl}}/api/events/{{eventId}}/cancellation","host":["{{baseUrl}}"],"path":["api","events","{{eventId}}","cancellation"]},"description":"El evento tiene cuatro tickets pagados: dos ya reintegrados, uno con solicitud previamente rechazada y otro sin solicitud."},
+      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Inicio aceptado o completo', () => pm.expect([200, 202]).to.include(pm.response.code));","pm.test('El lote cubre los cuatro tickets pagados', () => { const r = pm.response.json(); pm.expect(r.eventId).to.eql(pm.variables.get('eventId')); pm.expect(r.totalTickets).to.eql(4); pm.expect(r.completedTickets + r.pendingTickets).to.eql(4); });"]}}]
+    },
+    {
+      "name": "24 - ADMIN consulta progreso de cancelacion",
+      "request": {"method":"GET","header":[{"key":"X-User-Role","value":"ADMIN"}],"url":{"raw":"{{baseUrl}}/api/events/{{eventId}}/cancellation","host":["{{baseUrl}}"],"path":["api","events","{{eventId}}","cancellation"]}},
+      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Progreso consultable', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().totalTickets).to.eql(4); });"]}}]
+    },
+    {
+      "name": "25 - Reintento de cancelacion termina sin duplicar",
+      "request": {"method":"POST","header":[{"key":"X-User-Id","value":"{{adminUserId}}"},{"key":"X-User-Role","value":"ADMIN"}],"url":{"raw":"{{baseUrl}}/api/events/{{eventId}}/cancellation","host":["{{baseUrl}}"],"path":["api","events","{{eventId}}","cancellation"]}},
+      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Todos los tickets tienen reintegro efectivo', () => { pm.response.to.have.status(200); const r = pm.response.json(); pm.expect(r.status).to.eql('COMPLETED'); pm.expect(r.totalTickets).to.eql(4); pm.expect(r.completedTickets).to.eql(4); pm.expect(r.pendingTickets).to.eql(0); });"]}}]
+    },
+    {
+      "name": "26 - Catalog confirma cancelacion idempotente",
+      "request": {"method":"POST","header":[{"key":"X-User-Id","value":"{{adminUserId}}"},{"key":"X-User-Role","value":"ADMIN"}],"url":{"raw":"{{baseUrl}}/api/management/events/{{eventId}}/cancel","host":["{{baseUrl}}"],"path":["api","management","events","{{eventId}}","cancel"]}},
+      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Catalog conserva CANCELLED', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().status).to.eql('CANCELLED'); });"]}}]
+    },
+    {
+      "name": "27 - Evento cancelado rechaza nueva compra",
+      "request": {"method":"POST","header":[{"key":"X-User-Id","value":"{{adminUserId}}"},{"key":"Idempotency-Key","value":"cancelled-{{runId}}"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"eventId\":\"{{eventId}}\",\"paymentMethod\":\"CARD\",\"paymentOutcome\":\"APPROVED\",\"items\":[{\"sectorId\":\"{{sectorGeneralId}}\",\"quantity\":1}]}","options":{"raw":{"language":"json"}}},"url":{"raw":"{{baseUrl}}/api/purchases","host":["{{baseUrl}}"],"path":["api","purchases"]}},
+      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('No se vende tras cancelar', () => pm.expect([404, 409]).to.include(pm.response.code));"]}}]
     }
   ],
   "event": [

@@ -165,6 +165,7 @@ public class InventoryStore {
     }
 
     public int cancelInventory(UUID eventId) {
+        jdbc.update("INSERT INTO event_cancellations (event_id) VALUES (?) ON CONFLICT (event_id) DO NOTHING", eventId);
         return jdbc.update(
                 "UPDATE event_inventories SET cancelled_at = COALESCE(cancelled_at, CURRENT_TIMESTAMP) "
                         + "WHERE event_id = ?",
@@ -173,9 +174,15 @@ public class InventoryStore {
 
     public boolean isCancelled(UUID eventId) {
         Integer count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM event_inventories WHERE event_id = ? AND cancelled_at IS NOT NULL",
+                "SELECT COUNT(*) FROM event_cancellations WHERE event_id = ?",
                 Integer.class, eventId);
         return count != null && count > 0;
+    }
+
+    /** Serializes cancellation with reservation creation and confirmation, even before inventory exists. */
+    public void lockEvent(UUID eventId) {
+        long lockKey = eventId.getMostSignificantBits() ^ eventId.getLeastSignificantBits();
+        jdbc.query("SELECT pg_advisory_xact_lock(?)", rs -> null, lockKey);
     }
 
     // ---------------------------------------------------------------- reservations
@@ -212,10 +219,11 @@ public class InventoryStore {
 
     public List<ReservationItemRow> findReservationItems(UUID reservationId) {
         return jdbc.query("""
-                SELECT sector_id, inventory_item_id, quantity
-                FROM reservation_items
-                WHERE reservation_id = ?
-                ORDER BY sector_id ASC, inventory_item_id ASC NULLS LAST
+                SELECT s.source_sector_id AS sector_id, ri.inventory_item_id, ri.quantity
+                FROM reservation_items ri
+                JOIN inventory_sectors s ON s.id = ri.sector_id
+                WHERE ri.reservation_id = ?
+                ORDER BY s.source_sector_id ASC, ri.inventory_item_id ASC NULLS LAST
                 """, (rs, row) -> new ReservationItemRow(
                 rs.getObject("sector_id", UUID.class),
                 rs.getObject("inventory_item_id", UUID.class),
