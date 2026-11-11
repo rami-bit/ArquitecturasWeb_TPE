@@ -1,4 +1,31 @@
-# Verificación integrada - Establish Inventory and Reservations
+# Verificación de Entrega 1
+
+## Verificación de US-E1-05
+
+Fecha: 2026-11-11. Se reutilizó el stack Compose existente `ticketya_verification`; no se creó uno nuevo en esta corrida. El usuario interrumpió la repetición del reactor Maven porque los cambios de este turno se limitaron a documentación y Postman.
+
+| Comprobación | Resultado de este turno |
+|---|---|
+| Compose existente `ticketya_verification` | 11 servicios saludables |
+| Colección Postman por Gateway | 42 requests, 72 aserciones, 0 fallos; incluye compra aprobada de asiento numerado con QR |
+
+La última verificación completa de Maven sigue siendo la del cierre F7: `mvn -q verify` con Java 21, Testcontainers y PostgreSQL real ejecutó 221 pruebas actuales, sin fallos, errores ni omisiones. **No se repitió en este turno** y no debe presentarse como validación posterior a los cambios de US-E1-05.
+
+El flujo E1 crea un lugar y un evento, publica ofertas, consulta disponibilidad y compra entradas generales y un asiento numerado con pago aprobado y tickets con QR. La colección también conserva los recorridos existentes de pago rechazado, idempotencia, devoluciones y cancelación con reintegros. Esos recorridos son la base de regresión: deben seguir pasando aunque el trabajo nuevo de US-E1-05 se cubra sólo en el camino feliz.
+
+Para verificar en un entorno local sin modificar los volúmenes de otros proyectos, ejecutar desde la raíz:
+
+```bash
+mvn verify
+docker compose -p ticketya_e1_verification up --build -d --wait
+docker compose -p ticketya_e1_verification ps
+npx --yes newman run postman/ticketya.postman_collection.json --env-var baseUrl=http://localhost:8080
+docker compose -p ticketya_e1_verification down
+```
+
+Comprobar los XML recientes de Surefire para confirmar que las clases Testcontainers ejecutaron pruebas y no quedaron omitidas. El informe histórico de Inventory que sigue registra una corrida anterior; sus 116 pruebas y cinco servicios no representan el stack actual.
+
+## Informe histórico: Establish Inventory and Reservations
 
 Fecha: 2026-11-07  
 Cambio: `establish-inventory-and-reservations` (E1-02, PDF-F4, PDF-F5)  

@@ -16,6 +16,8 @@
 - [x] 3.2 Integrate idempotent Ticket issuance after successful payment and inventory confirmation; return tickets from order lookup.
 - [ ] 3.3 Cover approval, rejection, duplicate request, limit/concurrency, expiry, downstream failure, and ticket retry behavior with tests.
 
+  Cobertura diferida acordada para US-E1-05: vencimiento de compra, concurrencia de la compra completa, fallos downstream y reintento de emisión QR. Las pruebas existentes de aprobación, rechazo, idempotencia y límite siguen siendo parte de la regresión; esta tarea permanece abierta hasta cubrir todos sus escenarios.
+
 ## 4. Gateway and local integration
 - [x] 4.1 Route public purchase operations through Gateway and preserve identity, correlation, and problem responses.
 - [x] 4.2 Add Purchase and Payment databases/services to root Compose with healthchecks and internal-only ports.

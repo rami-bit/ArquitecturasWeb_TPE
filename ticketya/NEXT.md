@@ -60,3 +60,11 @@ Desde PowerShell, con Docker Desktop activo: `docker run --rm -v /var/run/docker
 - El usuario confirmó la revisión del cambio `fulfill-refunds-and-cancellations` y autorizó su archivo.
 - Se sincronizaron sus cuatro deltas con las especificaciones principales: `api-gateway`, `event-management`, `inventory-and-reservations` y la nueva capacidad `ticket-refunds`. Los ocho requisitos delta quedaron incorporados sin sobrescribir los requisitos previos.
 - El cambio se movió a `openspec/changes/archive/2026-11-11-fulfill-refunds-and-cancellations` con 13/13 tareas y todos sus artefactos completos. El siguiente ítem del roadmap sigue siendo US-E1-05; no se inició.
+
+## US-E1-05: integración didáctica de Entrega 1 — 2026-11-11
+
+- Se agregó a Postman la compra aprobada de un asiento numerado con IDs de Inventory, comprador y clave idempotente propios. La respuesta confirmó el asiento y devolvió ticket emitido con QR. Se conservó la compra de admisión general y se ajustó la cancelación para comprobar los siete tickets vendidos del evento.
+- La colección actualizada pasó por Gateway sobre el stack existente `ticketya_verification`: 42 requests, 72 aserciones, 0 fallos. Los 11 servicios del proyecto estaban healthy. El JSON de la colección y `git diff --check` pasaron.
+- No hubo cambios de código, esquema, POM, Dockerfile, Compose ni contrato OpenAPI. La última verificación completa Maven anterior a este cambio fue de 221 pruebas (0 fallos, 0 errores, 0 omisiones). Se inició una repetición, pero se interrumpió a pedido del usuario para no repetir toda la verificación sin cambios relevantes; no cuenta como nueva verificación del reactor.
+- README y `docs/verification.md` documentan los comandos locales y la evidencia. El nuevo change OpenSpec `complete-e1-core-delivery` registra el alcance sin duplicar specs funcionales: 7/7 tareas completas, validación estricta y `git diff --check` aprobados. Aún no está archivado.
+- Siguen pendientes en `establish-purchase-and-ticketing` 3.3 las pruebas de vencimiento de compra, concurrencia integral, fallos downstream y reintento QR. No marcar esa tarea ni los casilleros asociados como completos. Próximo paso: revisar la evidencia y los artefactos de US-E1-05 antes de archivarlos; después decidir si abordar esa deuda o continuar con E2.

@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "TicketYa Event Catalog - E2E via Gateway",
-    "description": "Flujo E2E por Gateway: cat?logo, disponibilidad, compra aprobada/rechazada, reintento idempotente, consulta de QR y suspensi?n/reanudaci?n. Cada corrida genera IDs de datos ?nicos.",
+    "name": "TicketYa - Entrega 1 E2E via Gateway",
+    "description": "Flujo E2E por Gateway: catalogo, disponibilidad, compra general y numerada aprobada, rechazo, idempotencia, devoluciones y cancelacion. Cada corrida genera IDs de datos nuevos.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -58,6 +58,12 @@
       "value": "a1b2c3d4-1111-2222-3333-444455556666",
       "type": "string",
       "description": "UUID de usuario provisional para ADMIN"
+    },
+    {
+      "key": "numberedBuyerId",
+      "value": "9f44c33f-35eb-4764-becd-02f6e2414701",
+      "type": "string",
+      "description": "Cliente de la compra numerada, separado del comprador de admision general."
     },
     {
       "key": "purchaseOrderId",
@@ -510,7 +516,7 @@
           "name": "200 OK",
           "status": "OK",
           "code": 200,
-          "body": "{\n  \"id\": \"{{eventId}}\",\n  \"status\": \"PUBLISHED\",\n  \"venueName\": \"Estadio {{runId}}\",\n  \"city\": \"Buenos Aires\",\n  \"secters\": [\n    {\"name\": \"Platea Numerada\", \"type\": \"NUMBERED\", \"price\": 25.00},\n    {\"name\": \"General\", \"type\": \"GENERAL_ADMISSION\", \"price\": 50.00}\n  ]\n}"
+          "body": "{\n  \"id\": \"{{eventId}}\",\n  \"status\": \"PUBLISHED\",\n  \"venueName\": \"Estadio {{runId}}\",\n  \"city\": \"Buenos Aires\",\n  \"sectors\": [\n    {\"name\": \"Platea Numerada\", \"type\": \"NUMBERED\", \"price\": 25.00},\n    {\"name\": \"General\", \"type\": \"GENERAL_ADMISSION\", \"price\": 50.00}\n  ]\n}"
         }
       ],
       "event": [
@@ -663,6 +669,64 @@
               "pm.test('La orden queda confirmada y emite QR', () => { pm.expect(json.status).to.eql('CONFIRMED'); pm.expect(json.items[0].tickets).to.have.length(1); pm.expect(json.items[0].tickets[0].qrPayload).to.be.a('string').and.not.empty; });",
               "pm.collectionVariables.set('purchaseOrderId', json.orderId);",
               "pm.collectionVariables.set('refundTicketId', json.items[0].tickets[0].ticketId);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "09b - Compra aprobada de asiento numerado (cliente)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "{{numberedBuyerId}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "purchase-numbered-{{runId}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"eventId\": \"{{eventId}}\",\n  \"items\": [\n    {\n      \"sectorId\": \"{{inventorySectorNumeradoId}}\",\n      \"seatIds\": [\"{{inventorySeatId}}\"]\n    }\n  ],\n  \"payment\": {\n    \"method\": \"CARD\",\n    \"token\": \"tok_approved\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "orders"
+          ]
+        },
+        "description": "Compra aprobada del asiento numerado obtenido desde la disponibilidad de Inventory."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('La compra numerada responde 201', () => pm.response.to.have.status(201));",
+              "const json = pm.response.json();",
+              "pm.test('La orden numerada queda confirmada para el asiento elegido', () => { pm.expect(json.status).to.eql('CONFIRMED'); pm.expect(json.customerId).to.eql(pm.variables.get('numberedBuyerId')); pm.expect(json.items).to.have.length(1); pm.expect(json.items[0].sectorType).to.eql('NUMBERED'); pm.expect(json.items[0].sectorId).to.eql(pm.variables.get('inventorySectorNumeradoId')); pm.expect(json.items[0].units).to.have.length(1); pm.expect(json.items[0].units[0].seatId).to.eql(pm.variables.get('inventorySeatId')); });",
+              "pm.test('La compra numerada emite un ticket con QR', () => { pm.expect(json.items[0].tickets).to.have.length(1); pm.expect(json.items[0].tickets[0].status).to.eql('ISSUED'); pm.expect(json.items[0].tickets[0].qrPayload).to.be.a('string').and.not.empty; pm.expect(json.items[0].tickets[0].qrPngBase64).to.be.a('string').and.not.empty; });"
             ]
           }
         }
@@ -1945,7 +2009,7 @@
             "cancellation"
           ]
         },
-        "description": "El evento tiene seis tickets pagados: dos ya reintegrados, uno con solicitud previamente rechazada y tres sin solicitud."
+        "description": "El evento tiene siete tickets pagados: dos ya reintegrados, uno con solicitud previamente rechazada, uno numerado y tres sin solicitud."
       },
       "event": [
         {
@@ -1954,7 +2018,7 @@
             "type": "text/javascript",
             "exec": [
               "pm.test('Inicio aceptado o completo', () => pm.expect([200, 202]).to.include(pm.response.code));",
-              "pm.test('El lote cubre los seis tickets pagados', () => { const r = pm.response.json(); pm.expect(r.eventId).to.eql(pm.variables.get('eventId')); pm.expect(r.totalTickets).to.eql(6); pm.expect(r.completedTickets + r.pendingTickets).to.eql(6); });"
+              "pm.test('El lote cubre los siete tickets pagados', () => { const r = pm.response.json(); pm.expect(r.eventId).to.eql(pm.variables.get('eventId')); pm.expect(r.totalTickets).to.eql(7); pm.expect(r.completedTickets + r.pendingTickets).to.eql(7); });"
             ]
           }
         }
@@ -1989,7 +2053,7 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('Progreso consultable', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().totalTickets).to.eql(6); });"
+              "pm.test('Progreso consultable', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().totalTickets).to.eql(7); });"
             ]
           }
         }
@@ -2028,7 +2092,7 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('Todos los tickets tienen reintegro efectivo', () => { pm.response.to.have.status(200); const r = pm.response.json(); pm.expect(r.status).to.eql('COMPLETED'); pm.expect(r.totalTickets).to.eql(6); pm.expect(r.completedTickets).to.eql(6); pm.expect(r.pendingTickets).to.eql(0); });"
+              "pm.test('Todos los tickets tienen reintegro efectivo', () => { pm.response.to.have.status(200); const r = pm.response.json(); pm.expect(r.status).to.eql('COMPLETED'); pm.expect(r.totalTickets).to.eql(7); pm.expect(r.completedTickets).to.eql(7); pm.expect(r.pendingTickets).to.eql(0); });"
             ]
           }
         }

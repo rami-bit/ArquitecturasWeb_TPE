@@ -81,9 +81,20 @@ Content-Type: application/json
 
 El token de simulación decide el cobro: `tok_approved` aprueba, `tok_rejected` rechaza y `tok_pending` deja el pago pendiente. Los códigos de respuesta son:
 
+| Código | Resultado |
+|---|---|
+| `201` | Compra confirmada, inventario vendido y tickets emitidos |
+| `200` | Reintento idempotente de una orden existente |
+| `202` | Pago pendiente; consultar o reconciliar la orden |
+| `402` | Pago rechazado; la reserva se libera |
+| `400`, `403`, `404`, `409` | Solicitud inválida, identidad inválida, evento no comprable o conflicto, respectivamente |
+| `503` | Una dependencia no está disponible; reintentar con la misma clave |
+
+El flujo completo y los errores están en [`docs/openapi.yaml`](docs/openapi.yaml). La colección Postman ejercita compras aprobadas, devolución y cancelación por el Gateway.
+
 ## Requisitos
 
-- **JDK 19** (Amazon Corretto 19 recomendado). `JAVA_HOME` debe apuntar a una instalación de Java 19.
+- **JDK 19 o superior**. `JAVA_HOME` debe apuntar a una instalación compatible.
 - **Maven 3.9+** en el `PATH`.
 - **Docker** con **Docker Compose v2**.
 
@@ -156,15 +167,21 @@ Desde la carpeta `ticketya/`:
 mvn verify
 
 # Compilación y verificación de un servicio individual
-mvn verify -pl services/api-gateway
-mvn verify -pl services/catalog-service
-mvn verify -pl services/inventory-service
-mvn verify -pl services/ticket-service
-mvn verify -pl services/purchase-service
-mvn verify -pl services/payment-mock
+mvn verify -pl services/api-gateway -am
+mvn verify -pl services/catalog-service -am
+mvn verify -pl services/inventory-service -am
+mvn verify -pl services/ticket-service -am
+mvn verify -pl services/purchase-service -am
+mvn verify -pl services/payment-mock -am
 ```
 
-El proyecto usa Java 19 y Spring Boot 3.2.5. No se incluye Maven Wrapper (`mvnw`); se asume Maven 3.9+ instalado en el entorno.
+El proyecto compila para Java 19 y usa Spring Boot 3.2.5. No se incluye Maven Wrapper (`mvnw`); se asume Maven 3.9+ instalado en el entorno. En Windows, si el host sólo tiene JDK 17, se puede ejecutar la verificación con Java 21 y Testcontainers desde PowerShell:
+
+```powershell
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "${PWD}:/workspace" -w /workspace -e TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal maven:3.9.9-eclipse-temurin-21-alpine mvn -q verify
+```
+
+Después hay que revisar los XML Surefire recientes: `skipped=0` en las clases Testcontainers, además de cero fallos y errores. La guía breve de Docker Desktop está en [`NEXT.md`](NEXT.md). Si sólo cambian documentación o la colección Postman, se puede reutilizar un stack ya saludable y ejecutar la colección con datos nuevos; al cambiar código o configuración, reconstruir el proyecto Compose aislado.
 
 Los tests de contrato de Inventory, Purchase y Payment Mock, y de persistencia contra PostgreSQL, usan Testcontainers: requieren Docker disponible. Si Docker no está disponible, esas clases se omiten automáticamente y el resto de los tests sigue ejecutándose; un test omitido no cuenta como verificado.
 
@@ -223,7 +240,7 @@ npx --yes newman run postman/ticketya.postman_collection.json \
   --env-var baseUrl=http://localhost:8080
 ```
 
-La coleccion es repetible: cada corrida genera un `runId` unico para evitar colisiones. Cubre Catalog e Inventory, compra aprobada con QR, reintento idempotente, consulta de tickets por su titular, pago rechazado con liberacion del cupo y limite de seis entradas por cliente y evento; tambien suspende y reanuda eventos. Todas las rutas publicas se recorren por el Gateway. Inventory materializa el inventario de forma perezosa a partir del snapshot publicado de Catalog en la primera consulta.
+La colección es repetible: cada corrida genera un `runId` único para evitar colisiones. Cubre Catalog e Inventory, compras aprobadas de admisión general y asiento numerado con QR, reintento idempotente, consulta de tickets por su titular, pago rechazado con liberación del cupo y límite de seis entradas por cliente y evento. También prueba solicitud y resolución de devoluciones, cancelación con reintegros, suspensión y reanudación del evento. Todas las rutas públicas se recorren por el Gateway. Inventory materializa el inventario de forma perezosa a partir del snapshot publicado de Catalog en la primera consulta.
 
 ## Flujo interno de inventario (no publicado por el Gateway)
 
@@ -307,13 +324,13 @@ Desde una copia limpia del proyecto (sin rutas personales ni configuración del 
 
 1. Clona o haz checkout del repositorio en una carpeta nueva.
 2. Entra en `ticketya/`.
-3. Confirma que `JAVA_HOME` apunta a JDK 19 y que `mvn -v` reporta Java 19.
+3. Confirma que `JAVA_HOME` apunta a JDK 19 o superior y que `mvn -v` reporta esa versión.
 4. Ejecuta `mvn verify` desde la raíz de `ticketya/`.
-5. Ejecuta `docker compose build`.
-6. Ejecuta `docker compose down -v && docker compose up -d --wait`.
-7. Ejecuta la colección Postman con `npx newman`.
-8. Valida OpenAPI con `docker compose exec -T catalog-service wget -qO- http://localhost:8081/v3/api-docs`, `docker compose exec -T inventory-service wget -qO- http://localhost:8082/v3/api-docs` y `docker compose exec -T ticket-service wget -qO- http://localhost:8083/v3/api-docs`.
-9. Ejecuta `docker compose down` al terminar.
+5. Ejecuta `docker compose -p ticketya_e1_verification up --build -d --wait`. Ese nombre crea volúmenes separados de los de otros proyectos Compose.
+6. Comprueba que `docker compose -p ticketya_e1_verification ps` muestre los 11 servicios saludables.
+7. Ejecuta la colección con `npx --yes newman run postman/ticketya.postman_collection.json --env-var baseUrl=http://localhost:8080`.
+8. Valida OpenAPI con `docker compose -p ticketya_e1_verification exec -T catalog-service wget -qO- http://localhost:8081/v3/api-docs` y el mismo comando para Inventory, Ticket, Purchase y Payment Mock en sus puertos internos respectivos.
+9. Ejecuta `docker compose -p ticketya_e1_verification down` al terminar; los volúmenes quedan conservados.
 
 Ningún paso requiere rutas absolutas de la máquina del autor ni secretos versionados.
 
@@ -351,11 +368,11 @@ ticketya/
 
 ## Reset de la base de datos
 
-Para partir desde bases PostgreSQL vacías:
+Para partir desde bases PostgreSQL vacías en un proyecto de verificación aislado (sin tocar otros proyectos):
 
 ```bash
-docker compose down -v
-docker compose up -d
+docker compose -p ticketya_e1_verification down -v
+docker compose -p ticketya_e1_verification up --build -d --wait
 ```
 
-Esto elimina los volúmenes `catalog-postgres-data`, `inventory-postgres-data`, `ticket-postgres-data`, `purchase-postgres-data` y `payment-postgres-data` y los recrea vacíos. Los esquemas se inicializan automáticamente con el `schema.sql` de cada servicio al arrancar Catalog, Inventory, Ticket, Purchase y Payment Mock.
+Esto elimina sólo los cinco volúmenes PostgreSQL del proyecto `ticketya_e1_verification` y los recrea vacíos. Los esquemas se inicializan automáticamente con el `schema.sql` de cada servicio al arrancar Catalog, Inventory, Ticket, Purchase y Payment Mock.
