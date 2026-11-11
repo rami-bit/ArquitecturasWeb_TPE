@@ -1,11 +1,12 @@
 openapi: 3.0.3
 
 info:
-  title: TicketYa API - Inventory
-  version: '0.1.0'
+  title: TicketYa API - Consolidated contracts
+  version: '0.2.0'
   description: |
-    Contrato versionado del incremento `establish-inventory-and-reservations`
-    (E1-02, PDF-F4/F5).
+    Contrato versionado consolidado de TicketYa para los incrementos
+    `establish-inventory-and-reservations` (E1-02, PDF-F4/F5) y
+    `establish-purchase-and-ticketing` (E1-03, PDF-F4/F5/F6).
 
     Este documento cubre:
     - La **disponibilidad pública** de inventario, publicada por el API Gateway.
@@ -14,12 +15,22 @@ info:
       Purchase Service.
     - El **snapshot interno de Catalog**, contrato de lectura que Inventory usa
       para materializar el layout de un evento sin copiar precios.
+    - El **snapshot interno de compra de Catalog**, que agrega el precio por
+      sector y sólo consume Purchase Service para valorizar la orden y emitir
+      tickets.
+    - La **API pública de Purchase Service** para crear, consultar, listar y
+      reconciliar órdenes de compra.
+    - Los **contratos internos de Payment Mock** para cobrar, consultar y
+      reintegrar pagos de forma idempotente.
 
     Las rutas `/internal/**` existen únicamente en la red interna de servicios y
     **no se publican por el Gateway**. Inventory Service escucha en
-    `inventory-service:8082` y Catalog Service en `catalog-service:8081`. La
-    única superficie pública de este contrato es
-    `GET /api/inventory/events/{eventId}/availability`.
+    `inventory-service:8082`, Catalog Service en `catalog-service:8081`,
+    Payment Mock en `payment-mock:8085` y Purchase Service en
+    `purchase-service:8084`. La superficie pública de este contrato es
+    `GET /api/inventory/events/{eventId}/availability`, `POST /api/orders`,
+    `GET /api/orders`, `GET /api/orders/{orderId}` y
+    `POST /api/orders/{orderId}/reconcile`.
 
     Reglas transversales:
     - La disponibilidad nunca incluye precios, comprador, `orderId` ni
@@ -27,28 +38,56 @@ info:
     - `sectorId` y `seatId` son identificadores de Inventory; se descubren en la
       disponibilidad y se reutilizan al reservar.
     - `sourceSectorId` y `sourceSeatId` son identificadores de Catalog y sólo
-      aparecen en el snapshot interno.
+      aparecen en los snapshots internos y en la respuesta de reserva
+      enriquecida.
     - El TTL de retención por defecto es 600 s y el rango permitido es
       60..3600 s.
-    - Todos los errores usan `application/problem+json`.
+    - Todos los errores usan `application/problem+json` con `status`, `title`,
+      `detail`, `instance` y `correlationId`.
     - Toda solicitud y toda respuesta llevan `X-Correlation-Id`.
-    - No hay autenticación JWT en E1; los comandos internos se protegen por
-      aislamiento de red.
+    - No hay autenticación JWT en E1. Purchase identifica al comprador con
+      `X-User-Id` obligatorio y `X-User-Role` opcional (`CLIENT` o `ADMIN`); los
+      comandos internos se protegen por aislamiento de red.
+    - `POST /api/orders` exige `Idempotency-Key` (1..120 caracteres). La misma
+      clave con el mismo contenido devuelve la orden existente; con otro
+      contenido responde `409` sin modificarla.
+    - Estados de orden (`OrderStatus`): `CONFIRMED`, `REJECTED`,
+      `PAYMENT_PENDING`, `PAID_PENDING_TICKETS` y `COMPENSATED`. `CONFIRMED`,
+      `REJECTED` y `COMPENSATED` son terminales; `PAYMENT_PENDING` y
+      `PAID_PENDING_TICKETS` son reconciliables.
+    - Estados de pago (`PaymentStatus`): `APPROVED`, `REJECTED`, `PENDING` y
+      `REFUNDED`. El resultado simulado se elige con el token documentado
+      `tok_approved`, `tok_rejected` o `tok_pending`.
+    - Los montos son decimales expresados en la moneda de la orden (ARS en E1) y
+      los timestamps son `date-time` en UTC.
 
 servers:
   - url: http://localhost:8080
     description: |
-      API Gateway público. Expone únicamente `/api/inventory/**` y las rutas
-      públicas de Catalog. No enruta `/internal/**`.
+      API Gateway público. Expone únicamente `/api/inventory/**`, las rutas
+      públicas de Catalog y `/api/orders/**`, con precedencia de las órdenes
+      sobre la ruta catch-all de catálogo. No enruta `/internal/**`.
+  - url: http://purchase-service:8084
+    description: |
+      Red interna de Compose. Purchase Service expone la API de órdenes en
+      `/api/orders/**`, que el Gateway publica en `http://localhost:8080`. No
+      publica puerto al host.
+  - url: http://payment-mock:8085
+    description: |
+      Red interna de Compose. Payment Mock expone sólo los comandos internos
+      `/internal/payments/**`. No publica puerto al host y el Gateway no lo
+      enruta.
+  - url: http://catalog-service:8081
+    description: |
+      Red interna de Compose. Catalog Service expone el snapshot interno sin
+      precios `GET /internal/events/{eventId}/snapshot` y el snapshot de compra
+      con precios `GET /internal/events/{eventId}/purchase-snapshot`. No publica
+      puerto al host.
   - url: http://inventory-service:8082
     description: |
       Red interna de Compose. Inventory Service expone la disponibilidad y los
       comandos `/internal/**` de reservas y configuración. No publica puerto al
       host.
-  - url: http://catalog-service:8081
-    description: |
-      Red interna de Compose. Catalog Service expone el snapshot interno
-      `GET /internal/events/{eventId}/snapshot`. No publica puerto al host.
 
 security: []
 
@@ -71,6 +110,26 @@ tags:
       Contrato interno de lectura del snapshot publicado de Catalog, usado por
       Inventory para inicializar el layout de un evento. No incluye precios y no
       se publica por el Gateway.
+  - name: Catalog purchase snapshot (internal)
+    description: |
+      Contrato interno de lectura del snapshot publicado de Catalog con el precio
+      de cada sector, usado exclusivamente por Purchase Service para validar
+      ítems, fijar precios históricos y emitir tickets. Es independiente del
+      snapshot de inventario, que sigue sin precios. Sólo es accesible en la red
+      de servicios: el Gateway no publica esta ruta.
+  - name: Purchase orders
+    description: |
+      API pública de órdenes de compra publicada por el API Gateway en
+      `http://localhost:8080`. Requiere `X-User-Id` válido y, para crear una
+      orden, `Idempotency-Key`; `X-User-Role` es opcional y `ADMIN` puede
+      consultar órdenes de cualquier comprador. `X-Correlation-Id` es opcional en
+      todas las solicitudes. Los comandos internos de Purchase no forman parte de
+      esta superficie.
+  - name: Payment processing (internal)
+    description: |
+      Comandos internos de Payment Mock para cobrar, consultar y reintegrar pagos
+      de forma idempotente. Sólo son accesibles dentro de la red de servicios en
+      `payment-mock:8085`; el Gateway no publica ninguna de estas rutas.
 
 paths:
   /api/inventory/events/{eventId}/availability:
@@ -693,6 +752,685 @@ paths:
                 internalServerError:
                   $ref: '#/components/examples/ProblemInternalServerError'
 
+  /internal/events/{eventId}/purchase-snapshot:
+    get:
+      tags:
+        - Catalog purchase snapshot (internal)
+      operationId: getCatalogPurchaseSnapshot
+      summary: Leer el snapshot de compra de un evento con precios
+      description: |
+        Contrato interno de Catalog que Purchase Service consume para validar los
+        ítems de una orden, fijar el precio histórico de cada sector y emitir los
+        tickets. Devuelve el snapshot publicado e inmutable del evento con los
+        datos del lugar, los sectores, sus asientos y el precio unitario de cada
+        sector.
+
+        Es un contrato **separado** del snapshot de inventario
+        `GET /internal/events/{eventId}/snapshot`, que sigue sin precios y lo
+        consume Inventory. El Gateway no publica esta ruta; sólo es accesible
+        desde la red interna en `catalog-service:8081`.
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: |
+            Snapshot publicado del evento con precios por sector. Los sectores
+            siguen el orden estable del snapshot y los asientos se ordenan por
+            `row` y `number`.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogPurchaseSnapshot'
+              examples:
+                purchaseSnapshot:
+                  $ref: '#/components/examples/CatalogPurchaseSnapshot'
+        '404':
+          description: |
+            El evento no existe, no está publicado o está suspendido o cancelado.
+            No se revelan datos del evento y Purchase no puede crear la orden.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                notFound:
+                  $ref: '#/components/examples/ProblemNotFound'
+        '500':
+          description: |
+            Error inesperado en Catalog. El cuerpo es un problema genérico sin
+            trazas, credenciales ni detalles de la base de datos.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                internalServerError:
+                  $ref: '#/components/examples/ProblemInternalServerError'
+
+  /api/orders:
+    post:
+      tags:
+        - Purchase orders
+      operationId: createOrder
+      summary: Crear una orden de compra y ejecutar la saga
+      description: |
+        Crea una orden para un evento publicado y ejecuta la saga síncrona:
+        snapshot de compra de Catalog, reserva en Inventory, cobro en Payment
+        Mock, confirmación de inventario y emisión idempotente de tickets.
+
+        Reglas del request:
+        - `X-User-Id` es obligatorio y determina el comprador; `X-User-Role` es
+          opcional (`CLIENT` o `ADMIN`).
+        - `Idempotency-Key` es obligatorio (1..120 caracteres). La misma clave
+          del mismo comprador con el mismo contenido devuelve la orden existente
+          sin reservar, cobrar ni emitir de nuevo; con otro contenido responde
+          `409` y conserva la orden original.
+        - `items[].sectorId` es el identificador de **Inventory** descubierto en
+          la disponibilidad pública.
+        - Cada ítem informa **exactamente uno** de `seatIds` (sector `NUMBERED`)
+          o `quantity` (sector `GENERAL_ADMISSION`). Los precios nunca se toman
+          del request: provienen del snapshot de compra de Catalog.
+        - `payment.token` es el token de simulación documentado y determina el
+          resultado del cobro: `tok_approved`, `tok_rejected` o `tok_pending`.
+
+        El límite configurable de entradas por cliente y evento (seis por defecto)
+        se valida de forma atómica antes de reservar.
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/UserRole'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+            examples:
+              createOrder:
+                $ref: '#/components/examples/CreateOrderRequest'
+      responses:
+        '201':
+          description: |
+            Orden `CONFIRMED`: la reserva quedó vendida, el pago está `APPROVED` y
+            todos los tickets fueron emitidos.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+              examples:
+                confirmed:
+                  $ref: '#/components/examples/OrderConfirmed'
+        '200':
+          description: |
+            Repetición idempotente: ya existía una orden para la misma
+            `X-User-Id` e `Idempotency-Key` con el mismo contenido. Se devuelve la
+            orden existente en su estado actual, sin nuevas reservas, cobros ni
+            tickets. Puede ser una orden `CONFIRMED`, `REJECTED`,
+            `PAYMENT_PENDING`, `PAID_PENDING_TICKETS` o `COMPENSATED`.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+              examples:
+                confirmedReplay:
+                  $ref: '#/components/examples/OrderConfirmed'
+                rejectedReplay:
+                  $ref: '#/components/examples/OrderRejected'
+                paymentPendingReplay:
+                  $ref: '#/components/examples/OrderPaymentPending'
+        '202':
+          description: |
+            Orden `PAYMENT_PENDING`: Payment devolvió `PENDING` o no respondió
+            dentro del tiempo de espera. La reserva se conserva hasta
+            `reservationExpiresAt` y la orden puede reconciliarse con
+            `POST /api/orders/{orderId}/reconcile`. Un timeout de pago nunca se
+            interpreta como rechazo.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+              examples:
+                paymentPending:
+                  $ref: '#/components/examples/OrderPaymentPending'
+        '402':
+          description: |
+            Pago rechazado por la pasarela simulada. Purchase libera la reserva,
+            libera el límite de unidades y la orden queda `REJECTED` sin tickets.
+            El cuerpo es un problema con el `orderId` y el estado de la orden como
+            contexto.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                paymentRejected:
+                  $ref: '#/components/examples/ProblemPaymentRejected'
+        '400':
+          description: |
+            Request inválido: falta `Idempotency-Key`, ítem sin sector, ítem que
+            informa `seatIds` y `quantity` a la vez o ninguno, cantidad no
+            positiva, asiento ajeno al sector, ítem duplicado, evento ausente o
+            medio o token de pago inválido. No se reserva ni se cobra.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                badRequest:
+                  $ref: '#/components/examples/ProblemOrderBadRequest'
+        '403':
+          description: |
+            Identidad inválida o ausente: `X-User-Id` falta, no es un UUID o el
+            rol informado no es válido. No se crea la orden.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                forbidden:
+                  $ref: '#/components/examples/ProblemIdentityRequired'
+        '404':
+          description: |
+            Evento no comprable: no existe, está en borrador, suspendido o
+            cancelado según el snapshot de compra de Catalog. No se reserva ni se
+            cobra.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                notFound:
+                  $ref: '#/components/examples/ProblemOrderNotFound'
+        '409':
+          description: |
+            Conflicto sin cambios parciales: falta de disponibilidad en Inventory,
+            límite de entradas del cliente y evento excedido, o `Idempotency-Key`
+            reutilizada con contenido distinto. También se usa cuando el pago fue
+            aprobado pero la reserva ya no puede confirmarse y la orden queda
+            `COMPENSATED` tras reintegrar el pago y liberar el inventario.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                conflict:
+                  $ref: '#/components/examples/ProblemOrderConflict'
+        '503':
+          description: |
+            Dependencia no disponible: Catalog, Inventory, Payment o Ticket no
+            responden o exceden el tiempo de espera sin dejar una orden confirmada
+            parcialmente. La solicitud puede reintentarse con la misma
+            `Idempotency-Key`.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                serviceUnavailable:
+                  $ref: '#/components/examples/ProblemDependencyUnavailable'
+    get:
+      tags:
+        - Purchase orders
+      operationId: listOrders
+      summary: Listar las órdenes del comprador
+      description: |
+        Devuelve las órdenes del comprador identificado por `X-User-Id`,
+        paginadas y ordenadas por `createdAt` descendente. Un cliente sólo ve sus
+        propias órdenes; `X-User-Role: ADMIN` puede ver las de todos los
+        compradores.
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/UserRole'
+        - $ref: '#/components/parameters/PageNumber'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/OrderStatusFilter'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: |
+            Página de órdenes. `items` contiene órdenes completas con ítems, pago
+            y tickets; `totalPages` se calcula a partir de `totalElements` y
+            `size`.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderPage'
+              examples:
+                page:
+                  $ref: '#/components/examples/OrderPage'
+        '400':
+          description: |
+            Parámetros de paginación o filtro inválidos: `page` negativo,
+            `size` fuera de 1..50 o `status` fuera del enum `OrderStatus`.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                badRequest:
+                  $ref: '#/components/examples/ProblemOrderBadRequest'
+        '403':
+          description: |
+            Identidad inválida o ausente: `X-User-Id` falta, no es un UUID o el
+            rol informado no es válido.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                forbidden:
+                  $ref: '#/components/examples/ProblemIdentityRequired'
+
+  /api/orders/{orderId}:
+    get:
+      tags:
+        - Purchase orders
+      operationId: getOrder
+      summary: Consultar una orden de compra
+      description: |
+        Devuelve la orden con sus ítems, unidades, pago y tickets. Un cliente
+        sólo puede consultar sus propias órdenes: si la orden pertenece a otro
+        comprador se responde `404` sin revelar su existencia. `ADMIN` puede
+        consultar cualquier orden.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+        - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/UserRole'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Orden encontrada y visible para el comprador autenticado.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+              examples:
+                confirmed:
+                  $ref: '#/components/examples/OrderConfirmed'
+        '403':
+          description: |
+            Identidad inválida o ausente: `X-User-Id` falta, no es un UUID o el
+            rol informado no es válido.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                forbidden:
+                  $ref: '#/components/examples/ProblemIdentityRequired'
+        '404':
+          description: |
+            La orden no existe o pertenece a otro comprador. Ambos casos se
+            responden igual para no revelar la existencia de órdenes ajenas.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                notFound:
+                  $ref: '#/components/examples/ProblemOrderNotFound'
+
+  /api/orders/{orderId}/reconcile:
+    post:
+      tags:
+        - Purchase orders
+      operationId: reconcileOrder
+      summary: Reconciliar una orden pendiente
+      description: |
+        Consulta el pago de la orden y continúa o compensa la saga de forma
+        idempotente. Si el pago está `APPROVED` confirma el inventario y emite los
+        tickets (o reintenta la emisión pendiente); si está `REJECTED` libera la
+        reserva y rechaza la orden. No vuelve a cobrar.
+
+        Es reconciliable una orden `PAYMENT_PENDING` o `PAID_PENDING_TICKETS`.
+        Una orden terminal (`CONFIRMED`, `REJECTED`, `COMPENSATED`) responde
+        `409` sin cambios.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+        - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/UserRole'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: |
+            Orden reconciliada. El estado resultante puede ser `CONFIRMED`,
+            `REJECTED`, `COMPENSATED`, `PAYMENT_PENDING` (el pago sigue incierto)
+            o `PAID_PENDING_TICKETS` (la emisión sigue fallando).
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+              examples:
+                confirmed:
+                  $ref: '#/components/examples/OrderConfirmed'
+                rejected:
+                  $ref: '#/components/examples/OrderRejected'
+        '403':
+          description: |
+            Identidad inválida o ausente: `X-User-Id` falta, no es un UUID o el
+            rol informado no es válido.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                forbidden:
+                  $ref: '#/components/examples/ProblemIdentityRequired'
+        '404':
+          description: |
+            La orden no existe o pertenece a otro comprador. Ambos casos se
+            responden igual para no revelar la existencia de órdenes ajenas.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                notFound:
+                  $ref: '#/components/examples/ProblemOrderNotFound'
+        '409':
+          description: |
+            La orden no es reconciliable porque está `CONFIRMED`, `REJECTED` o
+            `COMPENSATED`. La orden no se modifica.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                conflict:
+                  $ref: '#/components/examples/ProblemOrderConflict'
+
+  /internal/payments:
+    post:
+      tags:
+        - Payment processing (internal)
+      operationId: createPayment
+      summary: Cobrar una orden de forma idempotente
+      description: |
+        Registra un cobro por `orderId` de forma idempotente y decide el resultado
+        con el token de simulación documentado:
+        - `tok_approved` → pago `APPROVED`.
+        - `tok_rejected` → pago `REJECTED`.
+        - `tok_pending` → pago `PENDING`.
+
+        La misma orden con el mismo monto, moneda, medio y token devuelve el pago
+        existente con `200`; la misma orden con contenido distinto responde `409`
+        sin crear un segundo cobro. Un token desconocido responde `400` y no
+        registra el pago.
+
+        Ruta interna de Payment Mock: no se publica por el Gateway.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentRequest'
+            examples:
+              createPayment:
+                $ref: '#/components/examples/CreatePaymentRequest'
+      responses:
+        '201':
+          description: Pago nuevo registrado; el estado refleja el token simulado.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+              examples:
+                approved:
+                  $ref: '#/components/examples/PaymentApproved'
+        '200':
+          description: |
+            Repetición idempotente: el `orderId` ya tenía un pago con el mismo
+            contenido. Se devuelve el pago existente sin registrar otro
+            movimiento.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+              examples:
+                approved:
+                  $ref: '#/components/examples/PaymentApproved'
+        '400':
+          description: |
+            Token de simulación desconocido o campos inválidos: `orderId`
+            ausente, monto no positivo, moneda distinta de `ARS` o medio de pago
+            fuera del enum. No se registra el pago.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                badRequest:
+                  $ref: '#/components/examples/ProblemPaymentBadRequest'
+        '409':
+          description: |
+            El `orderId` ya tiene un pago con otro contenido (monto, moneda, medio
+            o token). Se conserva el pago original y no se crea un cobro nuevo.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                conflict:
+                  $ref: '#/components/examples/ProblemPaymentConflict'
+
+  /internal/payments/by-order/{orderId}:
+    get:
+      tags:
+        - Payment processing (internal)
+      operationId: getPaymentByOrderId
+      summary: Consultar el pago de una orden
+      description: |
+        Devuelve el pago registrado para el `orderId`, con su estado actual,
+        monto, moneda, medio de pago y fechas. Operación de lectura e idempotente.
+        Ruta interna de Payment Mock: no se publica por el Gateway.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Pago encontrado para el `orderId`.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+              examples:
+                approved:
+                  $ref: '#/components/examples/PaymentApproved'
+        '404':
+          description: No existe un pago para el `orderId` informado.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                notFound:
+                  $ref: '#/components/examples/ProblemPaymentNotFound'
+
+  /internal/payments/{paymentId}:
+    get:
+      tags:
+        - Payment processing (internal)
+      operationId: getPaymentById
+      summary: Consultar un pago por identificador
+      description: |
+        Devuelve el pago con su estado actual, monto, moneda, medio de pago y
+        fechas. Operación de lectura e idempotente. Ruta interna de Payment Mock:
+        no se publica por el Gateway.
+      parameters:
+        - $ref: '#/components/parameters/PaymentId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Pago encontrado.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+              examples:
+                approved:
+                  $ref: '#/components/examples/PaymentApproved'
+        '404':
+          description: No existe un pago con el `paymentId` informado.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                notFound:
+                  $ref: '#/components/examples/ProblemPaymentNotFound'
+
+  /internal/payments/{paymentId}/refund:
+    post:
+      tags:
+        - Payment processing (internal)
+      operationId: refundPayment
+      summary: Reintegrar un pago aprobado
+      description: |
+        Marca un pago `APPROVED` como `REFUNDED` de forma idempotente. Repetir el
+        reintegro de un pago ya `REFUNDED` devuelve `200` con el mismo pago sin
+        duplicar el movimiento. Un pago `REJECTED` o `PENDING` no puede
+        reintegrarse y responde `409`.
+
+        Ruta interna de Payment Mock: no se publica por el Gateway.
+      parameters:
+        - $ref: '#/components/parameters/PaymentId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: |
+            Pago `REFUNDED`. Es la respuesta del primer reintegro y también la de
+            un reintegro repetido.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+              examples:
+                refunded:
+                  $ref: '#/components/examples/PaymentRefunded'
+        '404':
+          description: No existe un pago con el `paymentId` informado.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                notFound:
+                  $ref: '#/components/examples/ProblemPaymentNotFound'
+        '409':
+          description: |
+            El pago está `REJECTED` o `PENDING`; sólo un pago `APPROVED` o ya
+            `REFUNDED` puede reintegrarse. Se conserva el estado del pago.
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                conflict:
+                  $ref: '#/components/examples/ProblemPaymentConflict'
+
 components:
   parameters:
     CorrelationId:
@@ -739,6 +1477,99 @@ components:
         type: string
         format: uuid
         example: 7a6b5c4d-3e2f-41a0-9b8c-7d6e5f4a3b2c
+
+    UserId:
+      name: X-User-Id
+      in: header
+      required: true
+      description: |
+        Identificador del comprador. Es obligatorio en toda la API pública de
+        Purchase; si falta o no es un UUID se responde `403`. Un cliente sólo
+        opera sobre sus propias órdenes.
+      schema:
+        type: string
+        format: uuid
+        example: 3f1a2b3c-4d5e-4f60-8a91-b2c3d4e5f601
+
+    UserRole:
+      name: X-User-Role
+      in: header
+      required: false
+      description: |
+        Rol del usuario. Es opcional; si falta se asume `CLIENT`. `ADMIN` puede
+        consultar órdenes de cualquier comprador. Cualquier otro valor se rechaza
+        con `403`.
+      schema:
+        type: string
+        enum:
+          - CLIENT
+          - ADMIN
+        example: CLIENT
+
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Clave de idempotencia del comprador para `POST /api/orders`. Es
+        obligatoria, de 1 a 120 caracteres. Junto con `X-User-Id` identifica la
+        solicitud: la misma clave con el mismo contenido devuelve la orden
+        existente; con otro contenido responde `409`.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 120
+        example: order-key-2026-11-07-0001
+
+    PaymentId:
+      name: paymentId
+      in: path
+      required: true
+      description: Identificador del pago en Payment Mock.
+      schema:
+        type: string
+        format: uuid
+        example: 9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a
+
+    PageNumber:
+      name: page
+      in: query
+      required: false
+      description: Número de página solicitado, base cero.
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+        example: 0
+
+    PageSize:
+      name: size
+      in: query
+      required: false
+      description: Cantidad de órdenes por página.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 20
+        example: 20
+
+    OrderStatusFilter:
+      name: status
+      in: query
+      required: false
+      description: |
+        Filtro opcional por estado de la orden. Si falta se devuelven órdenes en
+        cualquier estado.
+      schema:
+        type: string
+        enum:
+          - CONFIRMED
+          - REJECTED
+          - PAYMENT_PENDING
+          - PAID_PENDING_TICKETS
+          - COMPENSATED
+        example: CONFIRMED
 
   headers:
     CorrelationId:
@@ -992,10 +1823,28 @@ components:
         Ítem de una reserva. Los ítems de asiento numerado tienen `seatId` y
         cantidad 1; los de admisión general tienen `seatId` nulo y la cantidad
         solicitada.
+
+        Inventory agrega los datos de origen y presentación que Purchase necesita
+        para valorizar la orden y emitir tickets sin acceder a `inventory_db`:
+        `sourceSectorId`, `sourceSeatId`, `sectorName`, `sectorType`, `rowLabel` y
+        `seatNumber`.
+
+        Para sectores `GENERAL_ADMISSION`, `seatId`, `sourceSeatId`, `rowLabel` y
+        `seatNumber` son `null` y `quantity` es mayor que cero. Para sectores
+        `NUMBERED`, `quantity` es 1 y `rowLabel`/`seatNumber` describen el asiento.
+        La respuesta nunca incluye precios, comprador, tokens ni identificadores
+        de pago.
       additionalProperties: false
       required:
         - sectorId
+        - seatId
         - quantity
+        - sourceSectorId
+        - sourceSeatId
+        - sectorName
+        - sectorType
+        - rowLabel
+        - seatNumber
       properties:
         sectorId:
           type: string
@@ -1012,6 +1861,39 @@ components:
           type: integer
           minimum: 1
           description: Cantidad retenida. Siempre 1 para ítems con `seatId`.
+        sourceSectorId:
+          type: string
+          format: uuid
+          description: |
+            Identificador de origen del sector en Catalog
+            (`sourceSectorId` del snapshot). Sirve para mapear el sector de
+            Inventory al snapshot de compra y para trazabilidad.
+        sourceSeatId:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            Identificador de origen del asiento en Catalog, o `null` para
+            admisión general.
+        sectorName:
+          type: string
+          maxLength: 120
+          description: Nombre del sector en el snapshot del evento.
+        sectorType:
+          $ref: '#/components/schemas/SectorType'
+        rowLabel:
+          type: string
+          maxLength: 40
+          nullable: true
+          description: |
+            Fila del asiento en el snapshot de Catalog, o `null` para admisión
+            general.
+        seatNumber:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: |
+            Número del asiento dentro de la fila, o `null` para admisión general.
 
     HoldTtlRequest:
       type: object
@@ -1194,6 +2076,673 @@ components:
           minimum: 1
           description: Número del asiento dentro de la fila.
 
+    SectorType:
+      type: string
+      description: |
+        Tipo de sector según la plantilla del lugar. `NUMBERED` exige elegir
+        asientos; `GENERAL_ADMISSION` exige informar una cantidad de cupos.
+      enum:
+        - NUMBERED
+        - GENERAL_ADMISSION
+      example: NUMBERED
+
+    CatalogPurchaseSnapshot:
+      type: object
+      description: |
+        Snapshot publicado e inmutable de un evento con el precio unitario de cada
+        sector. Contrato interno de Catalog consumido por Purchase Service para
+        validar los ítems, fijar precios históricos y emitir tickets.
+
+        Es independiente del snapshot de inventario `CatalogEventSnapshot`, que
+        sigue sin precios y lo consume Inventory.
+      additionalProperties: false
+      required:
+        - eventId
+        - snapshotId
+        - name
+        - description
+        - eventType
+        - startsAt
+        - venue
+        - sectors
+      properties:
+        eventId:
+          type: string
+          format: uuid
+          description: Identificador del evento publicado.
+        snapshotId:
+          type: string
+          format: uuid
+          description: Identificador del snapshot publicado.
+        name:
+          type: string
+          maxLength: 200
+          description: Nombre del evento al momento de publicar.
+        description:
+          type: string
+          description: Descripción del evento al momento de publicar.
+        eventType:
+          type: string
+          maxLength: 80
+          description: Tipo de evento.
+        startsAt:
+          type: string
+          format: date-time
+          description: Fecha y hora de inicio del evento.
+        venue:
+          $ref: '#/components/schemas/SnapshotVenue'
+        sectors:
+          type: array
+          minItems: 1
+          description: |
+            Sectores del snapshot en orden estable, cada uno con su precio
+            unitario publicado.
+          items:
+            $ref: '#/components/schemas/PurchaseSnapshotSector'
+
+    PurchaseSnapshotSector:
+      type: object
+      description: |
+        Sector del snapshot de compra. Agrega `price` al sector del snapshot de
+        inventario; conserva `sourceSectorId` como identificador de Catalog.
+      additionalProperties: false
+      required:
+        - sourceSectorId
+        - name
+        - type
+        - capacity
+        - price
+        - seats
+      properties:
+        sourceSectorId:
+          type: string
+          format: uuid
+          description: |
+            Identificador del sector en Catalog. Purchase lo persiste como
+            referencia histórica y para mapear los ítems de la reserva.
+        name:
+          type: string
+          maxLength: 120
+          description: Nombre del sector.
+        type:
+          $ref: '#/components/schemas/SectorType'
+        capacity:
+          type: integer
+          minimum: 1
+          description: Capacidad del sector; siempre mayor que cero.
+        price:
+          type: number
+          format: double
+          minimum: 0.01
+          multipleOf: 0.01
+          description: |
+            Precio unitario del sector en la moneda del evento (`ARS`), con dos
+            decimales. Purchase lo usa como precio histórico de la orden.
+          example: 15000.00
+        seats:
+          type: array
+          description: |
+            Asientos del sector para `NUMBERED`; vacío para
+            `GENERAL_ADMISSION`. Ordenado por `row` y luego por `number`.
+          items:
+            $ref: '#/components/schemas/SnapshotSeat'
+
+    OrderStatus:
+      type: string
+      description: |
+        Estado de la orden. `CONFIRMED`, `REJECTED` y `COMPENSATED` son
+        terminales; `PAYMENT_PENDING` y `PAID_PENDING_TICKETS` son reconciliables
+        con `POST /api/orders/{orderId}/reconcile`.
+      enum:
+        - CONFIRMED
+        - REJECTED
+        - PAYMENT_PENDING
+        - PAID_PENDING_TICKETS
+        - COMPENSATED
+      example: CONFIRMED
+
+    PaymentStatus:
+      type: string
+      description: |
+        Estado del pago simulado. `REFUNDED` es terminal y se alcanza por
+        reintegro de un pago `APPROVED`.
+      enum:
+        - APPROVED
+        - REJECTED
+        - PENDING
+        - REFUNDED
+      example: APPROVED
+
+    PaymentMethod:
+      type: string
+      description: Medio de pago aceptado por la pasarela simulada.
+      enum:
+        - CARD
+        - WALLET
+        - CASH
+      example: CARD
+
+    CreateOrderRequest:
+      type: object
+      description: |
+        Solicitud de compra. El comprador se identifica con `X-User-Id` y la
+        solicitud se idempotencia con `Idempotency-Key`; ningún precio se envía
+        en el cuerpo.
+      additionalProperties: false
+      required:
+        - eventId
+        - items
+        - payment
+      properties:
+        eventId:
+          type: string
+          format: uuid
+          description: Evento publicado que se desea comprar.
+        items:
+          type: array
+          minItems: 1
+          description: |
+            Ítems a comprar. Cada ítem informa exactamente uno de `seatIds` o
+            `quantity` según el tipo de sector.
+          items:
+            $ref: '#/components/schemas/CreateOrderItem'
+        payment:
+          $ref: '#/components/schemas/CreateOrderPayment'
+
+    CreateOrderItem:
+      type: object
+      description: |
+        Ítem de la orden. `sectorId` es el identificador de **Inventory**
+        descubierto en la disponibilidad pública. Debe informarse exactamente uno
+        de `seatIds` (sector `NUMBERED`) o `quantity` (sector
+        `GENERAL_ADMISSION`).
+      additionalProperties: false
+      required:
+        - sectorId
+      properties:
+        sectorId:
+          type: string
+          format: uuid
+          description: Identificador de Inventory del sector.
+        seatIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          description: |
+            Asientos de Inventory a comprar en un sector `NUMBERED`. Excluyente
+            con `quantity`; cada asiento cuenta como una unidad.
+          items:
+            type: string
+            format: uuid
+          example:
+            - f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+            - f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f602
+        quantity:
+          type: integer
+          minimum: 1
+          description: |
+            Cantidad de cupos a comprar en un sector `GENERAL_ADMISSION`.
+            Excluyente con `seatIds`.
+          example: 2
+
+    CreateOrderPayment:
+      type: object
+      description: |
+        Medio de pago y token de simulación. El resultado del cobro lo decide el
+        token documentado de forma determinista.
+      additionalProperties: false
+      required:
+        - method
+        - token
+      properties:
+        method:
+          $ref: '#/components/schemas/PaymentMethod'
+        token:
+          type: string
+          description: |
+            Token de simulación del pago. Define el resultado del cobro:
+            `tok_approved` aprueba, `tok_rejected` rechaza y `tok_pending` deja el
+            pago pendiente. Un token distinto responde `400`.
+          enum:
+            - tok_approved
+            - tok_rejected
+            - tok_pending
+          example: tok_approved
+
+    OrderItemUnit:
+      type: object
+      description: |
+        Unidad concreta de un ítem. En sectores `NUMBERED` identifica un asiento;
+        en `GENERAL_ADMISSION` sólo expone el número de unidad.
+      additionalProperties: false
+      required:
+        - unitNumber
+      properties:
+        unitNumber:
+          type: integer
+          minimum: 1
+          description: Número de unidad dentro del ítem, desde 1.
+          example: 1
+        seatId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Identificador de Inventory del asiento, o `null` en admisión general.
+        sourceSeatId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Identificador de origen del asiento en Catalog, o `null` en admisión general.
+        row:
+          type: string
+          maxLength: 40
+          nullable: true
+          description: Fila del asiento, o `null` en admisión general.
+          example: A
+        number:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: Número del asiento dentro de la fila, o `null` en admisión general.
+          example: 1
+
+    OrderItem:
+      type: object
+      description: |
+        Ítem valorizado de la orden. Los precios provienen del snapshot de compra
+        de Catalog al momento de crear la orden y no cambian después.
+      additionalProperties: false
+      required:
+        - orderItemId
+        - sectorId
+        - sourceSectorId
+        - sectorName
+        - sectorType
+        - quantity
+        - unitPrice
+        - subtotal
+        - units
+        - tickets
+      properties:
+        orderItemId:
+          type: string
+          format: uuid
+          description: Identificador del ítem dentro de la orden.
+        sectorId:
+          type: string
+          format: uuid
+          description: Identificador de Inventory del sector.
+        sourceSectorId:
+          type: string
+          format: uuid
+          description: Identificador de origen del sector en Catalog.
+        sectorName:
+          type: string
+          maxLength: 120
+          description: Nombre del sector al momento de la compra.
+        sectorType:
+          $ref: '#/components/schemas/SectorType'
+        quantity:
+          type: integer
+          minimum: 1
+          description: Unidades compradas en el sector.
+        unitPrice:
+          type: number
+          format: double
+          minimum: 0.01
+          multipleOf: 0.01
+          description: Precio unitario histórico del sector en `ARS`.
+          example: 15000.00
+        subtotal:
+          type: number
+          format: double
+          minimum: 0.01
+          multipleOf: 0.01
+          description: |
+            Importe del ítem: `unitPrice * quantity`, con dos decimales.
+          example: 30000.00
+        units:
+          type: array
+          minItems: 1
+          description: |
+            Una unidad por entrada comprada; `quantity` es igual a la cantidad de
+            elementos de `units`.
+          items:
+            $ref: '#/components/schemas/OrderItemUnit'
+        tickets:
+          type: array
+          description: |
+            Tickets emitidos para el ítem. Vacío mientras la orden no esté
+            `CONFIRMED` o si la emisión quedó pendiente.
+          items:
+            $ref: '#/components/schemas/OrderTicket'
+
+    OrderTicket:
+      type: object
+      description: |
+        Ticket emitido y firmado por Ticket Service. El QR se expone como payload
+        firmado y como PNG en Base64.
+      additionalProperties: false
+      required:
+        - ticketId
+        - unitNumber
+        - status
+        - qrPayload
+        - qrPngBase64
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+          description: Identificador del ticket emitido.
+        unitNumber:
+          type: integer
+          minimum: 1
+          description: Número de unidad del ítem a la que corresponde el ticket.
+          example: 1
+        status:
+          type: string
+          enum:
+            - ISSUED
+            - REVOKED
+            - USED
+          description: Estado del ticket.
+          example: ISSUED
+        qrPayload:
+          type: string
+          description: |
+            Identificador de ticket firmado con HMAC y versionado, codificado en
+            el QR. No contiene datos personales.
+          example: ty1.eyJ0aWNrZXRJZCI6IjFhMmIzYzRkIn0.signature
+        qrPngBase64:
+          type: string
+          format: byte
+          description: Imagen PNG del QR codificada en Base64.
+          example: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
+        row:
+          type: string
+          maxLength: 40
+          nullable: true
+          description: Fila del asiento, o `null` en admisión general.
+          example: A
+        seatNumber:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: Número del asiento dentro de la fila, o `null` en admisión general.
+          example: 1
+
+    OrderPayment:
+      type: object
+      description: |
+        Pago asociado a la orden, tal como quedó registrado en Payment Mock. No
+        incluye el token de simulación.
+      additionalProperties: false
+      required:
+        - paymentId
+        - status
+        - amount
+        - currency
+        - method
+        - createdAt
+        - updatedAt
+      properties:
+        paymentId:
+          type: string
+          format: uuid
+          description: Identificador del pago.
+        status:
+          $ref: '#/components/schemas/PaymentStatus'
+        amount:
+          type: number
+          format: double
+          minimum: 0.01
+          multipleOf: 0.01
+          description: Monto cobrado, igual al total de la orden.
+          example: 40000.00
+        currency:
+          type: string
+          enum:
+            - ARS
+          description: Moneda del pago.
+          example: ARS
+        method:
+          $ref: '#/components/schemas/PaymentMethod'
+        createdAt:
+          type: string
+          format: date-time
+          description: Momento de creación del pago.
+        updatedAt:
+          type: string
+          format: date-time
+          description: Momento de la última actualización del pago.
+
+    OrderResponse:
+      type: object
+      description: |
+        Orden de compra con su estado, snapshot histórico del evento, pago e
+        ítems con unidades y tickets. Es la representación devuelta por
+        `POST /api/orders`, `GET /api/orders/{orderId}` y
+        `POST /api/orders/{orderId}/reconcile`.
+      additionalProperties: false
+      required:
+        - orderId
+        - status
+        - customerId
+        - eventId
+        - eventName
+        - eventStartsAt
+        - venueName
+        - venueCity
+        - currency
+        - totalAmount
+        - reservationExpiresAt
+        - createdAt
+        - updatedAt
+        - payment
+        - items
+      properties:
+        orderId:
+          type: string
+          format: uuid
+          description: Identificador de la orden.
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        customerId:
+          type: string
+          format: uuid
+          description: Comprador tomado de `X-User-Id`.
+        eventId:
+          type: string
+          format: uuid
+          description: Evento comprado.
+        eventName:
+          type: string
+          maxLength: 200
+          description: Nombre del evento al momento de la compra.
+        eventStartsAt:
+          type: string
+          format: date-time
+          description: Fecha y hora de inicio del evento al momento de la compra.
+        venueName:
+          type: string
+          maxLength: 200
+          description: Nombre del lugar al momento de la compra.
+        venueCity:
+          type: string
+          maxLength: 120
+          description: Ciudad del lugar al momento de la compra.
+        currency:
+          type: string
+          enum:
+            - ARS
+          description: Moneda de la orden.
+          example: ARS
+        totalAmount:
+          type: number
+          format: double
+          minimum: 0.01
+          multipleOf: 0.01
+          description: |
+            Importe total de la orden: suma de los `subtotal` de sus ítems, con
+            dos decimales.
+          example: 40000.00
+        reservationExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            Vencimiento de la retención de inventario. Es `null` cuando la orden
+            ya no depende de una reserva vigente.
+        createdAt:
+          type: string
+          format: date-time
+          description: Momento de creación de la orden.
+        updatedAt:
+          type: string
+          format: date-time
+          description: Momento de la última transición de la orden.
+        payment:
+          $ref: '#/components/schemas/OrderPayment'
+        items:
+          type: array
+          minItems: 1
+          description: Ítems de la orden con sus unidades y tickets.
+          items:
+            $ref: '#/components/schemas/OrderItem'
+
+    OrderPage:
+      type: object
+      description: Página de órdenes del comprador.
+      additionalProperties: false
+      required:
+        - items
+        - page
+        - size
+        - totalElements
+        - totalPages
+      properties:
+        items:
+          type: array
+          description: Órdenes de la página actual, ordenadas por `createdAt` descendente.
+          items:
+            $ref: '#/components/schemas/OrderResponse'
+        page:
+          type: integer
+          minimum: 0
+          description: Número de página devuelto, base cero.
+          example: 0
+        size:
+          type: integer
+          minimum: 1
+          maximum: 50
+          description: Tamaño de página solicitado.
+          example: 20
+        totalElements:
+          type: integer
+          minimum: 0
+          description: Total de órdenes visibles para el comprador y el filtro.
+          example: 1
+        totalPages:
+          type: integer
+          minimum: 0
+          description: Total de páginas para el tamaño solicitado.
+          example: 1
+
+    CreatePaymentRequest:
+      type: object
+      description: |
+        Cobro simulado de una orden. Idempotente por `orderId`: el mismo `orderId`
+        con el mismo contenido devuelve el pago existente.
+      additionalProperties: false
+      required:
+        - orderId
+        - amount
+        - currency
+        - method
+        - token
+      properties:
+        orderId:
+          type: string
+          format: uuid
+          description: Orden que se cobra; clave de idempotencia del pago.
+        amount:
+          type: number
+          format: double
+          exclusiveMinimum: true
+          minimum: 0
+          multipleOf: 0.01
+          description: Monto a cobrar, mayor que cero y con dos decimales.
+          example: 40000.00
+        currency:
+          type: string
+          enum:
+            - ARS
+          description: Moneda del cobro.
+          example: ARS
+        method:
+          $ref: '#/components/schemas/PaymentMethod'
+        token:
+          type: string
+          description: |
+            Token de simulación. `tok_approved` aprueba, `tok_rejected` rechaza y
+            `tok_pending` deja el pago pendiente; cualquier otro valor responde
+            `400`.
+          enum:
+            - tok_approved
+            - tok_rejected
+            - tok_pending
+          example: tok_approved
+
+    PaymentResponse:
+      type: object
+      description: |
+        Pago registrado por Payment Mock. No incluye el token de simulación ni
+        datos del comprador.
+      additionalProperties: false
+      required:
+        - paymentId
+        - orderId
+        - status
+        - amount
+        - currency
+        - method
+        - createdAt
+        - updatedAt
+      properties:
+        paymentId:
+          type: string
+          format: uuid
+          description: Identificador del pago.
+        orderId:
+          type: string
+          format: uuid
+          description: Orden cobrada.
+        status:
+          $ref: '#/components/schemas/PaymentStatus'
+        amount:
+          type: number
+          format: double
+          minimum: 0.01
+          multipleOf: 0.01
+          description: Monto cobrado.
+          example: 40000.00
+        currency:
+          type: string
+          enum:
+            - ARS
+          description: Moneda del pago.
+          example: ARS
+        method:
+          $ref: '#/components/schemas/PaymentMethod'
+        createdAt:
+          type: string
+          format: date-time
+          description: Momento de creación del pago.
+        updatedAt:
+          type: string
+          format: date-time
+          description: Momento de la última actualización del pago.
+
     Problem:
       type: object
       description: |
@@ -1236,6 +2785,15 @@ components:
           minLength: 1
           description: Correlation ID de la solicitud, igual al devuelto en el header.
           example: trace-inventory-1
+        orderId:
+          type: string
+          format: uuid
+          description: |
+            Contexto opcional. Sólo aparece en errores de compra que informan la
+            orden afectada (por ejemplo un pago rechazado o un conflicto).
+          example: 6f4e1b2a-3c4d-4e5f-9a0b-1c2d3e4f5a6b
+        orderStatus:
+          $ref: '#/components/schemas/OrderStatus'
 
   examples:
     Availability:
@@ -1269,7 +2827,9 @@ components:
             available: 390
 
     ReservationRequest:
-      summary: Reserva de dos asientos numerados y dos cupos generales
+      summary: |
+        Solicitud de dos asientos numerados y dos cupos generales; el request no
+        cambia y usa sólo identificadores de Inventory
       value:
         orderId: 5e3f0a4e-1b2c-4d3e-8f90-a1b2c3d4e5f6
         eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
@@ -1283,7 +2843,7 @@ components:
             quantity: 2
 
     ReservationActive:
-      summary: Reserva activa con vencimiento
+      summary: Reserva activa con vencimiento y datos de origen
       value:
         reservationId: 7a6b5c4d-3e2f-41a0-9b8c-7d6e5f4a3b2c
         orderId: 5e3f0a4e-1b2c-4d3e-8f90-a1b2c3d4e5f6
@@ -1295,15 +2855,33 @@ components:
           - sectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
             seatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
             quantity: 1
+            sourceSectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+            sourceSeatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+            sectorName: Platea
+            sectorType: NUMBERED
+            rowLabel: A
+            seatNumber: 1
           - sectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
             seatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f602
             quantity: 1
+            sourceSectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+            sourceSeatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f602
+            sectorName: Platea
+            sectorType: NUMBERED
+            rowLabel: A
+            seatNumber: 2
           - sectorId: 9c8d7e6f-5a4b-4c3d-8e2f-1a0b9c8d7e6f
             seatId: null
             quantity: 2
+            sourceSectorId: 9c8d7e6f-5a4b-4c3d-8e2f-1a0b9c8d7e6f
+            sourceSeatId: null
+            sectorName: Campo
+            sectorType: GENERAL_ADMISSION
+            rowLabel: null
+            seatNumber: null
 
     ReservationConfirmed:
-      summary: Reserva confirmada
+      summary: Reserva confirmada con datos de origen
       value:
         reservationId: 7a6b5c4d-3e2f-41a0-9b8c-7d6e5f4a3b2c
         orderId: 5e3f0a4e-1b2c-4d3e-8f90-a1b2c3d4e5f6
@@ -1315,12 +2893,24 @@ components:
           - sectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
             seatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
             quantity: 1
+            sourceSectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+            sourceSeatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+            sectorName: Platea
+            sectorType: NUMBERED
+            rowLabel: A
+            seatNumber: 1
           - sectorId: 9c8d7e6f-5a4b-4c3d-8e2f-1a0b9c8d7e6f
             seatId: null
             quantity: 2
+            sourceSectorId: 9c8d7e6f-5a4b-4c3d-8e2f-1a0b9c8d7e6f
+            sourceSeatId: null
+            sectorName: Campo
+            sectorType: GENERAL_ADMISSION
+            rowLabel: null
+            seatNumber: null
 
     ReservationReleased:
-      summary: Reserva liberada
+      summary: Reserva liberada con datos de origen
       value:
         reservationId: 7a6b5c4d-3e2f-41a0-9b8c-7d6e5f4a3b2c
         orderId: 5e3f0a4e-1b2c-4d3e-8f90-a1b2c3d4e5f6
@@ -1332,9 +2922,21 @@ components:
           - sectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
             seatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
             quantity: 1
+            sourceSectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+            sourceSeatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+            sectorName: Platea
+            sectorType: NUMBERED
+            rowLabel: A
+            seatNumber: 1
           - sectorId: 9c8d7e6f-5a4b-4c3d-8e2f-1a0b9c8d7e6f
             seatId: null
             quantity: 2
+            sourceSectorId: 9c8d7e6f-5a4b-4c3d-8e2f-1a0b9c8d7e6f
+            sourceSeatId: null
+            sectorName: Campo
+            sectorType: GENERAL_ADMISSION
+            rowLabel: null
+            seatNumber: null
 
     HoldTtlRequest:
       summary: Retención de 300 segundos
@@ -1439,3 +3041,409 @@ components:
         detail: An unexpected error occurred
         instance: /api/inventory/events/e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b/availability
         correlationId: trace-inventory-1
+
+    CatalogPurchaseSnapshot:
+      summary: Snapshot de compra con precio por sector
+      value:
+        eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+        snapshotId: 1a2b3c4d-5e6f-4718-9a0b-1c2d3e4f5a6b
+        name: Concierto de prueba
+        description: Evento publicado de ejemplo
+        eventType: CONCERT
+        startsAt: '2026-12-01T21:00:00Z'
+        venue:
+          name: Estadio
+          address: Av. Siempreviva 742
+          city: Buenos Aires
+          latitude: -34.6037
+          longitude: -58.3816
+        sectors:
+          - sourceSectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+            name: Platea
+            type: NUMBERED
+            capacity: 2
+            price: 15000.00
+            seats:
+              - sourceSeatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+                row: A
+                number: 1
+              - sourceSeatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f602
+                row: A
+                number: 2
+          - sourceSectorId: 9c8d7e6f-5a4b-4c3d-8e2f-1a0b9c8d7e6f
+            name: Campo
+            type: GENERAL_ADMISSION
+            capacity: 500
+            price: 5000.00
+            seats: []
+
+    CreateOrderRequest:
+      summary: Compra de dos asientos numerados y dos cupos generales
+      value:
+        eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+        items:
+          - sectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+            seatIds:
+              - f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+              - f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f602
+          - sectorId: 9c8d7e6f-5a4b-4c3d-8e2f-1a0b9c8d7e6f
+            quantity: 2
+        payment:
+          method: CARD
+          token: tok_approved
+
+    OrderConfirmed:
+      summary: Orden CONFIRMED con pago aprobado y tickets emitidos
+      value:
+        orderId: 5e3f0a4e-1b2c-4d3e-8f90-a1b2c3d4e5f6
+        status: CONFIRMED
+        customerId: 3f1a2b3c-4d5e-4f60-8a91-b2c3d4e5f601
+        eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+        eventName: Concierto de prueba
+        eventStartsAt: '2026-12-01T21:00:00Z'
+        venueName: Estadio
+        venueCity: Buenos Aires
+        currency: ARS
+        totalAmount: 40000.00
+        reservationExpiresAt: null
+        createdAt: '2026-11-07T18:00:00Z'
+        updatedAt: '2026-11-07T18:00:05Z'
+        payment:
+          paymentId: 9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a
+          status: APPROVED
+          amount: 40000.00
+          currency: ARS
+          method: CARD
+          createdAt: '2026-11-07T18:00:02Z'
+          updatedAt: '2026-11-07T18:00:02Z'
+        items:
+          - orderItemId: 8a7b6c5d-4e3f-4a2b-9c1d-0e9f8a7b6c5d
+            sectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+            sourceSectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+            sectorName: Platea
+            sectorType: NUMBERED
+            quantity: 2
+            unitPrice: 15000.00
+            subtotal: 30000.00
+            units:
+              - unitNumber: 1
+                seatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+                sourceSeatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+                row: A
+                number: 1
+              - unitNumber: 2
+                seatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f602
+                sourceSeatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f602
+                row: A
+                number: 2
+            tickets:
+              - ticketId: 2b3c4d5e-6f70-4182-9a3b-4c5d6e7f8091
+                unitNumber: 1
+                status: ISSUED
+                qrPayload: ty1.eyJ0aWNrZXRJZCI6IjJiM2M0ZDVlIn0.3f1c9a7b8d2e
+                qrPngBase64: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
+                row: A
+                seatNumber: 1
+              - ticketId: 3c4d5e6f-7081-42a3-8b4c-5d6e7f809102
+                unitNumber: 2
+                status: ISSUED
+                qrPayload: ty1.eyJ0aWNrZXRJZCI6IjNjNGQ1ZTZmIn0.7b2d1e4a9c3f
+                qrPngBase64: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
+                row: A
+                seatNumber: 2
+          - orderItemId: 7b6c5d4e-3f2a-4b1c-8d0e-9f8a7b6c5d4e
+            sectorId: 9c8d7e6f-5a4b-4c3d-8e2f-1a0b9c8d7e6f
+            sourceSectorId: 9c8d7e6f-5a4b-4c3d-8e2f-1a0b9c8d7e6f
+            sectorName: Campo
+            sectorType: GENERAL_ADMISSION
+            quantity: 2
+            unitPrice: 5000.00
+            subtotal: 10000.00
+            units:
+              - unitNumber: 1
+                seatId: null
+                sourceSeatId: null
+                row: null
+                number: null
+              - unitNumber: 2
+                seatId: null
+                sourceSeatId: null
+                row: null
+                number: null
+            tickets:
+              - ticketId: 4d5e6f70-8192-43b4-9c5d-6e7f80910213
+                unitNumber: 1
+                status: ISSUED
+                qrPayload: ty1.eyJ0aWNrZXRJZCI6IjRkNWU2ZjcwIn0.1a2b3c4d5e6f
+                qrPngBase64: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
+              - ticketId: 5e6f7081-92a3-44c5-8d6e-7f8091021324
+                unitNumber: 2
+                status: ISSUED
+                qrPayload: ty1.eyJ0aWNrZXRJZCI6IjVlNmY3MDgxIn0.9f8e7d6c5b4a
+                qrPngBase64: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
+
+    OrderRejected:
+      summary: Orden REJECTED por pago rechazado, sin tickets
+      value:
+        orderId: 6f4e1b2a-3c4d-4e5f-9a0b-1c2d3e4f5a6b
+        status: REJECTED
+        customerId: 3f1a2b3c-4d5e-4f60-8a91-b2c3d4e5f601
+        eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+        eventName: Concierto de prueba
+        eventStartsAt: '2026-12-01T21:00:00Z'
+        venueName: Estadio
+        venueCity: Buenos Aires
+        currency: ARS
+        totalAmount: 15000.00
+        reservationExpiresAt: null
+        createdAt: '2026-11-07T18:10:00Z'
+        updatedAt: '2026-11-07T18:10:02Z'
+        payment:
+          paymentId: 1f0e9d8c-7b6a-4c5d-9e8f-7a6b5c4d3e2f
+          status: REJECTED
+          amount: 15000.00
+          currency: ARS
+          method: CARD
+          createdAt: '2026-11-07T18:10:01Z'
+          updatedAt: '2026-11-07T18:10:02Z'
+        items:
+          - orderItemId: 0a9b8c7d-6e5f-4a3b-8c2d-1e0f9a8b7c6d
+            sectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+            sourceSectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+            sectorName: Platea
+            sectorType: NUMBERED
+            quantity: 1
+            unitPrice: 15000.00
+            subtotal: 15000.00
+            units:
+              - unitNumber: 1
+                seatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+                sourceSeatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+                row: A
+                number: 1
+            tickets: []
+
+    OrderPaymentPending:
+      summary: Orden PAYMENT_PENDING con reserva vigente y sin tickets
+      value:
+        orderId: 7a1b2c3d-4e5f-4a6b-9c7d-8e9f0a1b2c3d
+        status: PAYMENT_PENDING
+        customerId: 3f1a2b3c-4d5e-4f60-8a91-b2c3d4e5f601
+        eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+        eventName: Concierto de prueba
+        eventStartsAt: '2026-12-01T21:00:00Z'
+        venueName: Estadio
+        venueCity: Buenos Aires
+        currency: ARS
+        totalAmount: 30000.00
+        reservationExpiresAt: '2026-11-07T18:20:00Z'
+        createdAt: '2026-11-07T18:15:00Z'
+        updatedAt: '2026-11-07T18:15:01Z'
+        payment:
+          paymentId: 2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d
+          status: PENDING
+          amount: 30000.00
+          currency: ARS
+          method: WALLET
+          createdAt: '2026-11-07T18:15:00Z'
+          updatedAt: '2026-11-07T18:15:01Z'
+        items:
+          - orderItemId: 3b4c5d6e-7f80-4a9b-8c1d-2e3f4a5b6c7d
+            sectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+            sourceSectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+            sectorName: Platea
+            sectorType: NUMBERED
+            quantity: 2
+            unitPrice: 15000.00
+            subtotal: 30000.00
+            units:
+              - unitNumber: 1
+                seatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+                sourceSeatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+                row: A
+                number: 1
+              - unitNumber: 2
+                seatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f602
+                sourceSeatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f602
+                row: A
+                number: 2
+            tickets: []
+
+    OrderPage:
+      summary: Página con una orden confirmada
+      value:
+        items:
+          - orderId: 5e3f0a4e-1b2c-4d3e-8f90-a1b2c3d4e5f6
+            status: CONFIRMED
+            customerId: 3f1a2b3c-4d5e-4f60-8a91-b2c3d4e5f601
+            eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+            eventName: Concierto de prueba
+            eventStartsAt: '2026-12-01T21:00:00Z'
+            venueName: Estadio
+            venueCity: Buenos Aires
+            currency: ARS
+            totalAmount: 15000.00
+            reservationExpiresAt: null
+            createdAt: '2026-11-07T18:00:00Z'
+            updatedAt: '2026-11-07T18:00:05Z'
+            payment:
+              paymentId: 9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a
+              status: APPROVED
+              amount: 15000.00
+              currency: ARS
+              method: CARD
+              createdAt: '2026-11-07T18:00:02Z'
+              updatedAt: '2026-11-07T18:00:02Z'
+            items:
+              - orderItemId: 8a7b6c5d-4e3f-4a2b-9c1d-0e9f8a7b6c5d
+                sectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+                sourceSectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+                sectorName: Platea
+                sectorType: NUMBERED
+                quantity: 1
+                unitPrice: 15000.00
+                subtotal: 15000.00
+                units:
+                  - unitNumber: 1
+                    seatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+                    sourceSeatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+                    row: A
+                    number: 1
+                tickets:
+                  - ticketId: 2b3c4d5e-6f70-4182-9a3b-4c5d6e7f8091
+                    unitNumber: 1
+                    status: ISSUED
+                    qrPayload: ty1.eyJ0aWNrZXRJZCI6IjJiM2M0ZDVlIn0.3f1c9a7b8d2e
+                    qrPngBase64: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
+                    row: A
+                    seatNumber: 1
+        page: 0
+        size: 20
+        totalElements: 1
+        totalPages: 1
+
+    CreatePaymentRequest:
+      summary: Cobro aprobado de una orden
+      value:
+        orderId: 5e3f0a4e-1b2c-4d3e-8f90-a1b2c3d4e5f6
+        amount: 40000.00
+        currency: ARS
+        method: CARD
+        token: tok_approved
+
+    PaymentApproved:
+      summary: Pago aprobado
+      value:
+        paymentId: 9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a
+        orderId: 5e3f0a4e-1b2c-4d3e-8f90-a1b2c3d4e5f6
+        status: APPROVED
+        amount: 40000.00
+        currency: ARS
+        method: CARD
+        createdAt: '2026-11-07T18:00:02Z'
+        updatedAt: '2026-11-07T18:00:02Z'
+
+    PaymentRefunded:
+      summary: Pago reintegrado
+      value:
+        paymentId: 9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a
+        orderId: 5e3f0a4e-1b2c-4d3e-8f90-a1b2c3d4e5f6
+        status: REFUNDED
+        amount: 40000.00
+        currency: ARS
+        method: CARD
+        createdAt: '2026-11-07T18:00:02Z'
+        updatedAt: '2026-11-07T18:02:00Z'
+
+    ProblemPaymentRejected:
+      summary: Pago rechazado por la pasarela simulada
+      value:
+        type: about:blank
+        title: Payment required
+        status: 402
+        detail: Payment was rejected; the order is REJECTED and its reservation was released
+        instance: /api/orders
+        correlationId: trace-purchase-1
+        orderId: 6f4e1b2a-3c4d-4e5f-9a0b-1c2d3e4f5a6b
+        orderStatus: REJECTED
+
+    ProblemIdentityRequired:
+      summary: Identidad ausente o inválida
+      value:
+        type: about:blank
+        title: Forbidden
+        status: 403
+        detail: A valid X-User-Id header is required
+        instance: /api/orders
+        correlationId: trace-purchase-1
+
+    ProblemOrderBadRequest:
+      summary: Solicitud de compra inválida
+      value:
+        type: about:blank
+        title: Invalid request
+        status: 400
+        detail: Each item must contain exactly one of seatIds or quantity
+        instance: /api/orders
+        correlationId: trace-purchase-1
+
+    ProblemOrderNotFound:
+      summary: Orden o evento no encontrado
+      value:
+        type: about:blank
+        title: Not found
+        status: 404
+        detail: Order not found
+        instance: /api/orders/5e3f0a4e-1b2c-4d3e-8f90-a1b2c3d4e5f6
+        correlationId: trace-purchase-1
+
+    ProblemOrderConflict:
+      summary: Conflicto de disponibilidad, límite o idempotencia
+      value:
+        type: about:blank
+        title: Conflict
+        status: 409
+        detail: One or more requested seats are no longer available
+        instance: /api/orders
+        correlationId: trace-purchase-1
+        orderStatus: COMPENSATED
+
+    ProblemDependencyUnavailable:
+      summary: Dependencia de la compra no disponible
+      value:
+        type: about:blank
+        title: Service unavailable
+        status: 503
+        detail: Catalog service is unavailable
+        instance: /api/orders
+        correlationId: trace-purchase-1
+
+    ProblemPaymentBadRequest:
+      summary: Cobro inválido o token desconocido
+      value:
+        type: about:blank
+        title: Invalid request
+        status: 400
+        detail: Unknown simulation token
+        instance: /internal/payments
+        correlationId: trace-payment-1
+
+    ProblemPaymentNotFound:
+      summary: Pago inexistente
+      value:
+        type: about:blank
+        title: Not found
+        status: 404
+        detail: Payment not found
+        instance: /internal/payments/9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a
+        correlationId: trace-payment-1
+
+    ProblemPaymentConflict:
+      summary: Pago existente con otro contenido o no reintegrable
+      value:
+        type: about:blank
+        title: Conflict
+        status: 409
+        detail: A payment already exists for this order with different content
+        instance: /internal/payments
+        correlationId: trace-payment-1
