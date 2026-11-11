@@ -2,9 +2,9 @@ services:
   postgres:
     image: postgres:16.4-alpine
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-ticketya_catalog}
-      POSTGRES_USER: ${POSTGRES_USER:-ticketya}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ticketya}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - catalog-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -19,16 +19,16 @@ services:
     build:
       context: ./services/catalog-service
     environment:
-      SERVER_PORT: 8081
-      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-ticketya_catalog}
-      DB_USER: ${POSTGRES_USER:-ticketya}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-ticketya}
-      INVENTORY_SERVICE_URL: http://inventory-service:8082
+      SERVER_PORT: ${CATALOG_SERVER_PORT}
+      DB_URL: ${CATALOG_DB_URL}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      INVENTORY_SERVICE_URL: ${CATALOG_INVENTORY_SERVICE_URL}
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/actuator/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${CATALOG_SERVER_PORT}/actuator/health"]
       interval: 5s
       timeout: 3s
       retries: 15
@@ -39,9 +39,9 @@ services:
   inventory-db:
     image: postgres:16.4-alpine
     environment:
-      POSTGRES_DB: ${INVENTORY_POSTGRES_DB:-ticketya_inventory}
-      POSTGRES_USER: ${POSTGRES_USER:-ticketya}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ticketya}
+      POSTGRES_DB: ${INVENTORY_POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - inventory-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -57,19 +57,19 @@ services:
       context: .
       dockerfile: services/inventory-service/Dockerfile
     environment:
-      SERVER_PORT: 8082
-      DB_URL: jdbc:postgresql://inventory-db:5432/${INVENTORY_POSTGRES_DB:-ticketya_inventory}
-      DB_USER: ${POSTGRES_USER:-ticketya}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-ticketya}
-      CATALOG_SERVICE_URL: http://catalog-service:8081
-      INVENTORY_HOLD_TTL_SECONDS: 600
+      SERVER_PORT: ${INVENTORY_SERVER_PORT}
+      DB_URL: ${INVENTORY_DB_URL}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      CATALOG_SERVICE_URL: ${INVENTORY_CATALOG_SERVICE_URL}
+      INVENTORY_HOLD_TTL_SECONDS: ${INVENTORY_HOLD_TTL_SECONDS}
     depends_on:
       inventory-db:
         condition: service_healthy
       catalog-service:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/actuator/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${INVENTORY_SERVER_PORT}/actuator/health"]
       interval: 5s
       timeout: 3s
       retries: 15
@@ -80,9 +80,9 @@ services:
   ticket-db:
     image: postgres:16.4-alpine
     environment:
-      POSTGRES_DB: ${TICKET_POSTGRES_DB:-ticketya_ticket}
-      POSTGRES_USER: ${POSTGRES_USER:-ticketya}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ticketya}
+      POSTGRES_DB: ${TICKET_POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - ticket-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -97,16 +97,16 @@ services:
     build:
       context: ./services/ticket-service
     environment:
-      SERVER_PORT: 8083
-      DB_URL: jdbc:postgresql://ticket-db:5432/${TICKET_POSTGRES_DB:-ticketya_ticket}
-      DB_USER: ${POSTGRES_USER:-ticketya}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-ticketya}
-      TICKET_QR_SIGNING_SECRET: ${TICKET_QR_SIGNING_SECRET:?Set TICKET_QR_SIGNING_SECRET before running Docker Compose}
+      SERVER_PORT: ${TICKET_SERVER_PORT}
+      DB_URL: ${TICKET_DB_URL}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      TICKET_QR_SIGNING_SECRET: ${TICKET_QR_SIGNING_SECRET}
     depends_on:
       ticket-db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8083/actuator/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${TICKET_SERVER_PORT}/actuator/health"]
       interval: 5s
       timeout: 3s
       retries: 15
@@ -117,9 +117,9 @@ services:
   purchase-db:
     image: postgres:16.4-alpine
     environment:
-      POSTGRES_DB: ${PURCHASE_POSTGRES_DB:-ticketya_purchase}
-      POSTGRES_USER: ${POSTGRES_USER:-ticketya}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ticketya}
+      POSTGRES_DB: ${PURCHASE_POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - purchase-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -133,9 +133,9 @@ services:
   payment-db:
     image: postgres:16.4-alpine
     environment:
-      POSTGRES_DB: ${PAYMENT_POSTGRES_DB:-ticketya_payment}
-      POSTGRES_USER: ${POSTGRES_USER:-ticketya}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ticketya}
+      POSTGRES_DB: ${PAYMENT_POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - payment-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -151,15 +151,15 @@ services:
       context: .
       dockerfile: services/payment-mock/Dockerfile
     environment:
-      SERVER_PORT: 8085
-      DB_URL: jdbc:postgresql://payment-db:5432/${PAYMENT_POSTGRES_DB:-ticketya_payment}
-      DB_USER: ${POSTGRES_USER:-ticketya}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-ticketya}
+      SERVER_PORT: ${PAYMENT_SERVER_PORT}
+      DB_URL: ${PAYMENT_DB_URL}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
     depends_on:
       payment-db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8085/actuator/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${PAYMENT_SERVER_PORT}/actuator/health"]
       interval: 5s
       timeout: 3s
       retries: 15
@@ -172,15 +172,15 @@ services:
       context: .
       dockerfile: services/purchase-service/Dockerfile
     environment:
-      SERVER_PORT: 8084
-      DB_URL: jdbc:postgresql://purchase-db:5432/${PURCHASE_POSTGRES_DB:-ticketya_purchase}
-      DB_USER: ${POSTGRES_USER:-ticketya}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-ticketya}
-      CATALOG_SERVICE_URL: http://catalog-service:8081
-      INVENTORY_SERVICE_URL: http://inventory-service:8082
-      PAYMENT_SERVICE_URL: http://payment-mock:8085
-      TICKET_SERVICE_URL: http://ticket-service:8083
-      PURCHASE_TICKET_LIMIT: ${PURCHASE_TICKET_LIMIT:-4}
+      SERVER_PORT: ${PURCHASE_SERVER_PORT}
+      DB_URL: ${PURCHASE_DB_URL}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      CATALOG_SERVICE_URL: ${PURCHASE_CATALOG_SERVICE_URL}
+      INVENTORY_SERVICE_URL: ${PURCHASE_INVENTORY_SERVICE_URL}
+      PAYMENT_SERVICE_URL: ${PURCHASE_PAYMENT_SERVICE_URL}
+      TICKET_SERVICE_URL: ${PURCHASE_TICKET_SERVICE_URL}
+      PURCHASE_TICKET_LIMIT: ${PURCHASE_TICKET_LIMIT}
     depends_on:
       purchase-db:
         condition: service_healthy
@@ -193,7 +193,7 @@ services:
       ticket-service:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8084/actuator/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${PURCHASE_SERVER_PORT}/actuator/health"]
       interval: 5s
       timeout: 3s
       retries: 15
@@ -205,10 +205,10 @@ services:
     build:
       context: ./services/api-gateway
     environment:
-      SERVER_PORT: 8080
-      CATALOG_SERVICE_URL: http://catalog-service:8081
-      INVENTORY_SERVICE_URL: http://inventory-service:8082
-      PURCHASE_SERVICE_URL: http://purchase-service:8084
+      SERVER_PORT: ${GATEWAY_SERVER_PORT}
+      CATALOG_SERVICE_URL: ${GATEWAY_CATALOG_SERVICE_URL}
+      INVENTORY_SERVICE_URL: ${GATEWAY_INVENTORY_SERVICE_URL}
+      PURCHASE_SERVICE_URL: ${GATEWAY_PURCHASE_SERVICE_URL}
     depends_on:
       catalog-service:
         condition: service_healthy
@@ -217,9 +217,9 @@ services:
       purchase-service:
         condition: service_healthy
     ports:
-      - "${GATEWAY_PORT:-8080}:8080"
+      - "${GATEWAY_PORT}:${GATEWAY_SERVER_PORT}"
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${GATEWAY_SERVER_PORT}/actuator/health"]
       interval: 5s
       timeout: 3s
       retries: 15

@@ -36,30 +36,22 @@ Todos los comandos de esta guía se ejecutan desde la carpeta `ticketya/` (raíz
 
 ## Variables de entorno
 
-El `docker-compose.yml` de la raíz de `ticketya/` usa los siguientes valores con predeterminados seguros. Sobreescríbelos solo si necesitas cambiar puertos o credenciales de desarrollo.
+Docker Compose carga automáticamente el archivo `.env` de esta carpeta. Mantenlo sincronizado con las variables `${...}` de `docker-compose.yml` cuando se agreguen o renombren opciones. Los valores son para desarrollo local.
 
 | Variable | Predeterminado | Propósito |
 |---|---|---|
 | `POSTGRES_DB` | `ticketya_catalog` | Nombre de la base de datos de catálogo |
 | `INVENTORY_POSTGRES_DB` | `ticketya_inventory` | Nombre de la base de datos de inventario |
 | `TICKET_POSTGRES_DB` | `ticketya_ticket` | Nombre de la base de datos de tickets |
+| `PURCHASE_POSTGRES_DB` | `ticketya_purchase` | Nombre de la base de datos de compras |
+| `PAYMENT_POSTGRES_DB` | `ticketya_payment` | Nombre de la base de datos de pagos simulados |
 | `POSTGRES_USER` | `ticketya` | Usuario de ambas bases PostgreSQL |
 | `POSTGRES_PASSWORD` | `ticketya` | Contraseña de ambas bases PostgreSQL |
 | `GATEWAY_PORT` | `8080` | Puerto publicado del API Gateway en el host |
-| `TICKET_QR_SIGNING_SECRET` | Sin valor predeterminado | Clave estable de al menos 32 bytes para firmar los QR |
+| `PURCHASE_TICKET_LIMIT` | `4` | Máximo de entradas por cliente y evento |
+| `TICKET_QR_SIGNING_SECRET` | Clave local definida en `.env` | Clave estable de al menos 32 bytes para firmar los QR |
 
-Ticket Service requiere `TICKET_QR_SIGNING_SECRET`; Compose falla explícitamente si falta. Para una sesión local de PowerShell, genera una clave de desarrollo antes de levantar el sistema:
-
-```powershell
-$bytes = New-Object byte[] 32
-$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-$rng.GetBytes($bytes)
-$env:TICKET_QR_SIGNING_SECRET = [Convert]::ToBase64String($bytes)
-$rng.Dispose()
-docker compose up --build
-```
-
-La clave debe mantenerse igual entre reinicios e instancias. Si se cambia, los QR existentes ya no podrán validarse. No la guardes en el repositorio ni uses una clave de desarrollo en producción.
+Ticket Service requiere `TICKET_QR_SIGNING_SECRET`; el `.env` incluye una clave local de desarrollo para arrancar el stack directamente. Conserva el mismo valor entre reinicios si quieres validar QR ya emitidos. Al cambiarlo, los QR existentes dejarán de validarse. No reutilices esta clave fuera del entorno didáctico local.
 
 Los servicios internos reciben su configuración a través de variables de Compose (no necesitas definirlas a menos que quieras sobreescribirlas):
 
