@@ -124,7 +124,12 @@ public class PurchaseController {
             JsonNode payment=call(paymentUrl+"/internal/payments",trace,Map.of("orderId",orderId,"amount",o.path("total").decimalValue(),"currency","ARS","paymentMethod",o.path("payment_method").asText(),"idempotencyKey",orderId.toString(),"outcome",o.path("payment_outcome").asText(outcome)));
             if(!payment.path("status").asText().equals("APPROVED")) { call(inventoryUrl+"/internal/reservations/"+reservationId+"/release",trace,Map.of()); jdbc.update("UPDATE purchase_orders SET status='REJECTED',payment_id=? WHERE id=?",UUID.fromString(payment.path("paymentId").asText()),orderId); return view(orderId); }
             jdbc.update("UPDATE purchase_orders SET status='PAYMENT_APPROVED',payment_id=? WHERE id=?",UUID.fromString(payment.path("paymentId").asText()),orderId);
-            call(inventoryUrl+"/internal/reservations/"+reservationId+"/confirm",trace,Map.of());
+            try { call(inventoryUrl+"/internal/reservations/"+reservationId+"/confirm",trace,Map.of()); }
+            catch(Exception confirmationFailure) {
+                try { call(inventoryUrl+"/internal/reservations/"+reservationId+"/release",trace,Map.of()); }
+                catch(Exception releaseFailure) { confirmationFailure.addSuppressed(releaseFailure); }
+                throw confirmationFailure;
+            }
             jdbc.update("UPDATE purchase_orders SET status='INVENTORY_CONFIRMED' WHERE id=?",orderId);
             List<Map<String,Object>> lines=jdbc.query("SELECT * FROM purchase_order_items WHERE order_id=? ORDER BY id",(r,n)->{Map<String,Object> m=new HashMap<>();m.put("id",r.getObject("id",UUID.class));m.put("sectorId",r.getObject("sector_id",UUID.class));m.put("sectorName",r.getString("sector_name"));m.put("quantity",r.getInt("quantity"));m.put("seatId",r.getObject("seat_id",UUID.class));m.put("row",r.getString("row_label"));m.put("seat",r.getObject("seat_number"));return m;},orderId);
             for(Map<String,Object> line:lines) {

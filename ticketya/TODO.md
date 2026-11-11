@@ -100,7 +100,7 @@ flowchart TD
     SAGA --> REPORT
 ```
 
-**Como elegir la siguiente tarea:** automatizar en Purchase los casos de expiracion, concurrencia, fallo downstream y reintento QR, y repetir Postman tras el renombrado de requests. Luego completar devoluciones/cancelacion con reintegros y cerrar E1. E2 puede refinarse en paralelo cuando sus dependencias contractuales esten definidas.
+**Como elegir la siguiente tarea:** completar en Purchase las pruebas de persistencia, expiracion, concurrencia, fallos downstream y reintento QR. La coleccion Postman renombrada paso localmente: 21 requests, 47 aserciones y 0 fallos, con 11 contenedores saludables. Luego completar devoluciones/cancelacion con reintegros y cerrar E1. E2 puede refinarse en paralelo cuando sus dependencias contractuales esten definidas.
 
 ## Historias y especificaciones
 
