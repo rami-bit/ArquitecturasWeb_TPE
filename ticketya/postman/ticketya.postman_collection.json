@@ -686,6 +686,21 @@
       "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('La consulta ajena no revela datos', () => pm.response.to.have.status(404));"]}}]
     },
     {
+      "name": "10d1 - Decisión de devolución sin rol ADMIN",
+      "request": {"method":"POST","header":[{"key":"X-User-Role","value":"CUSTOMER"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"decision\":\"REJECTED\"}","options":{"raw":{"language":"json"}}},"url":{"raw":"{{baseUrl}}/api/refunds/{{refundId}}/decision","host":["{{baseUrl}}"],"path":["api","refunds","{{refundId}}","decision"]}},
+      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Solo ADMIN decide devoluciones', () => pm.response.to.have.status(403));"]}}]
+    },
+    {
+      "name": "10d2 - ADMIN rechaza devolución",
+      "request": {"method":"POST","header":[{"key":"X-User-Role","value":"ADMIN"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"decision\":\"REJECTED\"}","options":{"raw":{"language":"json"}}},"url":{"raw":"{{baseUrl}}/api/refunds/{{refundId}}/decision","host":["{{baseUrl}}"],"path":["api","refunds","{{refundId}}","decision"]}},
+      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Rechazo queda registrado', () => { pm.response.to.have.status(200); const r = pm.response.json(); pm.expect(r.status).to.eql('REJECTED'); pm.expect(r.decision).to.eql('REJECTED'); pm.expect(r.progress).to.eql('NOT_STARTED'); });"]}}]
+    },
+    {
+      "name": "10d3 - Decisión incompatible retorna conflicto",
+      "request": {"method":"POST","header":[{"key":"X-User-Role","value":"ADMIN"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"decision\":\"APPROVED\"}","options":{"raw":{"language":"json"}}},"url":{"raw":"{{baseUrl}}/api/refunds/{{refundId}}/decision","host":["{{baseUrl}}"],"path":["api","refunds","{{refundId}}","decision"]}},
+      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('No cambia una decisión ya guardada', () => pm.response.to.have.status(409));"]}}]
+    },
+    {
       "name": "10e - Reintento idempotente de compra",
       "request": {
         "method": "POST",
@@ -983,7 +998,9 @@
             "exec": [
               "pm.test('Purchase within limit returns 201', function () { pm.response.to.have.status(201); });",
               "const json = pm.response.json();",
-              "pm.test('Purchase reaches four tickets', function () { pm.expect(json.status).to.eql('PAID'); pm.expect(json.items[0].tickets.tickets).to.have.length(3); });"
+              "pm.test('Purchase reaches four tickets', function () { pm.expect(json.status).to.eql('PAID'); pm.expect(json.items[0].tickets.tickets).to.have.length(3); });",
+              "pm.collectionVariables.set('approvedRefundTicketId', json.items[0].tickets.tickets[0].ticketId);",
+              "pm.collectionVariables.set('secondRefundTicketId', json.items[0].tickets.tickets[1].ticketId);"
             ]
           }
         }
@@ -1044,6 +1061,41 @@
           }
         }
       ]
+    },
+    {
+      "name": "16a - Solicitar devolución de otro ticket",
+      "request": {"method":"POST","header":[{"key":"X-User-Id","value":"{{userId}}"}],"url":{"raw":"{{baseUrl}}/api/refunds/tickets/{{approvedRefundTicketId}}","host":["{{baseUrl}}"],"path":["api","refunds","tickets","{{approvedRefundTicketId}}"]}},
+      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Segunda solicitud queda pendiente', () => { pm.response.to.have.status(201); pm.expect(pm.response.json().status).to.eql('PENDING'); });","pm.collectionVariables.set('approvedRefundId', pm.response.json().id);"]}}]
+    },
+    {
+      "name": "16b - ADMIN aprueba y completa devolución",
+      "request": {"method":"POST","header":[{"key":"X-User-Role","value":"ADMIN"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"decision\":\"APPROVED\"}","options":{"raw":{"language":"json"}}},"url":{"raw":"{{baseUrl}}/api/refunds/{{approvedRefundId}}/decision","host":["{{baseUrl}}"],"path":["api","refunds","{{approvedRefundId}}","decision"]}},
+      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Aprobación completa', () => { pm.response.to.have.status(200); const r = pm.response.json(); pm.expect(r.status).to.eql('COMPLETED'); pm.expect(r.decision).to.eql('APPROVED'); pm.expect(r.progress).to.eql('COMPLETED'); });"]}}]
+    },
+    {
+      "name": "16c - Reintento de aprobación es idempotente",
+      "request": {"method":"POST","header":[{"key":"X-User-Role","value":"ADMIN"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"decision\":\"APPROVED\"}","options":{"raw":{"language":"json"}}},"url":{"raw":"{{baseUrl}}/api/refunds/{{approvedRefundId}}/decision","host":["{{baseUrl}}"],"path":["api","refunds","{{approvedRefundId}}","decision"]}},
+      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Reintento devuelve mismo estado completo', () => { pm.response.to.have.status(200); const r = pm.response.json(); pm.expect(r.id).to.eql(pm.collectionVariables.get('approvedRefundId')); pm.expect(r.progress).to.eql('COMPLETED'); });"]}}]
+    },
+    {
+      "name": "16d - Cupo devuelto queda disponible",
+      "request": {"method":"GET","header":[],"url":{"raw":"{{baseUrl}}/api/inventory/events/{{eventId}}/availability","host":["{{baseUrl}}"],"path":["api","inventory","events","{{eventId}}","availability"]}},
+      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Solo se libera una unidad vendida', () => { pm.response.to.have.status(200); const general = pm.response.json().sectors.find(s => s.type === 'GENERAL_ADMISSION'); pm.expect(general.sold).to.eql(3); pm.expect(general.available).to.eql(497); });"]}}]
+    },
+    {
+      "name": "16e - Solicitar segundo reintegro del mismo pago",
+      "request": {"method":"POST","header":[{"key":"X-User-Id","value":"{{userId}}"}],"url":{"raw":"{{baseUrl}}/api/refunds/tickets/{{secondRefundTicketId}}","host":["{{baseUrl}}"],"path":["api","refunds","tickets","{{secondRefundTicketId}}"]}},
+      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Segundo ticket tiene solicitud propia', () => { pm.response.to.have.status(201); pm.expect(pm.response.json().id).to.not.eql(pm.collectionVariables.get('approvedRefundId')); });","pm.collectionVariables.set('secondRefundId', pm.response.json().id);"]}}]
+    },
+    {
+      "name": "16f - ADMIN reintegra segundo ticket del mismo pago",
+      "request": {"method":"POST","header":[{"key":"X-User-Role","value":"ADMIN"},{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"decision\":\"APPROVED\"}","options":{"raw":{"language":"json"}}},"url":{"raw":"{{baseUrl}}/api/refunds/{{secondRefundId}}/decision","host":["{{baseUrl}}"],"path":["api","refunds","{{secondRefundId}}","decision"]}},
+      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Segundo reintegro parcial se completa', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().progress).to.eql('COMPLETED'); });"]}}]
+    },
+    {
+      "name": "16g - Dos cupos reintegrados del mismo pago",
+      "request": {"method":"GET","header":[],"url":{"raw":"{{baseUrl}}/api/inventory/events/{{eventId}}/availability","host":["{{baseUrl}}"],"path":["api","inventory","events","{{eventId}}","availability"]}},
+      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Quedan dos unidades menos vendidas', () => { pm.response.to.have.status(200); const general = pm.response.json().sectors.find(s => s.type === 'GENERAL_ADMISSION'); pm.expect(general.sold).to.eql(2); pm.expect(general.available).to.eql(498); });"]}}]
     },
     {
       "name": "17 - Suspender evento (ADMIN)",

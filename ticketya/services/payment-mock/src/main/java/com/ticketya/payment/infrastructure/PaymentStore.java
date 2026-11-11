@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.Optional;
 import java.util.UUID;
@@ -51,12 +52,9 @@ public class PaymentStore {
                 .stream().findFirst();
     }
 
-    public RefundResponse createOrGetRefund(UUID paymentId, String key, String fingerprint) {
-        jdbc.update("""
-                INSERT INTO refunds (id, payment_id, idempotency_key, request_fingerprint)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT DO NOTHING
-                """, UUID.randomUUID(), paymentId, key, fingerprint);
+    public RefundResponse createOrGetRefund(UUID paymentId, BigDecimal amount, String key, String fingerprint) {
+        // Serialize refunds for the same charge, including calls from other instances.
+        jdbc.queryForObject("SELECT id FROM payments WHERE id = ? FOR UPDATE", UUID.class, paymentId);
         var sameKey = jdbc.query("SELECT * FROM refunds WHERE idempotency_key = ?",
                 (rs, row) -> refund(rs, row), key).stream().findFirst();
         if (sameKey.isPresent()) {
@@ -69,8 +67,19 @@ public class PaymentStore {
             }
             return sameKey.get();
         }
-        throw new ApiProblemException(HttpStatus.CONFLICT, "Refund already exists",
-                "The approved payment already has a refund");
+        BigDecimal refunded = jdbc.queryForObject(
+                "SELECT COALESCE(SUM(amount),0) FROM refunds WHERE payment_id = ?", BigDecimal.class, paymentId);
+        BigDecimal charged = jdbc.queryForObject("SELECT amount FROM payments WHERE id = ?", BigDecimal.class, paymentId);
+        if (refunded.add(amount).compareTo(charged) > 0) {
+            throw new ApiProblemException(HttpStatus.CONFLICT, "Refund exceeds payment",
+                    "Total refunds cannot exceed the approved payment");
+        }
+        jdbc.update("""
+                INSERT INTO refunds (id, payment_id, amount, idempotency_key, request_fingerprint)
+                VALUES (?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), paymentId, amount, key, fingerprint);
+        return jdbc.queryForObject("SELECT * FROM refunds WHERE idempotency_key = ?",
+                (rs, row) -> refund(rs, row), key);
     }
 
     private PaymentResponse payment(ResultSet rs, int row) throws SQLException {
@@ -81,6 +90,7 @@ public class PaymentStore {
 
     private RefundResponse refund(ResultSet rs, int row) throws SQLException {
         return new RefundResponse(rs.getObject("id", UUID.class), rs.getObject("payment_id", UUID.class),
+                rs.getBigDecimal("amount"),
                 "REFUNDED", rs.getObject("created_at", OffsetDateTime.class));
     }
 }

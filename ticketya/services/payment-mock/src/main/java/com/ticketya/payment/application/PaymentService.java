@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
+import java.math.BigDecimal;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
@@ -50,8 +51,13 @@ public class PaymentService {
             throw new ApiProblemException(HttpStatus.CONFLICT, "Payment not refundable",
                     "Only an approved payment can be refunded");
         }
-        String fingerprint = fingerprint(paymentId + "|" + payment.amount().stripTrailingZeros().toPlainString());
-        RefundResponse refund = store.createOrGetRefund(paymentId, request.idempotencyKey(), fingerprint);
+        BigDecimal amount = request.amount() == null ? payment.amount() : request.amount();
+        if (amount.signum() <= 0 || amount.scale() > 2) {
+            throw new ApiProblemException(HttpStatus.BAD_REQUEST, "Invalid refund amount",
+                    "Refund amount must be positive with at most two decimals");
+        }
+        String fingerprint = fingerprint(paymentId + "|" + amount.stripTrailingZeros().toPlainString());
+        RefundResponse refund = store.createOrGetRefund(paymentId, amount, request.idempotencyKey(), fingerprint);
         if (!refund.paymentId().equals(paymentId)) {
             throw new ApiProblemException(HttpStatus.CONFLICT,
                     "Idempotency conflict", "The idempotency key was already used for another refund");

@@ -57,9 +57,9 @@ class PaymentServiceUnitTest {
                 OffsetDateTime.now())));
 
         ApiProblemException error = assertThrows(ApiProblemException.class,
-                () -> service.refund(paymentId, new RefundRequest("refund-key")));
+                () -> service.refund(paymentId, new RefundRequest("refund-key", null)));
 
         assertEquals(409, error.getStatus().value());
-        verify(store, never()).createOrGetRefund(eq(paymentId), anyString(), anyString());
+        verify(store, never()).createOrGetRefund(eq(paymentId), org.mockito.ArgumentMatchers.any(), anyString(), anyString());
     }
 }

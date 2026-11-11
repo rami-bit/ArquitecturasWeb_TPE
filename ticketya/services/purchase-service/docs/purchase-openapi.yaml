@@ -41,6 +41,86 @@ paths:
       responses:
         "200": { description: Refund status, decision, amount and progress }
         "404": { description: Refund request not owned or not found }
+  /api/refunds/{refundId}/decision:
+    post:
+      summary: Approve or reject a refund request as ADMIN
+      description: >
+        A decision is final. Repeating the same decision resumes incomplete approved
+        refunds without repeating revocation, payment refund, or inventory release.
+        Approval revokes the ticket, refunds its original amount and then releases
+        the sold unit. Rejection leaves the ticket and inventory untouched.
+      parameters:
+        - in: path
+          name: refundId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-User-Role
+          required: true
+          schema: { type: string, enum: [ADMIN] }
+        - in: header
+          name: X-Correlation-Id
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [APPROVED, REJECTED] }
+            examples:
+              approve:
+                value: { decision: APPROVED }
+              reject:
+                value: { decision: REJECTED }
+      responses:
+        "200":
+          description: Rejected or approved refund finished, including idempotent replay
+          content:
+            application/json:
+              examples:
+                approved:
+                  value:
+                    id: "b766df75-bfc3-4d64-b502-ea24dca4ef34"
+                    ticketId: "2a2383ad-0396-4465-820f-5d75710c0206"
+                    orderId: "c3d0a75d-ac17-4d33-a240-aa91c492cd89"
+                    eventId: "e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b"
+                    amount: 12000.00
+                    status: COMPLETED
+                    decision: APPROVED
+                    progress: COMPLETED
+                    createdAt: "2026-11-10T12:00:00Z"
+                rejected:
+                  value:
+                    id: "b766df75-bfc3-4d64-b502-ea24dca4ef34"
+                    ticketId: "2a2383ad-0396-4465-820f-5d75710c0206"
+                    orderId: "c3d0a75d-ac17-4d33-a240-aa91c492cd89"
+                    eventId: "e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b"
+                    amount: 12000.00
+                    status: REJECTED
+                    decision: REJECTED
+                    progress: NOT_STARTED
+                    createdAt: "2026-11-10T12:00:00Z"
+        "202":
+          description: Decision saved; a downstream step failed and is retryable
+          content:
+            application/json:
+              example:
+                id: "b766df75-bfc3-4d64-b502-ea24dca4ef34"
+                ticketId: "2a2383ad-0396-4465-820f-5d75710c0206"
+                orderId: "c3d0a75d-ac17-4d33-a240-aa91c492cd89"
+                eventId: "e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b"
+                amount: 12000.00
+                status: APPROVED
+                decision: APPROVED
+                progress: TICKET_REVOKED
+                createdAt: "2026-11-10T12:00:00Z"
+        "400": { description: Invalid decision, application/problem+json }
+        "403": { description: Only ADMIN can decide, application/problem+json }
+        "404": { description: Refund request not found, application/problem+json }
+        "409": { description: A different decision was already saved, application/problem+json }
   /api/purchases:
     post:
       summary: Create and process an idempotent purchase

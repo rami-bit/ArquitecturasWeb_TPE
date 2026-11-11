@@ -76,6 +76,18 @@ class PaymentContractTest {
         assertThat(body(firstRefund).path("refundId").asText())
                 .isEqualTo(body(replayRefund).path("refundId").asText());
 
+        // Multiple tickets on one charge can be refunded separately, up to the charge amount.
+        String secondPayment = body(post("/internal/payments",
+                charge(UUID.randomUUID(), UUID.randomUUID().toString(), "APPROVED")))
+                .path("paymentId").asText();
+        String partialPath = "/internal/payments/%s/refunds".formatted(secondPayment);
+        String firstPartial = "{\"idempotencyKey\":\"%s\",\"amount\":500.00}".formatted(UUID.randomUUID());
+        String secondPartial = "{\"idempotencyKey\":\"%s\",\"amount\":750.00}".formatted(UUID.randomUUID());
+        assertThat(post(partialPath, firstPartial).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(post(partialPath, secondPartial).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(post(partialPath, "{\"idempotencyKey\":\"%s\",\"amount\":0.01}".formatted(UUID.randomUUID()))
+                .getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+
         String rejectedId = body(post("/internal/payments",
                 charge(UUID.randomUUID(), UUID.randomUUID().toString(), "REJECTED")))
                 .path("paymentId").asText();

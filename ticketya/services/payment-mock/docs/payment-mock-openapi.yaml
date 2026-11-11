@@ -35,7 +35,7 @@ paths:
           description: Idempotency conflict
   /internal/payments/{paymentId}/refunds:
     post:
-      summary: Create or recover a refund for an approved charge
+      summary: Create or recover a partial refund for an approved charge
       parameters:
         - in: path
           name: paymentId
@@ -54,13 +54,25 @@ paths:
                 idempotencyKey:
                   type: string
                   example: order-4ef45f2a-refund
+                amount:
+                  type: number
+                  minimum: 0.01
+                  description: Amount to refund; omitted only for a full refund.
+                  example: 12500.00
       responses:
         '201':
           description: Refund created or recovered
+          content:
+            application/json:
+              example:
+                refundId: 424a327a-f1bf-4775-b538-f63750b2dfca
+                paymentId: 4ef45f2a-87eb-4c40-9840-e08d4db5e345
+                amount: 12500.00
+                status: REFUNDED
         '404':
           description: Payment not found
         '409':
-          description: Payment not refundable or idempotency conflict
+          description: Payment not refundable, total refunds exceed charge, or idempotency conflict
 components:
   schemas:
     PaymentRequest:

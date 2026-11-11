@@ -8,11 +8,12 @@
 
 ## 2. Decisión y reintegro individual
 
-- [ ] 2.1 Exponer decisión ADMIN idempotente y rechazo sin efectos colaterales; verificar roles y decisión incompatible en pruebas.
+- [x] 2.1 Exponer decisión ADMIN idempotente y rechazo sin efectos colaterales; verificar roles y decisión incompatible en pruebas.
 - [ ] 2.2 Implementar revocación idempotente en Ticket y documentar su contrato; verificar estado y reintento en PostgreSQL real.
 - [ ] 2.3 Implementar liberación de unidad vendida en Inventory; verificar asiento, cupo general, reintento y competencia con pruebas PostgreSQL.
+- [ ] 2.3a Extender Payment Mock para varios reintegros parciales idempotentes por cobro, con límite por importe y pruebas de persistencia.
 - [ ] 2.4 Orquestar revocación, reintegro y liberación en Purchase con progreso durable; verificar fallo en cada dependencia y recuperación sin dobles efectos.
-- [ ] 2.5 Documentar flujo aprobado/rechazado en OpenAPI/Postman; verificarlo por Gateway en Compose.
+- [x] 2.5 Documentar flujo aprobado/rechazado en OpenAPI/Postman; verificarlo por Gateway en Compose.
 
 ## 3. Cancelación masiva
 

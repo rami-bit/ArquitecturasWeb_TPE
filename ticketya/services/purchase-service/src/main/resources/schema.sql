@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS purchase_order_items (
   seat_number INTEGER,
   ticket_payload TEXT
 );
+ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS reservation_id UUID;
 CREATE TABLE IF NOT EXISTS refund_requests (
   id UUID PRIMARY KEY,
   ticket_id UUID NOT NULL UNIQUE,

@@ -40,7 +40,7 @@ Purchase SHALL permitir solo a ADMIN aprobar o rechazar una solicitud pendiente,
 - **THEN** se responde 409 y se conserva la decisión original
 
 ### Requirement: Completar reintegro sin duplicar efectos
-Purchase SHALL revocar el ticket, solicitar un reintegro idempotente por su importe original y liberar su unidad vendida solo tras confirmar el reintegro. Los fallos parciales SHALL permanecer reintentables.
+Purchase SHALL revocar el ticket, solicitar un reintegro idempotente por su importe original y liberar su unidad vendida solo tras confirmar el reintegro. Payment Mock SHALL aceptar varios reintegros parciales por cobro sin superar el importe cobrado. Los fallos parciales SHALL permanecer reintentables.
 
 #### Scenario: Reintegro exitoso
 - **WHEN** el proveedor confirma el reintegro de un ticket aprobado

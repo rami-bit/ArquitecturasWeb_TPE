@@ -14,7 +14,21 @@ GET http://localhost:8080/api/refunds/{refundId}
 X-User-Id: 66bd0a43-1baa-4f7b-8316-930593b84d7c
 ```
 
-La respuesta inicial indica `PENDING`, decisión nula y progreso `NOT_STARTED`. Otro usuario recibe `404`. La aprobación administrativa y el reintegro corresponden a los pasos siguientes de US-F7.
+La respuesta inicial indica `PENDING`, decisión nula y progreso `NOT_STARTED`. Otro usuario recibe `404`.
+
+## Decidir una devolución (US-F7.2)
+
+Un administrador aprueba o rechaza una solicitud mediante el Gateway. El rol se simula con el encabezado `X-User-Role`; no hay autenticación en esta entrega.
+
+```http
+POST http://localhost:8080/api/refunds/{refundId}/decision
+X-User-Role: ADMIN
+Content-Type: application/json
+
+{"decision":"APPROVED"}
+```
+
+Para rechazar, usa `{"decision":"REJECTED"}`. El rechazo conserva el ticket y su lugar vendido. Al aprobar, Purchase revoca el ticket, solicita el reintegro idempotente a Payment Mock y libera la unidad vendida en Inventory. Un `200` indica proceso completo; `202` indica que una dependencia falló y se puede repetir la misma decisión para continuar. Una decisión opuesta responde `409`.
 
 
 ## Compra local (Purchase + Payment Mock)
@@ -205,7 +219,7 @@ Ticket Service escucha en `ticket-service:8083`, dentro de la red de Compose. Pu
 
 La solicitud incluye al comprador, el snapshot del evento y las unidades del item; para asientos numerados cada unidad lleva fila y número. La primera emisión devuelve `201`; un reintento idéntico devuelve `200` con los mismos tickets y QR. Reutilizar la pareja `orderId + orderItemId` con distinto contenido devuelve `409`.
 
-La respuesta contiene `qrPayload` y `qrPngBase64`. La imagen PNG se genera al responder; PostgreSQL conserva el hash del payload, no el token. La API es interna y no tiene ruta en el Gateway. **Como Purchase Service todavía no existe, la emisión se puede verificar por contrato, pero aún no hay flujo real de compra que la invoque.**
+La respuesta contiene `qrPayload` y `qrPngBase64`. La imagen PNG se genera al responder; PostgreSQL conserva el hash del payload, no el token. La API es interna y no tiene ruta en el Gateway. Purchase invoca esta emisión al completar una compra aprobada.
 
 Valida la documentación y el estado del servicio desde el contenedor:
 
@@ -214,7 +228,7 @@ docker compose exec -T ticket-service wget -qO- http://localhost:8083/v3/api-doc
 docker compose exec -T ticket-service wget -qO- http://localhost:8083/actuator/health
 ```
 
-El contrato versionado está en `services/ticket-service/docs/ticket-openapi.yaml`. Este alcance emite QR; validación en acceso, revocación y devoluciones siguen pendientes.
+El contrato versionado está en `services/ticket-service/docs/ticket-openapi.yaml`. Ticket permite revocar internamente una entrada vendida; la validación en acceso queda para US-F8.
 
 ## Validar OpenAPI (interno, vía contenedor)
 
