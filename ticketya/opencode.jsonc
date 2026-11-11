@@ -1,0 +1,25 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "sdd-orchestrator",
+  "agents": {
+    "sdd-orchestrator": {
+      "mode": "primary",
+      "model": "opencode/deepseek-v4.1-flash-free",
+      "permissions": [
+        { "action": "subagent", "resource": "*", "effect": "allow" }
+      ]
+    },
+    "spec-designer": {
+      "mode": "subagent",
+      "model": "opencode/deepseek-v4.1-flash-free"
+    },
+    "contract-tester": {
+      "mode": "subagent",
+      "model": "opencode/mimo-v2.6-flash-free"
+    },
+    "api-builder": {
+      "mode": "subagent",
+      "model": "opencode/nemotron-3.5-super-free"
+    }
+  }
+}

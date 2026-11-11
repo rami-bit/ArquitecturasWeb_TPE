@@ -1,5 +1,27 @@
 # TicketYa - Catálogo de Eventos e Inventario (Entrega 1)
 
+## Compra local (Purchase + Payment Mock)
+
+El flujo de compra se expone en `POST /api/purchases` y `GET /api/purchases/{orderId}` a través del Gateway. Cada compra requiere `X-User-Id` y `Idempotency-Key`; el body incluye `eventId`, `items`, `paymentMethod` y el control local opcional `paymentOutcome` (`APPROVED` por defecto o `REJECTED`). El límite por cliente/evento es cuatro entradas por defecto y se cambia con `PURCHASE_TICKET_LIMIT`.
+
+Ejemplo de compra:
+
+```http
+POST http://localhost:8080/api/purchases
+X-User-Id: 66bd0a43-1baa-4f7b-8316-930593b84d7c
+Idempotency-Key: demo-purchase-001
+Content-Type: application/json
+
+{
+  "eventId": "e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b",
+  "paymentMethod": "CARD",
+  "paymentOutcome": "APPROVED",
+  "items": [{"sectorId":"a88d7b2d-9019-4c3c-8bc4-e0ecc43c955b","quantity":2}]
+}
+```
+
+Para demostrar un rechazo, repetir el ejemplo con una clave nueva y `paymentOutcome: "REJECTED"`. La respuesta contiene el estado de la orden; una orden recuperable se responde como `202 Accepted` y se puede volver a procesar repitiendo el POST con la misma clave. `GET /api/purchases/{orderId}` devuelve el detalle y los QR emitidos al titular. Payment Mock y los comandos `/internal/**` sólo son accesibles dentro de Compose.
+
 Incremento actual de TicketYa: administración de lugares, borradores de eventos, publicación con snapshot inmutable, descubrimiento público, inventario de disponibilidad y reservas temporales. Ticket Service también está disponible para emitir entradas QR mediante un contrato interno; la compra que lo invoca todavía no está implementada.
 
 El Catálogo es dueño del snapshot publicado y de los precios. Inventory es dueño de la disponibilidad y de las reservas: materializa el layout desde el snapshot de Catalog (sin copiar precios) y expone `GET /api/inventory/events/{eventId}/availability`. Los comandos de reserva (`/internal/**`) son internos y no se publican por el Gateway; los consumirá el futuro Purchase Service.
@@ -14,30 +36,22 @@ Todos los comandos de esta guía se ejecutan desde la carpeta `ticketya/` (raíz
 
 ## Variables de entorno
 
-El `docker-compose.yml` de la raíz de `ticketya/` usa los siguientes valores con predeterminados seguros. Sobreescríbelos solo si necesitas cambiar puertos o credenciales de desarrollo.
+Docker Compose carga automáticamente el archivo `.env` de esta carpeta. Mantenlo sincronizado con las variables `${...}` de `docker-compose.yml` cuando se agreguen o renombren opciones. Los valores son para desarrollo local.
 
 | Variable | Predeterminado | Propósito |
 |---|---|---|
 | `POSTGRES_DB` | `ticketya_catalog` | Nombre de la base de datos de catálogo |
 | `INVENTORY_POSTGRES_DB` | `ticketya_inventory` | Nombre de la base de datos de inventario |
 | `TICKET_POSTGRES_DB` | `ticketya_ticket` | Nombre de la base de datos de tickets |
+| `PURCHASE_POSTGRES_DB` | `ticketya_purchase` | Nombre de la base de datos de compras |
+| `PAYMENT_POSTGRES_DB` | `ticketya_payment` | Nombre de la base de datos de pagos simulados |
 | `POSTGRES_USER` | `ticketya` | Usuario de ambas bases PostgreSQL |
 | `POSTGRES_PASSWORD` | `ticketya` | Contraseña de ambas bases PostgreSQL |
 | `GATEWAY_PORT` | `8080` | Puerto publicado del API Gateway en el host |
-| `TICKET_QR_SIGNING_SECRET` | Sin valor predeterminado | Clave estable de al menos 32 bytes para firmar los QR |
+| `PURCHASE_TICKET_LIMIT` | `4` | Máximo de entradas por cliente y evento |
+| `TICKET_QR_SIGNING_SECRET` | Clave local definida en `.env` | Clave estable de al menos 32 bytes para firmar los QR |
 
-Ticket Service requiere `TICKET_QR_SIGNING_SECRET`; Compose falla explícitamente si falta. Para una sesión local de PowerShell, genera una clave de desarrollo antes de levantar el sistema:
-
-```powershell
-$bytes = New-Object byte[] 32
-$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-$rng.GetBytes($bytes)
-$env:TICKET_QR_SIGNING_SECRET = [Convert]::ToBase64String($bytes)
-$rng.Dispose()
-docker compose up --build
-```
-
-La clave debe mantenerse igual entre reinicios e instancias. Si se cambia, los QR existentes ya no podrán validarse. No la guardes en el repositorio ni uses una clave de desarrollo en producción.
+Ticket Service requiere `TICKET_QR_SIGNING_SECRET`; el `.env` incluye una clave local de desarrollo para arrancar el stack directamente. Conserva el mismo valor entre reinicios si quieres validar QR ya emitidos. Al cambiarlo, los QR existentes dejarán de validarse. No reutilices esta clave fuera del entorno didáctico local.
 
 Los servicios internos reciben su configuración a través de variables de Compose (no necesitas definirlas a menos que quieras sobreescribirlas):
 
