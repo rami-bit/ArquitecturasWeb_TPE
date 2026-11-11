@@ -1,5 +1,22 @@
 # TicketYa - Catálogo de Eventos e Inventario (Entrega 1)
 
+## Solicitud de devolución (US-F7.1)
+
+El titular de un ticket pagado puede pedir su devolución hasta antes de las 72 horas previas al evento. La solicitud y la consulta pasan por el Gateway; repetir el POST devuelve la misma solicitud.
+
+```http
+POST http://localhost:8080/api/refunds/tickets/{ticketId}
+X-User-Id: 66bd0a43-1baa-4f7b-8316-930593b84d7c
+```
+
+```http
+GET http://localhost:8080/api/refunds/{refundId}
+X-User-Id: 66bd0a43-1baa-4f7b-8316-930593b84d7c
+```
+
+La respuesta inicial indica `PENDING`, decisión nula y progreso `NOT_STARTED`. Otro usuario recibe `404`. La aprobación administrativa y el reintegro corresponden a los pasos siguientes de US-F7.
+
+
 ## Compra local (Purchase + Payment Mock)
 
 El flujo de compra se expone en `POST /api/purchases` y `GET /api/purchases/{orderId}` a través del Gateway. Cada compra requiere `X-User-Id` y `Idempotency-Key`; el body incluye `eventId`, `items`, `paymentMethod` y el control local opcional `paymentOutcome` (`APPROVED` por defecto o `REJECTED`). El límite por cliente/evento es cuatro entradas por defecto y se cambia con `PURCHASE_TICKET_LIMIT`.
@@ -21,10 +38,6 @@ Content-Type: application/json
 ```
 
 Para demostrar un rechazo, repetir el ejemplo con una clave nueva y `paymentOutcome: "REJECTED"`. La respuesta contiene el estado de la orden; una orden recuperable se responde como `202 Accepted` y se puede volver a procesar repitiendo el POST con la misma clave. `GET /api/purchases/{orderId}` devuelve el detalle y los QR emitidos al titular. Payment Mock y los comandos `/internal/**` sólo son accesibles dentro de Compose.
-
-Incremento actual de TicketYa: administración de lugares, borradores de eventos, publicación con snapshot inmutable, descubrimiento público, inventario de disponibilidad y reservas temporales. Ticket Service también está disponible para emitir entradas QR mediante un contrato interno; la compra que lo invoca todavía no está implementada.
-
-El Catálogo es dueño del snapshot publicado y de los precios. Inventory es dueño de la disponibilidad y de las reservas: materializa el layout desde el snapshot de Catalog (sin copiar precios) y expone `GET /api/inventory/events/{eventId}/availability`. Los comandos de reserva (`/internal/**`) son internos y no se publican por el Gateway; los consumirá el futuro Purchase Service.
 
 ## Requisitos
 

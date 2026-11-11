@@ -28,3 +28,18 @@ CREATE TABLE IF NOT EXISTS purchase_order_items (
   seat_number INTEGER,
   ticket_payload TEXT
 );
+CREATE TABLE IF NOT EXISTS refund_requests (
+  id UUID PRIMARY KEY,
+  ticket_id UUID NOT NULL UNIQUE,
+  order_id UUID NOT NULL REFERENCES purchase_orders(id),
+  order_item_id UUID NOT NULL REFERENCES purchase_order_items(id),
+  customer_id UUID NOT NULL,
+  event_id UUID NOT NULL,
+  amount NUMERIC(12,2) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+  decision VARCHAR(16),
+  progress VARCHAR(32) NOT NULL DEFAULT 'NOT_STARTED',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT refund_amount_positive CHECK (amount > 0)
+);
+CREATE INDEX IF NOT EXISTS ix_refunds_customer ON refund_requests(customer_id,created_at);

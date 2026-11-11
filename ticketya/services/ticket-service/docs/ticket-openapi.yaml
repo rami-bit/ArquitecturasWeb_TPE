@@ -12,6 +12,42 @@ servers:
     description: Internal Docker Compose network only.
 
 paths:
+  /internal/tickets/{ticketId}/revoke:
+    post:
+      operationId: revokeTicket
+      summary: Revoke one issued ticket after an approved refund
+      description: Internal idempotent command. Repeating it for a revoked ticket returns the same result.
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: X-Correlation-Id
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Ticket is revoked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketRevocationResponse'
+        '404':
+          description: Ticket does not exist.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Used ticket cannot be revoked.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /internal/orders/{orderId}/items/{orderItemId}/tickets:
     post:
       operationId: issueTicketsForOrderItem
@@ -67,6 +103,16 @@ paths:
                 $ref: '#/components/schemas/Problem'
 components:
   schemas:
+    TicketRevocationResponse:
+      type: object
+      required: [ticketId, status]
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [REVOKED]
     TicketIssueRequest:
       type: object
       required:

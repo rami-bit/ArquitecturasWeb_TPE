@@ -4,7 +4,7 @@
 
 - [ ] 1.1 Persistir solicitud única por ticket en Purchase, con titular, importe, evento, decisión y progreso; verificar constraints y lectura en PostgreSQL real.
 - [ ] 1.2 Exponer solicitud y consulta del titular, con ventana de 72 horas y respuesta 404 para terceros; verificar límites de tiempo, duplicados y permisos con pruebas HTTP.
-- [ ] 1.3 Documentar rutas y ejemplos en OpenAPI/Postman; ejecutar los ejemplos contra Compose.
+- [x] 1.3 Documentar rutas y ejemplos en OpenAPI/Postman; ejecutar los ejemplos contra Compose.
 
 ## 2. Decisión y reintegro individual
 

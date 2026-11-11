@@ -6,6 +6,41 @@ info:
 servers:
   - url: http://localhost:8080
 paths:
+  /api/refunds/tickets/{ticketId}:
+    post:
+      summary: Request a refund for an owned paid ticket at least 72 hours before the event
+      parameters:
+        - in: path
+          name: ticketId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-User-Id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-Correlation-Id
+          schema: { type: string }
+      responses:
+        "201": { description: Refund request created with PENDING status }
+        "200": { description: Existing request returned }
+        "404": { description: Ticket not owned or not found }
+        "409": { description: Refund window closed or ticket is not refundable }
+  /api/refunds/{refundId}:
+    get:
+      summary: Inspect an owned refund request
+      parameters:
+        - in: path
+          name: refundId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-User-Id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Refund status, decision, amount and progress }
+        "404": { description: Refund request not owned or not found }
   /api/purchases:
     post:
       summary: Create and process an idempotent purchase

@@ -87,3 +87,10 @@ CREATE INDEX IF NOT EXISTS idx_inventory_items_reservation
     ON inventory_items (reservation_id);
 
 ALTER TABLE event_inventories ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS sold_unit_releases (
+    reservation_item_id UUID NOT NULL REFERENCES reservation_items (id),
+    unit_number INTEGER NOT NULL CHECK (unit_number > 0),
+    released_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (reservation_item_id, unit_number)
+);

@@ -24,6 +24,13 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.test.web.servlet.MockMvc;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -58,6 +65,7 @@ class PurchaseFlowIntegrationTest {
         var dataSource = new DriverManagerDataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
         new ResourceDatabasePopulator(new ClassPathResource("schema.sql")).execute(dataSource);
         jdbc = new JdbcTemplate(dataSource);
+        jdbc.update("DELETE FROM refund_requests");
         jdbc.update("DELETE FROM purchase_order_items");
         jdbc.update("DELETE FROM purchase_orders");
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -73,6 +81,43 @@ class PurchaseFlowIntegrationTest {
     @AfterEach void stop() {
         if (server != null) server.stop(0);
         if (serverThreads != null) serverThreads.shutdownNow();
+    }
+
+    @Test void refundRequestUsesCurrentEventDateAndHidesOtherOwners() throws Exception {
+        UUID order = UUID.randomUUID(), item = UUID.randomUUID(), ticket = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO purchase_orders(id,customer_id,event_id,event_name,event_starts_at,venue_name,venue_city,
+                payment_method,payment_outcome,status,idempotency_key,request_fingerprint,total)
+                VALUES (?,?,?,'Show','2027-01-01T20:00:00Z','Hall','Buenos Aires','CARD','APPROVED','PAID',?,'fingerprint',2500)
+                """,order,CUSTOMER,EVENT,UUID.randomUUID().toString());
+        jdbc.update("""
+                INSERT INTO purchase_order_items(id,order_id,sector_id,sector_name,unit_price,quantity,ticket_payload)
+                VALUES (?,?,?,'General',2500,1,?::text)
+                """,item,order,SECTOR,"{\"tickets\":[{\"ticketId\":\""+ticket+"\"}]}");
+        String base = "http://127.0.0.1:" + server.getAddress().getPort();
+        Clock valid = Clock.fixed(Instant.parse("2026-12-20T00:00:00Z"),ZoneOffset.UTC);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new RefundRequestController(jdbc,
+                new TransactionTemplate(new DataSourceTransactionManager(new DriverManagerDataSource(
+                        postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()))),
+                new ObjectMapper(),valid,base)).build();
+        String path = "/api/refunds/tickets/"+ticket;
+        mvc.perform(post(path).header("X-User-Id",UUID.randomUUID())).andExpect(status().isNotFound());
+        mvc.perform(post(path).header("X-User-Id",CUSTOMER)).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("PENDING"));
+        mvc.perform(post(path).header("X-User-Id",CUSTOMER)).andExpect(status().isOk());
+        assertEquals(1,jdbc.queryForObject("SELECT count(*) FROM refund_requests",Integer.class));
+        UUID refundId=jdbc.queryForObject("SELECT id FROM refund_requests WHERE ticket_id=?",UUID.class,ticket);
+        mvc.perform(get("/api/refunds/"+refundId).header("X-User-Id",UUID.randomUUID()))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/api/refunds/"+refundId).header("X-User-Id",CUSTOMER))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.ticketId").value(ticket.toString()));
+        Clock boundary=Clock.fixed(Instant.parse("2026-12-29T20:00:00Z"),ZoneOffset.UTC);
+        MockMvc late=MockMvcBuilders.standaloneSetup(new RefundRequestController(jdbc,
+                new TransactionTemplate(new DataSourceTransactionManager(new DriverManagerDataSource(
+                        postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()))),
+                new ObjectMapper(),boundary,base)).build();
+        jdbc.update("DELETE FROM refund_requests");
+        late.perform(post(path).header("X-User-Id",CUSTOMER)).andExpect(status().isConflict());
     }
 
     @Test void approvedAndRejectedPurchasesPersistSnapshotsAndDoNotDuplicateCharges() {

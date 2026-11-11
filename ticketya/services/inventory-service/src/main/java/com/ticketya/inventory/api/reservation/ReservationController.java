@@ -141,4 +141,19 @@ public class ReservationController {
             @PathVariable UUID reservationId) {
         return service.release(reservationId);
     }
+
+    @PostMapping("/{reservationId}/sold-units/release")
+    @Operation(operationId = "releaseSoldUnit", summary = "Release one refunded sold unit",
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "Unit released or idempotent replay"),
+                    @ApiResponse(responseCode = "400", description = "Invalid unit number"),
+                    @ApiResponse(responseCode = "409", description = "Unit is not sold by this reservation")
+            })
+    public ReservationService.SoldUnitRelease releaseSoldUnit(
+            @PathVariable UUID reservationId,
+            @Valid @RequestBody SoldUnitReleaseRequest request) {
+        return service.releaseSoldUnit(reservationId, request.sectorId(), request.seatId(), request.unitNumber());
+    }
+
+    public record SoldUnitReleaseRequest(UUID sectorId, UUID seatId, int unitNumber) { }
 }

@@ -256,11 +256,59 @@ class TicketIssuanceContractTest {
     }
 
     @Test
+    void revocationPersistsAndRepeatedCommandIsIdempotent() throws Exception {
+        ResponseEntity<String> issued = post(UUID.randomUUID(), UUID.randomUUID(),
+                request(new TicketUnitRequest(1, null, null)), "revoke-contract");
+        UUID ticketId = UUID.fromString(parse(issued).path("tickets").get(0).path("ticketId").asText());
+        String url = "http://localhost:" + port + "/internal/tickets/" + ticketId + "/revoke";
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Correlation-Id", "revoke-contract");
+
+        ResponseEntity<String> first = http.exchange(url, HttpMethod.POST,
+                new HttpEntity<>(headers), String.class);
+        ResponseEntity<String> repeated = http.exchange(url, HttpMethod.POST,
+                new HttpEntity<>(headers), String.class);
+
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(repeated.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(first.getHeaders().getFirst("X-Correlation-Id")).isEqualTo("revoke-contract");
+        assertThat(parse(first)).isEqualTo(parse(repeated));
+        assertThat(parse(first).path("status").asText()).isEqualTo("REVOKED");
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM tickets WHERE id=?",
+                String.class, ticketId)).isEqualTo("REVOKED");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM tickets WHERE id=?",
+                Integer.class, ticketId)).isEqualTo(1);
+    }
+
+    @Test
+    void usedTicketCannotBeRevokedAndUnknownTicketReturnsNotFound() throws Exception {
+        ResponseEntity<String> issued = post(UUID.randomUUID(), UUID.randomUUID(),
+                request(new TicketUnitRequest(1, null, null)), null);
+        UUID ticketId = UUID.fromString(parse(issued).path("tickets").get(0).path("ticketId").asText());
+        jdbcTemplate.update("UPDATE tickets SET status='USED' WHERE id=?", ticketId);
+
+        ResponseEntity<String> used = http.postForEntity(
+                "http://localhost:" + port + "/internal/tickets/" + ticketId + "/revoke",
+                null, String.class);
+        ResponseEntity<String> unknown = http.postForEntity(
+                "http://localhost:" + port + "/internal/tickets/" + UUID.randomUUID() + "/revoke",
+                null, String.class);
+
+        assertThat(used.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(used.getHeaders().getContentType()
+                .isCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)).isTrue();
+        assertThat(unknown.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM tickets WHERE id=?",
+                String.class, ticketId)).isEqualTo("USED");
+    }
+
+    @Test
     void versionedOpenApiContractDescribesOnlyInternalIssuance() throws Exception {
         String contract = Files.readString(
                 Path.of(System.getProperty("ticket.openapi.contract")));
         assertThat(contract)
                 .contains("/internal/orders/{orderId}/items/{orderItemId}/tickets")
+                .contains("/internal/tickets/{ticketId}/revoke")
                 .contains("qrPayload")
                 .contains("qrPngBase64")
                 .contains("application/problem+json")

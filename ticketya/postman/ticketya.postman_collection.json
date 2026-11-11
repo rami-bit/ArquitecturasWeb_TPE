@@ -649,14 +649,44 @@
               "pm.test('La compra aprobada responde 201', () => pm.response.to.have.status(201));",
               "const json = pm.response.json();",
               "pm.test('La orden queda pagada y emite QR', () => { pm.expect(json.status).to.eql('PAID'); pm.expect(json.items[0].tickets.tickets).to.have.length(1); pm.expect(json.items[0].tickets.tickets[0].qrPayload).to.be.a('string'); });",
-              "pm.collectionVariables.set('purchaseOrderId', json.orderId);"
+              "pm.collectionVariables.set('purchaseOrderId', json.orderId);",
+              "pm.collectionVariables.set('refundTicketId', json.items[0].tickets.tickets[0].ticketId);"
             ]
           }
         }
       ]
     },
     {
-      "name": "10 - Reintento idempotente de compra",
+      "name": "10 - Solicitar devolución del ticket comprado",
+      "request": {
+        "method": "POST",
+        "header": [{"key":"X-User-Id","value":"{{userId}}"}],
+        "url": {"raw":"{{baseUrl}}/api/refunds/tickets/{{refundTicketId}}","host":["{{baseUrl}}"],"path":["api","refunds","tickets","{{refundTicketId}}"]},
+        "description": "Ejemplo de solicitud de devolución del titular; conserva refundId para consultar su estado."
+      },
+      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Solicitud pendiente', () => { pm.response.to.have.status(201); pm.expect(pm.response.json().status).to.eql('PENDING'); });","pm.collectionVariables.set('refundId', pm.response.json().id);"]}}]
+    },
+    {
+      "name": "10b - Consultar devolución propia",
+      "request": {
+        "method": "GET",
+        "header": [{"key":"X-User-Id","value":"{{userId}}"}],
+        "url": {"raw":"{{baseUrl}}/api/refunds/{{refundId}}","host":["{{baseUrl}}"],"path":["api","refunds","{{refundId}}"]}
+      },
+      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('La solicitud pertenece al titular', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('refundId')); });"]}}]
+    },
+    {
+      "name": "10c - Reintento de solicitud de devolución",
+      "request": {"method":"POST","header":[{"key":"X-User-Id","value":"{{userId}}"}],"url":{"raw":"{{baseUrl}}/api/refunds/tickets/{{refundTicketId}}","host":["{{baseUrl}}"],"path":["api","refunds","tickets","{{refundTicketId}}"]}},
+      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('Devuelve la misma solicitud', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('refundId')); });"]}}]
+    },
+    {
+      "name": "10d - Consulta ajena de devolución",
+      "request": {"method":"GET","header":[{"key":"X-User-Id","value":"{{adminUserId}}"}],"url":{"raw":"{{baseUrl}}/api/refunds/{{refundId}}","host":["{{baseUrl}}"],"path":["api","refunds","{{refundId}}"]}},
+      "event": [{"listen":"test","script":{"type":"text/javascript","exec":["pm.test('La consulta ajena no revela datos', () => pm.response.to.have.status(404));"]}}]
+    },
+    {
+      "name": "10e - Reintento idempotente de compra",
       "request": {
         "method": "POST",
         "header": [

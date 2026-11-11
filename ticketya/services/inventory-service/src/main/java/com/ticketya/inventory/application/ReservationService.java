@@ -187,6 +187,33 @@ public class ReservationService {
                 .orElseThrow(() -> ApiProblemException.notFound("Reservation not found")));
     }
 
+    @Transactional(rollbackFor = Exception.class)
+    public SoldUnitRelease releaseSoldUnit(UUID reservationId, UUID sourceSectorId,
+                                           UUID seatId, int unitNumber) {
+        if (unitNumber < 1 || (seatId != null && unitNumber != 1)) {
+            throw ApiProblemException.badRequest("Invalid sold unit number");
+        }
+        InventoryStore.SoldItemRow item = store.lockSoldItem(reservationId, sourceSectorId, seatId)
+                .orElseThrow(() -> ApiProblemException.conflict("The unit does not belong to a confirmed reservation"));
+        if (unitNumber > item.quantity()) {
+            throw ApiProblemException.conflict("The unit does not belong to the reservation item");
+        }
+        if (store.soldUnitAlreadyReleased(item.id(), unitNumber)) {
+            return new SoldUnitRelease(reservationId, sourceSectorId, seatId, unitNumber, true);
+        }
+        int updated = seatId == null
+                ? store.returnSoldGeneralUnit(item.sectorId())
+                : store.makeSoldSeatAvailable(seatId, reservationId);
+        if (updated != 1) {
+            throw ApiProblemException.conflict("The unit is no longer sold by this reservation");
+        }
+        store.recordSoldUnitRelease(item.id(), unitNumber);
+        return new SoldUnitRelease(reservationId, sourceSectorId, seatId, unitNumber, false);
+    }
+
+    public record SoldUnitRelease(UUID reservationId, UUID sectorId, UUID seatId,
+                                  int unitNumber, boolean alreadyReleased) { }
+
     // -------------------------------------------------------------------- helpers
 
     private ReservationResult existingResult(InventoryStore.ReservationRow reservation,
