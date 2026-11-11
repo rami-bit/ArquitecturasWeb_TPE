@@ -140,6 +140,13 @@ public class Ticket {
         return status;
     }
 
+    public void revoke() {
+        if (status == TicketStatus.USED) {
+            throw new IllegalStateException("A used ticket cannot be revoked");
+        }
+        status = TicketStatus.REVOKED;
+    }
+
     public OffsetDateTime getIssuedAt() {
         return issuedAt;
     }

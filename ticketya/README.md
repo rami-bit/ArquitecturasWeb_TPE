@@ -1,5 +1,53 @@
 # TicketYa - Plataforma de venta de entradas (Entrega 1)
 
+## Solicitud de devolución (US-F7.1)
+
+El titular de un ticket pagado puede pedir su devolución hasta antes de las 72 horas previas al evento. La solicitud y la consulta pasan por el Gateway; repetir el POST devuelve la misma solicitud.
+
+```http
+POST http://localhost:8080/api/refunds/tickets/{ticketId}
+X-User-Id: 66bd0a43-1baa-4f7b-8316-930593b84d7c
+```
+
+```http
+GET http://localhost:8080/api/refunds/{refundId}
+X-User-Id: 66bd0a43-1baa-4f7b-8316-930593b84d7c
+```
+
+La respuesta inicial indica `PENDING`, decisión nula y progreso `NOT_STARTED`. Otro usuario recibe `404`.
+
+## Decidir una devolución (US-F7.2)
+
+Un administrador aprueba o rechaza una solicitud mediante el Gateway. El rol se simula con el encabezado `X-User-Role`; no hay autenticación en esta entrega.
+
+```http
+POST http://localhost:8080/api/refunds/{refundId}/decision
+X-User-Role: ADMIN
+Content-Type: application/json
+
+{"decision":"APPROVED"}
+```
+
+Para rechazar, usa `{"decision":"REJECTED"}`. El rechazo conserva el ticket y su lugar vendido. Al aprobar, Purchase revoca el ticket, solicita el reintegro idempotente a Payment Mock y libera la unidad vendida en Inventory. Un `200` indica proceso completo; `202` indica que una dependencia falló y se puede repetir la misma decisión para continuar. Una decisión opuesta responde `409`.
+
+
+## Cancelar un evento con reintegros (US-F7.3)
+
+ADMIN inicia la cancelación por el Gateway. Purchase pide a Catalog que marque el evento `CANCELLED` y bloquee nuevas reservas en Inventory; luego procesa los tickets pagados por lotes. Cada ticket se revoca, se reintegra por su importe y libera su unidad vendida. La respuesta `202` indica que queda trabajo; repetir el mismo POST continúa el lote sin duplicar reintegros. `200` y `status: COMPLETED` indican que terminó. La consulta GET muestra el progreso sin procesar otro lote. El rol y la identidad son encabezados simulados para E1.
+
+```http
+POST http://localhost:8080/api/events/{eventId}/cancellation
+X-User-Id: a1b2c3d4-1111-2222-3333-444455556666
+X-User-Role: ADMIN
+```
+
+```http
+GET http://localhost:8080/api/events/{eventId}/cancellation
+X-User-Role: ADMIN
+```
+
+Una respuesta de ejemplo es `{"eventId":"...","status":"PROCESSING","totalTickets":4,"completedTickets":2,"pendingTickets":2}`. Catalog también expone `POST /api/management/events/{eventId}/cancel` para cambiar el estado del evento; esa ruta por sí sola no procesa ventas existentes. Las notificaciones a compradores corresponden a US-F11.
+
 ## Compra local (Purchase + Payment Mock)
 
 El flujo de compra se expone a través del Gateway:
@@ -32,19 +80,6 @@ Content-Type: application/json
 ```
 
 El token de simulación decide el cobro: `tok_approved` aprueba, `tok_rejected` rechaza y `tok_pending` deja el pago pendiente. Los códigos de respuesta son:
-
-- `201`: orden `CONFIRMED`, con pago aprobado y tickets emitidos.
-- `200`: repetición idempotente con la misma clave y el mismo contenido; devuelve la orden existente sin reservar, cobrar ni emitir de nuevo.
-- `202`: orden `PAYMENT_PENDING` (`tok_pending` o timeout de la pasarela) u orden `PAID_PENDING_TICKETS` (el cobro se aprobó pero la emisión falló). Ambas se reintentan con `POST /api/orders/{orderId}/reconcile`.
-- `402`: pago rechazado; la reserva y el límite se liberan y la orden queda `REJECTED`.
-- `409`: falta de disponibilidad, límite excedido, `Idempotency-Key` reutilizada con otro contenido u orden `COMPENSATED` tras reintegrar un pago que no pudo confirmarse.
-- `400`, `403`, `404` y `503`: validación, identidad, evento no comprable y dependencia no disponible.
-
-Un timeout de pago nunca se interpreta como rechazo. Payment Mock y los comandos `/internal/**` sólo son accesibles dentro de Compose; el contrato completo está en [`docs/openapi.yaml`](docs/openapi.yaml).
-
-Incremento actual de TicketYa: administración de lugares, borradores de eventos, publicación con snapshot inmutable, descubrimiento público, inventario de disponibilidad con reservas temporales, y la compra completa que orquesta Catalog, Inventory, Payment Mock y Ticket Service.
-
-El Catálogo es dueño del snapshot publicado y de los precios. Inventory es dueño de la disponibilidad y de las reservas: materializa el layout desde el snapshot de Catalog (sin copiar precios) y expone `GET /api/inventory/events/{eventId}/availability`. Purchase es dueño de la orden, del snapshot de precios y del límite por cliente y evento, y es quien consume los comandos internos de Inventory, Payment Mock y Ticket. La arquitectura, los diagramas de secuencia y los modelos de datos están en [`docs/architecture.md`](docs/architecture.md).
 
 ## Requisitos
 
@@ -188,7 +223,7 @@ npx --yes newman run postman/ticketya.postman_collection.json \
   --env-var baseUrl=http://localhost:8080
 ```
 
-La colección es repetible: cada corrida genera un `runId` único para nombre de lugar y participante, evitando colisiones entre ejecuciones. Cubre: crear lugar, crear/configurar borrador, publicar, buscar, consultar, suspender y reanudar, la consulta pública de disponibilidad de Inventory, y el flujo de compra completo por Gateway (orden aprobada, reintento idempotente, consulta del titular, orden ajena, pago rechazado y listado paginado). Inventory materializa el inventario de forma perezosa a partir del snapshot publicado de Catalog en la primera consulta.
+La coleccion es repetible: cada corrida genera un `runId` unico para evitar colisiones. Cubre Catalog e Inventory, compra aprobada con QR, reintento idempotente, consulta de tickets por su titular, pago rechazado con liberacion del cupo y limite de cuatro entradas por cliente y evento; tambien suspende y reanuda eventos. Todas las rutas publicas se recorren por el Gateway. Inventory materializa el inventario de forma perezosa a partir del snapshot publicado de Catalog en la primera consulta.
 
 ## Flujo interno de inventario (no publicado por el Gateway)
 
@@ -241,7 +276,7 @@ Ticket Service escucha en `ticket-service:8083`, dentro de la red de Compose. Pu
 
 La solicitud incluye al comprador, el snapshot del evento y las unidades del item; para asientos numerados cada unidad lleva fila y número. La primera emisión devuelve `201`; un reintento idéntico devuelve `200` con los mismos tickets y QR. Reutilizar la pareja `orderId + orderItemId` con distinto contenido devuelve `409`.
 
-La respuesta contiene `qrPayload` y `qrPngBase64`. La imagen PNG se genera al responder; PostgreSQL conserva el hash del payload, no el token. La API es interna y no tiene ruta en el Gateway; las entradas emitidas se consultan desde `GET /api/orders/{orderId}`.
+La respuesta contiene `qrPayload` y `qrPngBase64`. La imagen PNG se genera al responder; PostgreSQL conserva el hash del payload, no el token. La API es interna y no tiene ruta en el Gateway. Purchase invoca esta emisión al completar una compra aprobada.
 
 Valida la documentación y el estado del servicio desde el contenedor:
 
@@ -250,7 +285,7 @@ docker compose exec -T ticket-service wget -qO- http://localhost:8083/v3/api-doc
 docker compose exec -T ticket-service wget -qO- http://localhost:8083/actuator/health
 ```
 
-El contrato versionado está en `services/ticket-service/docs/ticket-openapi.yaml`. Este alcance emite QR; validación en acceso, revocación y devoluciones siguen pendientes.
+El contrato versionado está en `services/ticket-service/docs/ticket-openapi.yaml`. Ticket permite revocar internamente una entrada vendida; la validación en acceso queda para US-F8.
 
 ## Validar OpenAPI (interno, vía contenedor)
 

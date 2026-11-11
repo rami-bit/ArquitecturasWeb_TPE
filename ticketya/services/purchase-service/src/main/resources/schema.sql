@@ -54,20 +54,28 @@ CREATE TABLE IF NOT EXISTS order_item_units (
   seat_number INTEGER,
   CONSTRAINT order_item_units_order_item_id_unit_number_key UNIQUE (order_item_id, unit_number)
 );
-
-CREATE TABLE IF NOT EXISTS order_tickets (
+ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS reservation_id UUID;
+CREATE TABLE IF NOT EXISTS refund_requests (
   id UUID PRIMARY KEY,
+  ticket_id UUID NOT NULL,
   order_id UUID NOT NULL REFERENCES purchase_orders(id),
   order_item_id UUID NOT NULL REFERENCES purchase_order_items(id),
-  ticket_id UUID NOT NULL,
-  unit_number INTEGER NOT NULL,
-  status VARCHAR(16) NOT NULL DEFAULT 'ISSUED',
-  qr_payload TEXT,
-  qr_png_base64 TEXT,
-  row_label VARCHAR(40),
-  seat_number INTEGER,
-  CONSTRAINT order_tickets_order_id_order_item_id_unit_number_key UNIQUE (order_id, order_item_id, unit_number)
+  customer_id UUID NOT NULL,
+  event_id UUID NOT NULL,
+  amount NUMERIC(12,2) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+  decision VARCHAR(16),
+  progress VARCHAR(32) NOT NULL DEFAULT 'NOT_STARTED',
+  source VARCHAR(16) NOT NULL DEFAULT 'CUSTOMER',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT refund_amount_positive CHECK (amount > 0)
 );
-
-CREATE INDEX IF NOT EXISTS ix_purchase_orders_customer_event ON purchase_orders(customer_id, event_id, status);
-CREATE INDEX IF NOT EXISTS ix_purchase_order_items_order ON purchase_order_items(order_id);
+ALTER TABLE refund_requests ADD COLUMN IF NOT EXISTS source VARCHAR(16) NOT NULL DEFAULT 'CUSTOMER';
+ALTER TABLE refund_requests DROP CONSTRAINT IF EXISTS refund_requests_ticket_id_key;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_refunds_ticket_source ON refund_requests(ticket_id,source);
+CREATE INDEX IF NOT EXISTS ix_refunds_customer ON refund_requests(customer_id,created_at);
+CREATE TABLE IF NOT EXISTS event_cancellations (
+  event_id UUID PRIMARY KEY,
+  last_ticket_id UUID,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

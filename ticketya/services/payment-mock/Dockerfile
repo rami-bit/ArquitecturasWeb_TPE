@@ -2,8 +2,7 @@ FROM maven:3.9.9-eclipse-temurin-21-alpine AS build
 WORKDIR /workspace
 COPY pom.xml ./
 RUN mvn -B -ntp dependency:go-offline
-COPY src ./src
-COPY docs ./docs
+COPY services/payment-mock/src ./src
 RUN mvn -B -ntp verify
 
 FROM amazoncorretto:19-alpine

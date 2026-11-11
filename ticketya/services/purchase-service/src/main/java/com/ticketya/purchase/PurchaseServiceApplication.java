@@ -2,6 +2,8 @@ package com.ticketya.purchase;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import java.time.Clock;
 
 /**
  * Punto de entrada de Purchase Service: orquestador de la saga de compra,
@@ -10,8 +12,6 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  */
 @SpringBootApplication
 public class PurchaseServiceApplication {
-
-    public static void main(String[] args) {
-        SpringApplication.run(PurchaseServiceApplication.class, args);
-    }
+    @Bean Clock clock() { return Clock.systemUTC(); }
+    public static void main(String[] args) { SpringApplication.run(PurchaseServiceApplication.class, args); }
 }

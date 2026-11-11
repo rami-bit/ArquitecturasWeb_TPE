@@ -42,6 +42,9 @@ public class InventoryStore {
                                      String rowLabel, Integer seatNumber) {
     }
 
+    public record SoldItemRow(UUID id, UUID sectorId, UUID inventoryItemId, int quantity) {
+    }
+
     private static final RowMapper<InventoryRow> INVENTORY_MAPPER = (rs, row) -> new InventoryRow(
             rs.getObject("id", UUID.class),
             rs.getObject("event_id", UUID.class),
@@ -165,6 +168,7 @@ public class InventoryStore {
     }
 
     public int cancelInventory(UUID eventId) {
+        jdbc.update("INSERT INTO event_cancellations (event_id) VALUES (?) ON CONFLICT (event_id) DO NOTHING", eventId);
         return jdbc.update(
                 "UPDATE event_inventories SET cancelled_at = COALESCE(cancelled_at, CURRENT_TIMESTAMP) "
                         + "WHERE event_id = ?",
@@ -173,9 +177,15 @@ public class InventoryStore {
 
     public boolean isCancelled(UUID eventId) {
         Integer count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM event_inventories WHERE event_id = ? AND cancelled_at IS NOT NULL",
+                "SELECT COUNT(*) FROM event_cancellations WHERE event_id = ?",
                 Integer.class, eventId);
         return count != null && count > 0;
+    }
+
+    /** Serializes cancellation with reservation creation and confirmation, even before inventory exists. */
+    public void lockEvent(UUID eventId) {
+        long lockKey = eventId.getMostSignificantBits() ^ eventId.getLeastSignificantBits();
+        jdbc.query("SELECT pg_advisory_xact_lock(?)", rs -> null, lockKey);
     }
 
     // ---------------------------------------------------------------- reservations
@@ -212,14 +222,11 @@ public class InventoryStore {
 
     public List<ReservationItemRow> findReservationItems(UUID reservationId) {
         return jdbc.query("""
-                SELECT ri.sector_id, ri.inventory_item_id, ri.quantity,
-                       s.source_sector_id, s.name, s.type,
-                       i.source_seat_id, i.row_label, i.seat_number
+                SELECT s.source_sector_id AS sector_id, ri.inventory_item_id, ri.quantity
                 FROM reservation_items ri
                 JOIN inventory_sectors s ON s.id = ri.sector_id
-                LEFT JOIN inventory_items i ON i.id = ri.inventory_item_id
                 WHERE ri.reservation_id = ?
-                ORDER BY ri.sector_id ASC, ri.inventory_item_id ASC NULLS LAST
+                ORDER BY s.source_sector_id ASC, ri.inventory_item_id ASC NULLS LAST
                 """, (rs, row) -> new ReservationItemRow(
                 rs.getObject("sector_id", UUID.class),
                 rs.getObject("inventory_item_id", UUID.class),
@@ -230,6 +237,42 @@ public class InventoryStore {
                 rs.getString("type"),
                 rs.getString("row_label"),
                 rs.getObject("seat_number", Integer.class)), reservationId);
+    }
+
+    public Optional<SoldItemRow> lockSoldItem(UUID reservationId, UUID sourceSectorId, UUID seatId) {
+        return jdbc.query("""
+                SELECT ri.id, ri.sector_id, ri.inventory_item_id, ri.quantity
+                FROM reservation_items ri
+                JOIN inventory_sectors s ON s.id = ri.sector_id
+                JOIN reservations r ON r.id = ri.reservation_id
+                WHERE ri.reservation_id = ? AND s.source_sector_id = ?
+                  AND ri.inventory_item_id IS NOT DISTINCT FROM ?
+                  AND r.status = 'CONFIRMED'
+                FOR UPDATE OF ri
+                """, (rs, row) -> new SoldItemRow(rs.getObject("id", UUID.class),
+                rs.getObject("sector_id", UUID.class), rs.getObject("inventory_item_id", UUID.class),
+                rs.getInt("quantity")), reservationId, sourceSectorId, seatId).stream().findFirst();
+    }
+
+    public boolean soldUnitAlreadyReleased(UUID itemId, int unitNumber) {
+        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM sold_unit_releases WHERE reservation_item_id = ? AND unit_number = ?",
+                Integer.class, itemId, unitNumber);
+        return count != null && count > 0;
+    }
+
+    public int makeSoldSeatAvailable(UUID seatId, UUID reservationId) {
+        return jdbc.update("""
+                UPDATE inventory_items SET status = 'AVAILABLE', reservation_id = NULL, sold_at = NULL
+                WHERE id = ? AND reservation_id = ? AND status = 'SOLD'
+                """, seatId, reservationId);
+    }
+
+    public int returnSoldGeneralUnit(UUID sectorId) {
+        return jdbc.update("UPDATE inventory_sectors SET sold = sold - 1 WHERE id = ? AND sold > 0", sectorId);
+    }
+
+    public void recordSoldUnitRelease(UUID itemId, int unitNumber) {
+        jdbc.update("INSERT INTO sold_unit_releases(reservation_item_id, unit_number) VALUES (?, ?)", itemId, unitNumber);
     }
 
     public int holdSeat(UUID itemId, UUID sectorId, UUID reservationId,

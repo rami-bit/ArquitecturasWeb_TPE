@@ -8,9 +8,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
 import java.math.BigDecimal;
-import java.time.Instant;
-import java.util.Optional;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.UUID;
 
 /**
@@ -79,11 +81,16 @@ public class PaymentService {
             // Reintegro ya efectuado: idempotente, no se modifica el pago.
             return payment;
         }
-
-        if (payment.status() != PaymentStatus.APPROVED) {
-            throw new ApiProblemException(
-                    HttpStatus.CONFLICT, "Conflict",
-                    "Only an APPROVED or already REFUNDED payment can be refunded");
+        BigDecimal amount = request.amount() == null ? payment.amount() : request.amount();
+        if (amount.signum() <= 0 || amount.scale() > 2) {
+            throw new ApiProblemException(HttpStatus.BAD_REQUEST, "Invalid refund amount",
+                    "Refund amount must be positive with at most two decimals");
+        }
+        String fingerprint = fingerprint(paymentId + "|" + amount.stripTrailingZeros().toPlainString());
+        RefundResponse refund = store.createOrGetRefund(paymentId, amount, request.idempotencyKey(), fingerprint);
+        if (!refund.paymentId().equals(paymentId)) {
+            throw new ApiProblemException(HttpStatus.CONFLICT,
+                    "Idempotency conflict", "The idempotency key was already used for another refund");
         }
 
         Instant now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
