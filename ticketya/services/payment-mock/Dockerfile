@@ -3,7 +3,7 @@ WORKDIR /workspace
 COPY services/payment-mock/pom.xml ./pom.xml
 RUN mvn -B -ntp dependency:go-offline
 COPY services/payment-mock/src ./src
-RUN mvn -B -ntp package -DskipTests
+RUN mvn -B -ntp verify
 
 FROM amazoncorretto:19-alpine
 WORKDIR /app

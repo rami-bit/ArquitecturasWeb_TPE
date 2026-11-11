@@ -22,19 +22,19 @@ Basado en `TPE-ArqWeb-TicketYa-2026.pdf`, secciones “Modalidad de entrega”, 
 - [x] [ ] Permitir al cliente seleccionar evento, sector y, cuando corresponda, asientos específicos.
   - [x] [x] Consultar eventos publicados y su detalle, incluidos sectores, precios y asientos.
   - [x] [x] Inventory acepta el sector/asientos seleccionados en la solicitud interna de reserva.
-  - [ ] [x] Implementar Purchase para crear la orden y orquestar la reserva, el pago y la emision de tickets. La ruta existe; la prueba completa aun termina en RECOVERY_REQUIRED.
-  - [ ] [ ] Completar y verificar el flujo E2E de seleccion y compra del cliente.
+  - [ ] [x] Purchase crea orden y orquesta reserva, pago, confirmacion de Inventory y emision de tickets. E2E aprobado en admision general y asiento numerado.
+  - [ ] [x] Flujo E2E verificado por Gateway: compra aprobada, compra rechazada, reintento idempotente, consulta de tickets por titular y limite secuencial.
 - [ ] [ ] Reservar temporalmente los lugares durante el proceso de pago y liberarlos si el pago se rechaza o vence la reserva.
   - [x] [x] Retener asientos o cupos con TTL y liberarlos automaticamente al vencer la reserva.
   - [x] [x] Exponer la liberacion idempotente de una reserva activa.
-  - [ ] [x] Purchase implementa la liberacion de la reserva ante pago rechazado y el manejo de vencimiento; falta validar los casos E2E.
+  - [ ] [x] Purchase libera la reserva ante pago rechazado; E2E confirma orden REJECTED, sin tickets y sin cupos retenidos. Expiracion implementada; falta prueba automatizada del flujo de compra vencido.
 - [ ] [ ] Registrar el detalle de la compra y el medio de pago; limitar la cantidad de entradas por cliente y evento.
   - [ ] [x] Purchase persiste orden, items, snapshot de precio y medio de pago, con clave idempotente y limite configurable.
-  - [ ] [ ] Verificar persistencia, limite e idempotencia en pruebas integradas.
+  - [ ] [x] E2E confirma reintento con la misma clave, conflicto al reutilizarla con otro payload y limite secuencial de cuatro entradas; falta cobertura automatizada de persistencia y concurrencia integral.
 - [ ] [ ] Emitir entradas con un código QR único cuando el pago sea aprobado.
   - [x] [x] Emitir tickets con QR firmado, guardar el hash unico y hacer idempotente la emision por orden/item.
   - [ ] [x] Purchase invoca Ticket despues de aprobar el pago y confirmar Inventory.
-  - [ ] [ ] Verificar que el recorrido aprobado emita y devuelva los QR; la prueba E2E actual queda en RECOVERY_REQUIRED.
+  - [ ] [x] E2E aprobado emite QR y la consulta del titular devuelve el ticket; otro titular recibe 404. Falta automatizar reintento de emision y fallos downstream.
 - [x] [ ] Garantizar que un asiento o lugar no pueda venderse dos veces, incluso ante compras simultáneas o reintentos.
 - [ ] [ ] Permitir solicitar devoluciones hasta 72 horas antes del evento; permitir que un administrador apruebe o rechace cada solicitud.
 - [ ] [ ] Al aprobar una devolución, liberar el lugar y solicitar el reintegro a la pasarela de pagos.
@@ -44,28 +44,28 @@ Basado en `TPE-ArqWeb-TicketYa-2026.pdf`, secciones “Modalidad de entrega”, 
   - [ ] [x] Catalog permite cancelar un evento y notifica a Inventory para bloquear nuevas reservas.
   - [ ] [ ] Invalidar los tickets vendidos, iniciar reintegros y notificar a los compradores.
 - [x] [x] Permitir buscar eventos por tipo, organizador, participante, ciudad y rango de fechas, ordenando por fecha, precio o relevancia.
-- [ ] [ ] Proveer una pasarela de pagos simulada (mock) para el flujo de compra.
+- [ ] [x] Proveer una pasarela de pagos simulada (mock) para el flujo de compra.
   - [ ] [x] Payment Mock implementa cobros aprobados/rechazados, persistencia e idempotencia; Purchase integra el contrato.
-  - [ ] [ ] Confirmar el flujo completo de compra con pago aprobado y rechazado mediante una prueba E2E.
+  - [ ] [x] Confirmar el flujo completo de compra con pago aprobado y rechazado mediante una prueba E2E por Gateway.
 
 ## Roadmap funcional: user stories y dependencias
 
-Este roadmap convierte F1-F12 del PDF en historias priorizadas. Los IDs ayudan a abrir cambios OpenSpec, relacionar tareas y ver el orden. Catalog e Inventory estan cubiertos; Purchase y Payment Mock ya tienen implementacion. La integracion E2E de compra sigue pendiente: la ultima compra aprobada quedo en RECOVERY_REQUIRED.
+Este roadmap convierte F1-F12 del PDF en historias priorizadas. Los IDs ayudan a abrir cambios OpenSpec, relacionar tareas y ver el orden. Catalog e Inventory estan cubiertos; Purchase, Payment Mock y Ticket estan integrados y el flujo E2E por Gateway fue verificado. Quedan pendientes pruebas automatizadas de resiliencia y concurrencia.
 
 ### Base disponible
 
 - **US-F1/F2/F3/F9 - Catalog:** lugares, eventos, borradores, publicacion, busqueda y detalle ya estan implementados. La cancelacion esta iniciada, pero la orquestacion de reintegros aun no.
 - **US-F5 - Inventory:** disponibilidad, reservas temporales, expiracion y prevencion de doble reserva bajo concurrencia estan implementadas.
-- **US-F4 QR - Ticket:** `issue-ticket-qr` implementa emision interna e idempotente. Falta invocarla desde una compra con pago aprobado.
+- **US-F4 QR - Ticket:** `issue-ticket-qr` implementa emision interna e idempotente, integrada con Purchase; compra aprobada E2E emite y permite consultar el QR por el titular.
 
 ### Prioridad y secuencia
 
 | Orden | Historia / criterio de aceptacion | Dependencias y paralelismo |
 |---|---|---|
-| **P0 / siguiente** | **US-F4.1 - Crear orden (implementado; verificacion pendiente).** Purchase persiste cliente, evento, items, sector/asiento, snapshot de precio, medio de pago y estado; incluye limite por cliente/evento y clave idempotente. Faltan pruebas propias y verificaciones integradas. | Catalog e Inventory existentes. El contrato esta definido en el change OpenSpec `establish-purchase-and-ticketing`. |
-| **P0 / paralelo** | **US-F4.2 - Simular pago (implementado; E2E pendiente).** Payment Mock autoriza/cobra con respuestas configurables, conserva referencia y resuelve reintentos sin duplicar cargos. Falta demostrarlo dentro de la compra completa. | El contrato con Purchase esta definido; falta validar cobro y rechazo en la compra E2E. |
-| **P0 / luego** | **US-F4.3 - Completar compra (implementacion parcial; bloqueada en E2E).** Purchase contiene la saga de reserva, pago, confirmacion/liberacion y estados consultables; la prueba aprobada actual queda en RECOVERY_REQUIRED y falta resolver la llamada downstream. | Depende de US-F4.1, US-F4.2 y los comandos internos de Inventory. Este es el primer flujo vertical E2E. |
-| **P0 / luego** | **US-F4.4 - Emitir y consultar entradas compradas (integracion implementada; E2E pendiente).** Purchase invoca Ticket tras aprobacion y confirmacion; falta verificar la emision y consulta de QR en el recorrido completo. | Depende de US-F4.3 y del contrato interno existente de Ticket Service. |
+| **P0 / verificacion** | **US-F4.1 - Crear orden (implementado; E2E verificado).** Purchase persiste cliente, evento, items, sector/asiento, snapshot de precio, medio de pago y estado; incluye limite por cliente/evento y clave idempotente. La prueba unitaria y los flujos E2E basicos pasan; falta automatizar persistencia y concurrencia integral. | Catalog e Inventory existentes. El contrato esta definido en el change OpenSpec `establish-purchase-and-ticketing`. |
+| **P0 / verificacion** | **US-F4.2 - Simular pago (implementado; E2E aprobado/rechazado verificado).** Payment Mock conserva referencias y resuelve reintentos sin duplicar cargos; ambas respuestas se ejercitaron por el flujo de compra. | El contrato con Purchase esta implementado y se verificaron cobros aprobados y rechazados a traves del Gateway. |
+| **P0 / pruebas** | **US-F4.3 - Completar compra (implementado; E2E verificado).** La saga reserva, cobra, confirma o libera inventario y expone estados consultables. Aprobacion, rechazo, reintento idempotente y limite secuencial pasan; faltan pruebas de expiracion, concurrencia y fallos downstream. | Depende de US-F4.1, US-F4.2 y los comandos internos de Inventory. |
+| **P0 / pruebas** | **US-F4.4 - Emitir y consultar entradas compradas (implementado; E2E verificado).** Purchase invoca Ticket tras aprobacion y confirmacion; QR emitido y consulta autorizada del titular comprobados por Gateway. Falta automatizar reintento de emision y recuperación ante fallos. | Depende de US-F4.3 y del contrato interno existente de Ticket Service. |
 | **P1** | **US-F7.1 - Solicitar devolucion.** El titular puede solicitarla hasta 72 horas antes; se guarda estado y se impiden solicitudes duplicadas. | Depende de ordenes/tickets de US-F4.4 y fecha del evento de Catalog. |
 | **P1** | **US-F7.2 - Resolver devolucion.** ADMIN aprueba o rechaza. Al aprobar: revocar ticket, solicitar reintegro idempotente y solo despues liberar la unidad/cupo; fallos parciales quedan reintentables. | Depende de US-F7.1, Ticket revocable, Payment Mock con reintegro e Inventory con liberacion de unidad vendida. |
 | **P1** | **US-F7.3 - Cancelar evento con reintegros.** ADMIN inicia el proceso; Catalog marca `CANCELLED`; Purchase revoca tickets, procesa reintegros y cierra inventario de forma idempotente. | Depende de US-F4.3/4.4 y de las primitivas de US-F7.2. Alinear con el blueprint: Purchase orquesta; Catalog no orquesta reintegros. La notificacion a compradores se completa en US-F11 (E2). |
@@ -100,7 +100,7 @@ flowchart TD
     SAGA --> REPORT
 ```
 
-**Como elegir la siguiente tarea:** diagnosticar la llamada downstream que deja la compra aprobada en `RECOVERY_REQUIRED`, agregar pruebas de Purchase y demostrar compra aprobada/rechazada por Gateway. Luego completar la consulta de tickets, devoluciones/cancelacion y el cierre E1. E2 puede refinarse en paralelo cuando sus dependencias contractuales esten definidas.
+**Como elegir la siguiente tarea:** automatizar en Purchase los casos de expiracion, concurrencia, fallo downstream y reintento QR, y repetir Postman tras el renombrado de requests. Luego completar devoluciones/cancelacion con reintegros y cerrar E1. E2 puede refinarse en paralelo cuando sus dependencias contractuales esten definidas.
 
 ## Historias y especificaciones
 
