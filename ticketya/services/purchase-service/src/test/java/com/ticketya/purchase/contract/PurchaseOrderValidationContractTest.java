@@ -181,7 +181,7 @@ class PurchaseOrderValidationContractTest extends PurchaseContractTestBase {
     private static void assertNoSideEffects() {
         assertThat(INVENTORY_REQUESTS)
                 .as("no se reservó inventario")
-                .isEmpty();
+                .noneMatch(request -> "POST".equals(request.method()));
         assertThat(PAYMENT_REQUESTS)
                 .as("no se invocó Payment")
                 .isEmpty();

@@ -114,7 +114,14 @@ public class PurchaseService {
                     "Catalog no disponible: " + e.getMessage());
         }
 
-        List<PreparedItem> prepared = priceItems(itemInputs, snapshot);
+        JsonNode availability;
+        try {
+            availability = inventory.getAvailability(eventId, correlationId);
+        } catch (ServiceException e) {
+            throw new ApiProblemException(HttpStatus.SERVICE_UNAVAILABLE, "Service unavailable",
+                    "Inventory no disponible: " + e.getMessage());
+        }
+        List<PreparedItem> prepared = priceItems(itemInputs, snapshot, availability);
         BigDecimal total = prepared.stream()
                 .map(PreparedItem::subtotal)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -614,7 +621,7 @@ public class PurchaseService {
         return inputs;
     }
 
-    private List<PreparedItem> priceItems(List<ItemInput> inputs, JsonNode snapshot) {
+    private List<PreparedItem> priceItems(List<ItemInput> inputs, JsonNode snapshot, JsonNode availability) {
         Map<UUID, JsonNode> sectorsBySource = new LinkedHashMap<>();
         snapshot.path("sectors").forEach(sector -> {
             try {
@@ -622,10 +629,25 @@ public class PurchaseService {
             } catch (IllegalArgumentException ignored) {
             }
         });
+        Map<UUID, JsonNode> sectorsByInventory = new LinkedHashMap<>();
+        availability.path("sectors").forEach(sector -> {
+            try {
+                sectorsByInventory.put(UUID.fromString(sector.path("sectorId").asText()), sector);
+            } catch (IllegalArgumentException ignored) {
+            }
+        });
 
         List<PreparedItem> prepared = new ArrayList<>();
         for (ItemInput input : inputs) {
-            JsonNode sector = sectorsBySource.get(input.sectorId());
+            JsonNode inventorySector = sectorsByInventory.get(input.sectorId());
+            JsonNode sector = null;
+            if (inventorySector != null) {
+                try {
+                    sector = sectorsBySource.get(UUID.fromString(inventorySector.path("sourceSectorId").asText()));
+                } catch (IllegalArgumentException ignored) {
+                    // Un sector de Inventory sin origen conocido no es comprable.
+                }
+            }
             if (sector == null) {
                 throw ApiProblemException.badRequest("Sector desconocido: " + input.sectorId());
             }
@@ -645,13 +667,19 @@ public class PurchaseService {
                 }
                 for (UUID seatId : input.seatIds()) {
                     boolean found = false;
-                    for (JsonNode seat : sector.path("seats")) {
-                        if (seat.path("sourceSeatId").asText().equals(seatId.toString())) {
-                            found = true;
-                            seatIds.add(seatId);
-                            sourceSeatIds.add(seatId);
-                            rowLabels.add(seat.path("row").asText(null));
-                            seatNumbers.add(seat.path("number").asInt(0));
+                    for (JsonNode inventorySeat : inventorySector.path("seats")) {
+                        if (inventorySeat.path("seatId").asText().equals(seatId.toString())) {
+                            for (JsonNode seat : sector.path("seats")) {
+                                if (seat.path("sourceSeatId").asText().equals(
+                                        inventorySeat.path("sourceSeatId").asText())) {
+                                    found = true;
+                                    seatIds.add(seatId);
+                                    sourceSeatIds.add(UUID.fromString(seat.path("sourceSeatId").asText()));
+                                    rowLabels.add(seat.path("row").asText(null));
+                                    seatNumbers.add(seat.path("number").asInt(0));
+                                    break;
+                                }
+                            }
                             break;
                         }
                     }

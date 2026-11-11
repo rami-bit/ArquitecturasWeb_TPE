@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.UUID;
 
@@ -36,6 +37,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ObjectNode> handleUnreadableBody(Exception exception, HttpServletRequest request) {
         return problem(HttpStatus.BAD_REQUEST, "Invalid request",
                 "Cuerpo de solicitud inválido o no es JSON", null, null, request);
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ObjectNode> handleResponseStatus(ResponseStatusException exception,
+                                                            HttpServletRequest request) {
+        HttpStatus status = HttpStatus.valueOf(exception.getStatusCode().value());
+        return problem(status, status.getReasonPhrase(), exception.getReason(), null, null, request);
     }
 
     @ExceptionHandler(Exception.class)

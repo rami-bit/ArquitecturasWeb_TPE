@@ -7,6 +7,7 @@ import java.util.UUID;
 @Schema(name = "SeatAvailability")
 public record SeatAvailability(
         UUID seatId,
+        UUID sourceSeatId,
         String row,
         int number,
         String status) {

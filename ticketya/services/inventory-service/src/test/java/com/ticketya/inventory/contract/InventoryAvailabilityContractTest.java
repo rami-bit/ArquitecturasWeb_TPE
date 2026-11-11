@@ -45,6 +45,8 @@ class InventoryAvailabilityContractTest extends InventoryContractTestBase {
 
         JsonNode numbered = findSector(sectors, "NUMBERED");
         assertThat(numbered).isNotNull();
+        assertThat(UUID.fromString(numbered.path("sourceSectorId").asText()))
+                .isNotEqualTo(UUID.fromString(numbered.path("sectorId").asText()));
         assertThat(numbered.path("name").asText()).isEqualTo("Platea");
         assertThat(numbered.path("capacity").asInt()).isEqualTo(2);
         assertThat(numbered.path("sold").asInt()).isEqualTo(0);
@@ -57,10 +59,14 @@ class InventoryAvailabilityContractTest extends InventoryContractTestBase {
         assertThat(seats.get(1).path("row").asText()).isEqualTo("A");
         assertThat(seats.get(1).path("number").asInt()).isEqualTo(2);
         assertThat(seats.get(0).path("status").asText()).isEqualTo("AVAILABLE");
+        assertThat(UUID.fromString(seats.get(0).path("sourceSeatId").asText()))
+                .isNotEqualTo(UUID.fromString(seats.get(0).path("seatId").asText()));
         assertThat(seats.get(1).path("status").asText()).isEqualTo("AVAILABLE");
 
         JsonNode general = findSector(sectors, "GENERAL_ADMISSION");
         assertThat(general).isNotNull();
+        assertThat(UUID.fromString(general.path("sourceSectorId").asText()))
+                .isNotEqualTo(UUID.fromString(general.path("sectorId").asText()));
         assertThat(general.path("name").asText()).isEqualTo("Campo");
         assertThat(general.path("capacity").asInt()).isEqualTo(3);
         assertThat(general.path("sold").asInt()).isEqualTo(0);

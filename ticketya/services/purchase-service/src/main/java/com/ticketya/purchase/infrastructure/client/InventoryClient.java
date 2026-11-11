@@ -15,6 +15,10 @@ public class InventoryClient extends ServiceClient {
         super(baseUrl, mapper);
     }
 
+    public JsonNode getAvailability(UUID eventId, String correlationId) {
+        return get("/api/inventory/events/" + eventId + "/availability", correlationId);
+    }
+
     /**
      * Crea una reserva temporal. Devuelve el JSON de la reserva con
      * {@code reservationId}, {@code expiresAt} y los ítems enriquecidos.

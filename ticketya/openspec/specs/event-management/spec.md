@@ -231,3 +231,20 @@ Catalog SHALL exponer un contrato interno de lectura que devuelva el snapshot pu
 
 - **WHEN** un cliente externo intenta acceder al contrato interno de snapshot a través del Gateway
 - **THEN** el Gateway no lo enruta y responde como ruta no encontrada
+
+### Requirement: Cancelar un evento y cerrar sus ventas
+El sistema SHALL permitir solo a ADMIN cancelar un evento publicado o suspendido, conservar su snapshot y bloquear nuevas ventas. Purchase SHALL poder iniciar el procesamiento de tickets vendidos tras la cancelación.
+
+#### Scenario: Cancelación administrativa
+- **GIVEN** un evento publicado con tickets vendidos
+- **WHEN** ADMIN solicita cancelarlo
+- **THEN** Catalog lo marca `CANCELLED`, Inventory rechaza nuevas reservas y Purchase inicia los reintegros
+
+#### Scenario: Repetir cancelación
+- **GIVEN** un evento cancelado
+- **WHEN** ADMIN repite la solicitud
+- **THEN** se conserva el mismo estado sin duplicar procesamiento
+
+#### Scenario: Rol no autorizado
+- **WHEN** un organizador o cliente solicita cancelar un evento
+- **THEN** se rechaza la operación sin cambiar su estado

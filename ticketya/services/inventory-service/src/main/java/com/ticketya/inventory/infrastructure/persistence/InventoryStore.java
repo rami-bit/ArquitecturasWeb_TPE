@@ -28,7 +28,7 @@ public class InventoryStore {
                             int capacity, int sold, int reserved) {
     }
 
-    public record ItemRow(UUID id, UUID sectorId, String rowLabel, int seatNumber, String status) {
+    public record ItemRow(UUID id, UUID sectorId, UUID sourceSeatId, String rowLabel, int seatNumber, String status) {
     }
 
     public record ReservationRow(UUID id, UUID orderId, UUID eventInventoryId, UUID eventId,
@@ -63,6 +63,7 @@ public class InventoryStore {
     private static final RowMapper<ItemRow> ITEM_MAPPER = (rs, row) -> new ItemRow(
             rs.getObject("id", UUID.class),
             rs.getObject("sector_id", UUID.class),
+            rs.getObject("source_seat_id", UUID.class),
             rs.getString("row_label"),
             rs.getInt("seat_number"),
             rs.getString("status"));
@@ -146,7 +147,7 @@ public class InventoryStore {
 
     public List<ItemRow> findItems(UUID sectorId) {
         return jdbc.query("""
-                SELECT id, sector_id, row_label, seat_number, status
+                SELECT id, sector_id, source_seat_id, row_label, seat_number, status
                 FROM inventory_items
                 WHERE sector_id = ?
                 ORDER BY row_label ASC, seat_number ASC
@@ -155,7 +156,7 @@ public class InventoryStore {
 
     public Optional<ItemRow> findItem(UUID sectorId, UUID itemId) {
         return jdbc.query("""
-                SELECT id, sector_id, row_label, seat_number, status
+                SELECT id, sector_id, source_seat_id, row_label, seat_number, status
                 FROM inventory_items
                 WHERE sector_id = ? AND id = ?
                 """, ITEM_MAPPER, sectorId, itemId).stream().findFirst();

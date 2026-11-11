@@ -23,7 +23,7 @@
 
 ## 4. Integración
 
-- [ ] 4.1 Ejecutar `mvn verify`, `docker compose up --build --wait` y `openspec validate fulfill-refunds-and-cancellations --strict`; verificar compra, devolución y cancelación mediante Gateway.
+- [x] 4.1 Ejecutar `mvn verify`, `docker compose up --build --wait` y `openspec validate fulfill-refunds-and-cancellations --strict`; verificar compra, devolución y cancelación mediante Gateway.
 
 ## Workflow follow-up
 

@@ -1778,6 +1778,7 @@ components:
       additionalProperties: false
       required:
         - sectorId
+        - sourceSectorId
         - name
         - type
         - capacity
@@ -1791,6 +1792,10 @@ components:
           description: |
             Identificador de Inventory del sector (`inventory_sectors.id`). Es el
             valor que debe reutilizarse en `ReservationItemRequest.sectorId`.
+        sourceSectorId:
+          type: string
+          format: uuid
+          description: Identificador del sector de origen en Catalog, usado para cruzar precios.
         name:
           type: string
           maxLength: 120
@@ -1836,6 +1841,7 @@ components:
       additionalProperties: false
       required:
         - seatId
+        - sourceSeatId
         - row
         - number
         - status
@@ -1846,6 +1852,10 @@ components:
           description: |
             Identificador de Inventory del asiento (`inventory_items.id`). Es el
             valor que debe reutilizarse en `ReservationItemRequest.seatId`.
+        sourceSeatId:
+          type: string
+          format: uuid
+          description: Identificador del asiento de origen en Catalog.
         row:
           type: string
           maxLength: 40

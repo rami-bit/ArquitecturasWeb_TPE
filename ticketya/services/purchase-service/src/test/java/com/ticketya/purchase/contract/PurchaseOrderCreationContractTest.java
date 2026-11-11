@@ -26,6 +26,21 @@ class PurchaseOrderCreationContractTest extends PurchaseContractTestBase {
     private final UUID buyer = UUID.randomUUID();
 
     @Test
+    void buysWithInventorySectorIdDifferentFromCatalogSectorId() {
+        UUID eventId = UUID.randomUUID();
+        UUID inventorySectorId = derive(eventId, "inventory:sector:campo");
+        ResponseEntity<String> response = createOrder(
+                orderBody(eventId, quantityItem(inventorySectorId, 1), "CARD", "tok_approved"),
+                buyerHeaders(buyer, "key-inventory-id-" + eventId));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        JsonNode item = parseBody(response).path("items").get(0);
+        assertThat(item.path("sectorId").asText()).isEqualTo(inventorySectorId.toString());
+        assertThat(item.path("sourceSectorId").asText())
+                .isEqualTo(derive(eventId, "sector:campo").toString());
+    }
+
+    @Test
     void approvedOrderReturns201ConfirmedWithItemsPaymentAndTickets() {
         UUID eventId = UUID.randomUUID();
         Layout layout = layoutFor(eventId);

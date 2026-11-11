@@ -439,6 +439,28 @@ abstract class PurchaseContractTestBase {
             String body = readBody(exchange);
             INVENTORY_REQUESTS.add(new RecordedRequest(method, path, body));
 
+            if ("GET".equals(method) && path.startsWith("/api/inventory/events/")
+                    && path.endsWith("/availability")) {
+                UUID eventId = UUID.fromString(path.substring(
+                        "/api/inventory/events/".length(),
+                        path.length() - "/availability".length()));
+                UUID platea = derive(eventId, "sector:platea");
+                UUID campo = derive(eventId, "sector:campo");
+                UUID alternateCampo = derive(eventId, "inventory:sector:campo");
+                UUID seatOne = derive(eventId, "seat:platea:A:1");
+                UUID seatTwo = derive(eventId, "seat:platea:A:2");
+                respond(exchange, 200, MediaType.APPLICATION_JSON_VALUE, """
+                        {"eventId":"%s","sectors":[
+                          {"sectorId":"%s","sourceSectorId":"%s","type":"NUMBERED","seats":[
+                            {"seatId":"%s","sourceSeatId":"%s"},
+                            {"seatId":"%s","sourceSeatId":"%s"}]},
+                          {"sectorId":"%s","sourceSectorId":"%s","type":"GENERAL_ADMISSION","seats":[]},
+                          {"sectorId":"%s","sourceSectorId":"%s","type":"GENERAL_ADMISSION","seats":[]}]}
+                        """.formatted(eventId, platea, platea, seatOne, seatOne, seatTwo, seatTwo,
+                        campo, campo, alternateCampo, campo));
+                return;
+            }
+
             if ("POST".equals(method) && path.equals("/internal/reservations")) {
                 JsonNode request;
                 try {
@@ -600,7 +622,8 @@ abstract class PurchaseContractTestBase {
                 sectorName = "Platea";
                 sectorType = "NUMBERED";
             } else if (eventId != null
-                    && derive(eventId, "sector:campo").toString().equals(sectorId)) {
+                    && (derive(eventId, "sector:campo").toString().equals(sectorId)
+                    || derive(eventId, "inventory:sector:campo").toString().equals(sectorId))) {
                 sectorName = "Campo";
                 sectorType = "GENERAL_ADMISSION";
             } else {
@@ -624,6 +647,9 @@ abstract class PurchaseContractTestBase {
                 }
             }
 
+            String sourceSectorId = eventId != null
+                    && derive(eventId, "inventory:sector:campo").toString().equals(sectorId)
+                    ? derive(eventId, "sector:campo").toString() : sectorId;
             items.append("""
                     {"sectorId":"%s","seatId":%s,"quantity":%d,"sourceSectorId":"%s",
                     "sourceSeatId":%s,"sectorName":"%s","sectorType":"%s",
@@ -631,7 +657,7 @@ abstract class PurchaseContractTestBase {
                     sectorId,
                     hasSeat ? "\"" + seatId + "\"" : "null",
                     quantity,
-                    sectorId,
+                    sourceSectorId,
                     sourceSeatId,
                     sectorName,
                     sectorType,

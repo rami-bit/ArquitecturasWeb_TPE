@@ -8,6 +8,7 @@ import java.util.UUID;
 @Schema(name = "SectorAvailability")
 public record SectorAvailability(
         UUID sectorId,
+        UUID sourceSectorId,
         String name,
         String type,
         int capacity,

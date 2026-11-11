@@ -38,10 +38,11 @@ public class AvailabilityService {
                 int reserved = (int) items.stream().filter(i -> "HELD".equals(i.status())).count();
                 List<SeatAvailability> seats = items.stream()
                         .map(item -> new SeatAvailability(
-                                item.id(), item.rowLabel(), item.seatNumber(), item.status()))
+                                item.id(), item.sourceSeatId(), item.rowLabel(), item.seatNumber(), item.status()))
                         .toList();
                 sectors.add(new SectorAvailability(
                         sector.id(),
+                        sector.sourceSectorId(),
                         sector.name(),
                         sector.type(),
                         sector.capacity(),
@@ -52,6 +53,7 @@ public class AvailabilityService {
             } else {
                 sectors.add(new SectorAvailability(
                         sector.id(),
+                        sector.sourceSectorId(),
                         sector.name(),
                         sector.type(),
                         sector.capacity(),
