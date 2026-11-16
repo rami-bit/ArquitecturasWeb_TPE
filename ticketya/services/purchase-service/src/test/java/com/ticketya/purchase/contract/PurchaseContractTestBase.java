@@ -33,6 +33,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -71,6 +72,18 @@ abstract class PurchaseContractTestBase {
     protected static final UUID NO_AVAILABILITY_EVENT =
             UUID.fromString("00000000-0000-4000-8000-000000000409");
 
+    /** UUID reservado: el stub de Inventory responde 409 al confirmar (reserva ya no confirmable). */
+    protected static final UUID CONFIRM_CONFLICT_EVENT =
+            UUID.fromString("00000000-0000-4000-8000-000000000410");
+
+    /** UUID reservado: el stub de Ticket falla una vez con 503 y luego emite con éxito. */
+    protected static final UUID TICKET_FLAKY_EVENT =
+            UUID.fromString("00000000-0000-4000-8000-000000000503");
+
+    /** UUID reservado: el stub de Payment cobra APPROVED y corta la conexión sin responder HTTP. */
+    protected static final UUID PAYMENT_DROPPED_RESPONSE_EVENT =
+            UUID.fromString("00000000-0000-4000-8000-000000000499");
+
     protected static final ObjectMapper JSON = new ObjectMapper();
 
     protected static final PostgreSQLContainer<?> POSTGRES =
@@ -85,6 +98,63 @@ abstract class PurchaseContractTestBase {
     protected static final List<RecordedRequest> INVENTORY_REQUESTS = new CopyOnWriteArrayList<>();
     protected static final List<RecordedRequest> PAYMENT_REQUESTS = new CopyOnWriteArrayList<>();
     protected static final List<RecordedRequest> TICKET_REQUESTS = new CopyOnWriteArrayList<>();
+
+    // ------------------------------------------------- fallas inyectables y ganchos de stub
+
+    private static volatile boolean failCatalogSnapshot;
+    private static volatile boolean failInventoryAvailability;
+    private static volatile boolean failInventoryReserve;
+    private static volatile boolean failPaymentCharge;
+    private static volatile boolean dropPaymentChargeResponse;
+
+    /** El stub de Catalog responde 503 en el próximo snapshot de compra. */
+    protected static void failCatalogSnapshot() {
+        failCatalogSnapshot = true;
+    }
+
+    /** El stub de Inventory responde 503 en el próximo GET de disponibilidad. */
+    protected static void failInventoryAvailability() {
+        failInventoryAvailability = true;
+    }
+
+    /** El stub de Inventory responde 503 en el próximo POST de reserva. */
+    protected static void failInventoryReserve() {
+        failInventoryReserve = true;
+    }
+
+    /** El stub de Payment responde 503 en el próximo cobro. */
+    protected static void failPaymentCharge() {
+        failPaymentCharge = true;
+    }
+
+    /**
+     * El stub de Payment procesa y persiste el próximo cobro como APPROVED, pero
+     * corta la conexión antes de enviar la respuesta HTTP (pago incierto por
+     * pérdida de respuesta, no un 503 ni un rechazo).
+     */
+    protected static void dropPaymentChargeResponse() {
+        dropPaymentChargeResponse = true;
+    }
+
+    /** Desactiva todas las fallas inyectadas. */
+    protected static void clearInjectedFaults() {
+        failCatalogSnapshot = false;
+        failInventoryAvailability = false;
+        failInventoryReserve = false;
+        failPaymentCharge = false;
+        dropPaymentChargeResponse = false;
+    }
+
+    /** Fuerza el estado de un pago del stub para simular su evolución posterior. */
+    protected static void forcePaymentStatus(UUID orderId, String status) {
+        String paymentId = PAYMENT_ID_BY_ORDER.get(orderId.toString());
+        StubPayment payment = paymentId == null ? null : PAYMENTS_BY_ID.get(paymentId);
+        if (payment == null) {
+            throw new AssertionError("No hay pago del stub para la orden " + orderId);
+        }
+        payment.status = status;
+        payment.updatedAt = now();
+    }
 
     private static final HttpServer CATALOG_STUB =
             startStub("purchase-contract-catalog-stub", PurchaseContractTestBase::handleCatalog);
@@ -135,6 +205,8 @@ abstract class PurchaseContractTestBase {
         INVENTORY_REQUESTS.clear();
         PAYMENT_REQUESTS.clear();
         TICKET_REQUESTS.clear();
+        clearInjectedFaults();
+        TICKET_FLAKY_FAILED.clear();
     }
 
     // ------------------------------------------------------------------ helpers HTTP
@@ -351,6 +423,11 @@ abstract class PurchaseContractTestBase {
                         problem(404, "Published event not found", path, correlationId));
                 return;
             }
+            if (failCatalogSnapshot) {
+                respond(exchange, 503, MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                        problem(503, "Catalog is temporarily unavailable", path, correlationId));
+                return;
+            }
             respond(exchange, 200, MediaType.APPLICATION_JSON_VALUE,
                     purchaseSnapshotFor(eventId));
         }
@@ -449,6 +526,12 @@ abstract class PurchaseContractTestBase {
                 UUID alternateCampo = derive(eventId, "inventory:sector:campo");
                 UUID seatOne = derive(eventId, "seat:platea:A:1");
                 UUID seatTwo = derive(eventId, "seat:platea:A:2");
+                if (failInventoryAvailability) {
+                    respond(exchange, 503, MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                            problem(503, "Inventory is temporarily unavailable", path,
+                                    correlationId));
+                    return;
+                }
                 respond(exchange, 200, MediaType.APPLICATION_JSON_VALUE, """
                         {"eventId":"%s","sectors":[
                           {"sectorId":"%s","sourceSectorId":"%s","type":"NUMBERED","seats":[
@@ -483,6 +566,12 @@ abstract class PurchaseContractTestBase {
                                     path, correlationId));
                     return;
                 }
+                if (failInventoryReserve) {
+                    respond(exchange, 503, MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                            problem(503, "Inventory is temporarily unavailable", path,
+                                    correlationId));
+                    return;
+                }
                 String existingId = RESERVATION_ID_BY_ORDER.get(orderId);
                 if (existingId != null) {
                     StubReservation existing = RESERVATIONS_BY_ID.get(existingId);
@@ -505,6 +594,14 @@ abstract class PurchaseContractTestBase {
                 if (reservation == null) {
                     respond(exchange, 404, MediaType.APPLICATION_PROBLEM_JSON_VALUE,
                             problem(404, "Reservation not found", path, correlationId));
+                    return;
+                }
+                if (CONFIRM_CONFLICT_EVENT.toString().equals(reservation.eventId)) {
+                    // Reserva vencida / ya no confirmable para el evento reservado.
+                    reservation.status = "EXPIRED";
+                    respond(exchange, 409, MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                            problem(409, "Reservation can no longer be confirmed", path,
+                                    correlationId));
                     return;
                 }
                 if ("RELEASED".equals(reservation.status)
@@ -706,6 +803,12 @@ abstract class PurchaseContractTestBase {
             PAYMENT_REQUESTS.add(new RecordedRequest(method, path, body));
 
             if ("POST".equals(method) && path.equals("/internal/payments")) {
+                if (failPaymentCharge) {
+                    respond(exchange, 503, MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                            problem(503, "Payment is temporarily unavailable", path,
+                                    correlationId));
+                    return;
+                }
                 JsonNode request;
                 try {
                     request = JSON.readTree(body);
@@ -766,6 +869,14 @@ abstract class PurchaseContractTestBase {
                         amount, currency, payMethod, token, status, now());
                 PAYMENTS_BY_ID.put(payment.paymentId, payment);
                 PAYMENT_ID_BY_ORDER.put(orderId, payment.paymentId);
+                if (dropPaymentChargeResponse) {
+                    // El cobro ya quedó registrado en Payment (APPROVED persistido),
+                    // pero la conexión se corta antes de devolver la respuesta HTTP:
+                    // el cliente observa la conexión truncada, no un código de error.
+                    dropPaymentChargeResponse = false;
+                    respondWithTruncatedConnection(exchange, correlationId);
+                    return;
+                }
                 respond(exchange, 201, MediaType.APPLICATION_JSON_VALUE, paymentJson(payment));
                 return;
             }
@@ -856,9 +967,32 @@ abstract class PurchaseContractTestBase {
                 payment.method, payment.createdAt, payment.updatedAt);
     }
 
+    /**
+     * Simula una conexión cortada a mitad de la respuesta: envía las cabeceras
+     * HTTP con un cuerpo prometido y cierra sin escribir esos bytes, de modo que
+     * el cliente recibe un corte de conexión (pago incierto) y no una respuesta
+     * interpretable.
+     */
+    private static void respondWithTruncatedConnection(HttpExchange exchange,
+                                                       String correlationId) throws IOException {
+        try {
+            exchange.getResponseHeaders().set("Content-Type", MediaType.APPLICATION_JSON_VALUE);
+            if (correlationId != null) {
+                exchange.getResponseHeaders().set(CORRELATION_HEADER, correlationId);
+            }
+            exchange.sendResponseHeaders(201, 64);
+        } finally {
+            // Nunca se escribe el cuerpo prometido: la conexión queda truncada.
+            exchange.close();
+        }
+    }
+
     // -------------------------------------------------------------- stub de Ticket
 
     private static final Map<String, String> TICKET_RESPONSES = new ConcurrentHashMap<>();
+
+    /** Paths de emisión que ya recibieron su 503 transitorio (uno por path). */
+    private static final Set<String> TICKET_FLAKY_FAILED = ConcurrentHashMap.newKeySet();
 
     private static void handleTicket(HttpExchange exchange) throws IOException {
         try (exchange) {
@@ -875,6 +1009,16 @@ abstract class PurchaseContractTestBase {
             if (!matches) {
                 respond(exchange, 404, MediaType.APPLICATION_PROBLEM_JSON_VALUE,
                         problem(404, "Not found", path, correlationId));
+                return;
+            }
+
+            // Fallo transitorio configurable: la primera emisión de este path con
+            // el evento reservado responde 503; el reintento posterior emite bien.
+            if (body.contains(TICKET_FLAKY_EVENT.toString())
+                    && TICKET_FLAKY_FAILED.add(path)) {
+                respond(exchange, 503, MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                        problem(503, "Ticket Service is temporarily unavailable", path,
+                                correlationId));
                 return;
             }
 

@@ -42,7 +42,7 @@ public abstract class ServiceClient {
                     .accept(MediaType.APPLICATION_JSON)
                     .retrieve()
                     .body(String.class);
-            return readTree(body);
+            return readTree(body, path);
         } catch (HttpClientErrorException | HttpServerErrorException exception) {
             throw new ServiceException(HttpStatusCode.valueOf(exception.getStatusCode().value()),
                     "Error llamando " + baseUrl + path + ": " + exception.getStatusCode());
@@ -61,7 +61,7 @@ public abstract class ServiceClient {
                     .body(body)
                     .retrieve()
                     .body(String.class);
-            return readTree(response);
+            return readTree(response, path);
         } catch (HttpClientErrorException | HttpServerErrorException exception) {
             throw new ServiceException(HttpStatusCode.valueOf(exception.getStatusCode().value()),
                     "Error llamando " + baseUrl + path + ": " + exception.getStatusCode());
@@ -70,7 +70,11 @@ public abstract class ServiceClient {
         }
     }
 
-    private JsonNode readTree(String content) {
+    private JsonNode readTree(String content, String path) {
+        if (content == null) {
+            throw new ServiceException("Falla de conexión llamando " + baseUrl + path
+                    + ": respuesta vacía", (Throwable) null);
+        }
         try {
             return mapper.readTree(content);
         } catch (JsonProcessingException exception) {

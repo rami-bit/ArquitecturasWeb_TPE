@@ -260,6 +260,21 @@ class PurchaseOpenApiDocumentContractTest {
     }
 
     @Test
+    void orderPaymentNullableFieldsStayNullableForLostPaymentResponses() {
+        // En la respuesta 202 (respuesta de Payment perdida) aún no se conocen
+        // estos valores, por lo que el contrato debe declararlos nullable.
+        for (String field : List.of("paymentId", "createdAt", "updatedAt")) {
+            Map<String, Object> property = (Map<String, Object>) properties("OrderPayment").get(field);
+            assertThat(property)
+                    .as("OrderPayment.%s debe declarar properties en el contrato", field)
+                    .isNotNull();
+            assertThat(property.get("nullable"))
+                    .as("OrderPayment.%s debe declarar nullable: true", field)
+                    .isEqualTo(Boolean.TRUE);
+        }
+    }
+
+    @Test
     void simulationTokensAreExactlyTheDocumentedOnes() {
         Map<String, Object> token = (Map<String, Object>) properties("CreateOrderPayment")
                 .get("token");

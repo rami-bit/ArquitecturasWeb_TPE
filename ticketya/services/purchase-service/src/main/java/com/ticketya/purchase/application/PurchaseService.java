@@ -179,6 +179,12 @@ public class PurchaseService {
         try {
             paymentResult = payment.charge(orderId, total, "ARS", method, token, correlationId);
         } catch (ServiceException e) {
+            if (e.status() == null) {
+                // Transporte incierto (timeout o conexión cortada): no asumir rechazo.
+                // Se conservan la reserva y el límite; la orden queda reconciliable.
+                repository.updateOrderStatus(orderId, OrderStatus.PAYMENT_PENDING.name(), "PENDING", expiresAt);
+                return ResponseEntity.status(HttpStatus.ACCEPTED).body(buildOrderResponse(orderId, correlationId));
+            }
             release(customerId, eventId, units, reservationId, correlationId);
             throw new ApiProblemException(HttpStatus.SERVICE_UNAVAILABLE, "Service unavailable",
                     "Payment no disponible: " + e.getMessage());
@@ -314,6 +320,15 @@ public class PurchaseService {
         String paymentStatus = paymentResult.path("status").asText();
         UUID paymentId = paymentResult.path("paymentId").asText(null) == null ? null
                 : UUID.fromString(paymentResult.path("paymentId").asText());
+
+        // Persistir los datos devueltos por la consulta de pago (una sola vez).
+        if (paymentId != null) {
+            BigDecimal payAmount = toBigDecimal(paymentResult.path("amount"));
+            OffsetDateTime payCreated = parseOffsetDateTime(paymentResult.path("createdAt").asText(null));
+            OffsetDateTime payUpdated = parseOffsetDateTime(paymentResult.path("updatedAt").asText(null));
+            repository.updateOrderPayment(orderId, paymentId, paymentStatus, order.currency(),
+                    payAmount, order.paymentMethod(), payCreated, payUpdated);
+        }
 
         switch (paymentStatus) {
             case "REJECTED" -> {
