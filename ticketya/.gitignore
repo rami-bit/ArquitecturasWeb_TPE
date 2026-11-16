@@ -1,2 +1,5 @@
 # Keep the repository's local Docker Compose defaults available to contributors.
 !.env
+
+# Local secrets and keys of the verification tooling (e.g. the test IdP key pair).
+.local/

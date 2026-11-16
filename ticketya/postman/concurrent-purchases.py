@@ -2,18 +2,31 @@
 
 Run against a healthy Compose stack: python postman/concurrent-purchases.py
 Set BASE_URL to override http://localhost:8080.
+
+Since the E2-01 epic the Gateway authenticates every protected route with a
+JWT issued by the external identity provider: identity headers sent by the
+client (``X-User-Id`` / ``X-User-Role``) are discarded and requests without a
+valid Bearer token are rejected with 401. This script therefore mints one
+token per identity from the configured IdP token endpoint instead of sending
+identity headers.
+
+Set IDP_TOKEN_URL to override http://localhost:19998/token. The endpoint must
+return ``{"access_token": "<jwt>", ...}`` for a ``sub``/``role`` pair; the
+local test IdP (``tools/local-test-idp/LocalTestIdp.java``) implements it.
 """
 
 import json
 import os
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:8080").rstrip("/")
+IDP_TOKEN_URL = os.environ.get("IDP_TOKEN_URL", "http://localhost:19998/token")
 
 
 def request(method, path, body=None, headers=None):
@@ -37,16 +50,35 @@ def expect(method, path, status, body=None, headers=None):
     return payload
 
 
+def mint_token(subject, role):
+    """Ask the configured IdP for a Bearer token for one identity."""
+    query = urllib.parse.urlencode({"sub": subject, "role": role})
+    req = urllib.request.Request(f"{IDP_TOKEN_URL}?{query}")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as response:
+            payload = json.load(response)
+    except (urllib.error.URLError, urllib.error.HTTPError) as error:
+        raise AssertionError(
+            f"no se pudo emitir el token para {role} en {IDP_TOKEN_URL}: {error}. "
+            "Levanta el IdP de prueba (tools/local-test-idp/LocalTestIdp.java) "
+            "o ajusta IDP_TOKEN_URL."
+        ) from error
+    token = payload.get("access_token")
+    assert token, f"el IdP no devolvio access_token: {payload}"
+    return {"Authorization": f"Bearer {token}"}
+
+
 def main():
     run_id = uuid.uuid4().hex[:12]
     organizer = str(uuid.uuid4())
-    organizer_headers = {"X-User-Id": organizer, "X-User-Role": "ORGANIZER"}
+    organizer_headers = mint_token(organizer, "ORGANIZER")
+    admin_headers = mint_token(str(uuid.uuid4()), "ADMIN")
     venue = expect("POST", "/api/venues", 201, {
         "name": f"Concurrency {run_id}", "address": "Test 1", "city": "Buenos Aires",
         "latitude": -34.6037, "longitude": -58.3816,
         "sectors": [{"name": "Single seat", "type": "NUMBERED", "capacity": 1,
                      "seats": [{"rowLabel": "A", "seatNumber": 1}]}],
-    }, {"X-User-Role": "ADMIN"})
+    }, admin_headers)
     sector_id = venue["sectors"][0]["id"]
     event = expect("POST", "/api/management/events", 201, {
         "name": f"Concurrency {run_id}", "description": "Competing purchases",
@@ -65,13 +97,16 @@ def main():
             "items": [{"sectorId": numbered["sectorId"], "seatIds": [seat_id]}],
             "payment": {"method": "CARD", "token": "tok_approved"}}
 
-    buyers = [str(uuid.uuid4()) for _ in range(12)]
+    buyers = []
+    for _ in range(12):
+        buyer = str(uuid.uuid4())
+        buyers.append((buyer, mint_token(buyer, "CLIENT")))
     barrier = threading.Barrier(len(buyers))
 
     def buy(index):
         barrier.wait(timeout=30)
         return request("POST", "/api/orders", body, {
-            "X-User-Id": buyers[index],
+            **buyers[index][1],
             "Idempotency-Key": f"concurrent-{run_id}-{index}",
         })
 

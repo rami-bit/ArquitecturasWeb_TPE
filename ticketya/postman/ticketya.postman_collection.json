@@ -173,6 +173,109 @@
       ]
     },
     {
+      "name": "00a - Ruta protegida sin token devuelve 401",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Sin token {{runId}}\",\n  \"address\": \"Av. Siempre Viva 742\",\n  \"city\": \"Buenos Aires\",\n  \"latitude\": -34.6037,\n  \"longitude\": -58.3816,\n  \"sectors\": [{\"name\":\"General\",\"type\":\"GENERAL_ADMISSION\",\"capacity\":1,\"seats\":[]}]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/venues",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "venues"
+          ]
+        },
+        "description": "Verifica que el Gateway exige Bearer en las rutas protegidas y no alcanza el servicio; no crea datos."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Una ruta protegida sin token recibe 401', () => pm.response.to.have.status(401));",
+              "pm.test('El rechazo llega como problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));",
+              "pm.test('El rechazo conserva X-Correlation-Id', () => pm.expect(pm.response.headers.get('X-Correlation-Id')).to.not.be.empty);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "00b - Headers de identidad sin JWT no autentican",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User-Id",
+            "value": "e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b",
+            "type": "text"
+          },
+          {
+            "key": "X-User-Role",
+            "value": "ADMIN",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Headers falsificados {{runId}}\",\n  \"address\": \"Av. Siempre Viva 742\",\n  \"city\": \"Buenos Aires\",\n  \"latitude\": -34.6037,\n  \"longitude\": -58.3816,\n  \"sectors\": [{\"name\":\"General\",\"type\":\"GENERAL_ADMISSION\",\"capacity\":1,\"seats\":[]}]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/venues",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "venues"
+          ]
+        },
+        "description": "Verifica que los encabezados de identidad del cliente no sustituyen al JWT; no crea datos."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Los headers de identidad sin JWT reciben 401', () => pm.response.to.have.status(401));",
+              "pm.test('El rechazo conserva X-Correlation-Id', () => pm.expect(pm.response.headers.get('X-Correlation-Id')).to.not.be.empty);"
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "01 - Crear lugar (ADMIN)",
       "request": {
         "method": "POST",
