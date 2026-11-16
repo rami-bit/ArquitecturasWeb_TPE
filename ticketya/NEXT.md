@@ -1,6 +1,27 @@
-# Cierre final — Entrega 1
+# Progreso del proyecto
 
-**Estado:** Entrega 1 cerrada el 2026-11-15. No se inició implementación de Entrega 2.
+## Entrega 2 — épica E2-01: JWT y roles (`add-jwt-and-role-security`)
+
+**Estado:** épica **cerrada** el 2026-11-16. El cambio quedó archivado como `openspec/changes/archive/2026-11-16-add-jwt-and-role-security/` (10/10 tareas) y sus capacidades (`jwt-role-security` nueva; `api-gateway` y `purchase-orders` modificadas) sincronizadas en `openspec/specs/`.
+
+- [x] El Gateway valida el JWT firmado por un IdP externo (`issuer-uri` + `jwk-set-uri` por entorno): `sub` UUID, expiración vigente y exactamente un rol de `CLIENT`, `ORGANIZER`, `ADMIN` o `ACCESS_STAFF`.
+- [x] Las rutas protegidas exigen `Authorization: Bearer` y responden `401` en `application/problem+json` conservando `X-Correlation-Id`, sin llegar al upstream. Las consultas públicas (`GET /api/events`, `GET /api/events/{id}`, `GET /api/inventory/events/{eventId}/availability`) y los healthchecks siguen anónimos.
+- [x] El Gateway descarta `X-User-Id`/`X-User-Role` del cliente y no reenvía el Bearer; propaga al servicio la identidad derivada de los claims validados. Los headers falsificados solos no autentican.
+- [x] Catalog y Purchase conservan las reglas de rol y ownership: `403` por rol insuficiente, `404` para recursos ajenos.
+- [x] `docs/openapi.yaml` declara el esquema HTTP `BearerJWT` por operación, con `security: []` explícito en las públicas; `ConsolidatedOpenApiDocumentContractTest` lo verifica.
+- [x] `mvn -pl services/api-gateway,services/catalog-service,services/purchase-service -am verify`: **152 tests, 0 fallos, 0 errores, 0 omitidos** (Gateway 49, Catalog 48, Purchase 55).
+- [x] Compose aislado `ticketya_jwt_verification`: **11/11 servicios healthy** con el IdP de prueba local.
+- [x] Newman por Gateway: **48 requests, 82 aserciones, 0 fallos** con tokens reales; incluye las denegaciones por rol y ownership y los rechazos `401` por token ausente o headers de identidad falsificados.
+- [x] `postman/concurrent-purchases.py`: **12 compras simultáneas, 1 `CONFIRMED`, 11 `409`, 1 asiento `SOLD`**.
+- [x] `openspec validate --specs`: 12 specs válidas; `git diff --check` sin errores.
+
+**Defectos corregidos al verificar:** (1) `postman/concurrent-purchases.py` seguía autenticando con `X-User-*` y quedaba roto con la seguridad JWT — ahora emite un token por identidad contra el endpoint del IdP; (2) la sincronización manual de specs había dejado dos requisitos desactualizados (`purchase-orders` → *Consultar órdenes propias* y `api-gateway` → *Enrutar las órdenes de compra por el Gateway*) — se revirtió y el archivado aplicó el sync canónico; (3) el README no documentaba el IdP de prueba local ni `IDP_TOKEN_URL`.
+
+**Fuera de alcance, sin cambios:** el Gateway sigue sin emitir tokens ni mantener usuarios, no hay base de identidad propia y `ACCESS_STAFF` todavía no habilita las operaciones de control de acceso QR (pertenecen a E2-05).
+
+## Cierre final — Entrega 1
+
+**Estado:** Entrega 1 cerrada el 2026-11-15.
 
 - [x] `issue-ticket-qr` archivado y su capacidad sincronizada a `openspec/specs/ticket-issuance/`.
 - [x] `establish-purchase-and-ticketing` archivado con 14/14 tareas; sus capacidades quedaron sincronizadas en `openspec/specs/`.

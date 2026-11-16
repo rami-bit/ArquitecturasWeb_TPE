@@ -10,7 +10,7 @@ doble venta y los modelos de datos. El contrato HTTP versionado está en
 
 | Servicio | Puerto | Base de datos | API pública (vía Gateway) | API interna |
 |---|---|---|---|---|
-| `api-gateway` | 8080 | — | Punto de entrada único. Enruta `/api/inventory/**`, `/api/orders/**`, `/api/refunds/**` y `/api/events/*/cancellation`; el resto de `/api/**` va a Catalog. | — |
+| `api-gateway` | 8080 | — | Punto de entrada único. Valida el JWT (Bearer) y enruta `/api/inventory/**`, `/api/orders/**`, `/api/refunds/**` y `/api/events/*/cancellation`; el resto de `/api/**` va a Catalog. | — |
 | `catalog-service` | 8081 | `ticketya_catalog` | Eventos: `GET /api/events`, `GET /api/events/{id}`; venues: `POST/GET /api/venues`, `PUT /api/venues/{id}`; gestión: `POST/GET /api/management/events`, `GET/PUT /api/management/events/{id}`, `PUT /api/management/events/{id}/offerings`, `POST /api/management/events/{id}/publish`, `/api/management/events/{id}/suspend`, `/api/management/events/{id}/cancel`, `/api/management/events/{id}/resume`. | `GET /internal/events/{eventId}/snapshot`, `GET /internal/events/{eventId}/purchase-snapshot` |
 | `inventory-service` | 8082 | `ticketya_inventory` | `GET /api/inventory/events/{eventId}/availability` | `POST/GET /internal/reservations/**`, confirmar/liberar reserva, `POST /internal/reservations/{reservationId}/sold-units/release`, `PUT /internal/events/{eventId}/hold-ttl` y `PUT /internal/events/{eventId}/cancellation` |
 | `ticket-service` | 8083 | `ticketya_ticket` | — (las entradas se leen desde la orden) | `POST /internal/orders/{orderId}/items/{orderItemId}/tickets` (emisión), `POST /internal/tickets/{ticketId}/revoke` |
@@ -26,6 +26,15 @@ ya vendidas y llama a la ruta de Catalog.
 Sólo el Gateway publica un puerto al host (`8080`). Las rutas `/internal/**` no
 tienen ruta en el Gateway: cualquier llamada externa a un comando interno
 responde `404`.
+
+El Gateway es además el **Resource Server** de TicketYa: valida el JWT firmado
+por un proveedor de identidad externo (`JWT_ISSUER_URI` y `JWT_JWK_SET_URI` por
+entorno), exige `Authorization: Bearer` en las rutas protegidas y propaga a los
+servicios la identidad derivada de los claims (`sub` como UUID y un único rol
+de `CLIENT`, `ORGANIZER`, `ADMIN` o `ACCESS_STAFF`). Los encabezados de
+identidad que envíe el cliente se descartan y el token no se reenvía. TicketYa
+no emite tokens ni mantiene usuarios; la autorización de dominio (rol y
+ownership) sigue en Catalog y Purchase.
 
 Responsabilidades:
 
@@ -106,8 +115,9 @@ sequenceDiagram
     participant Pay as Payment
     participant T as Ticket
 
-    C->>G: POST /api/orders (Idempotency-Key, X-User-Id)
-    G->>P: crear orden
+    C->>G: POST /api/orders (Authorization: Bearer, Idempotency-Key)
+    G->>G: validar JWT (firma, exp, sub UUID, un rol)
+    G->>P: crear orden (identidad derivada del sub)
     P->>P: recuperar o crear orden idempotente
     P->>Cat: GET /internal/events/{id}/purchase-snapshot
     Cat-->>P: evento, sectores, asientos y precios
@@ -580,7 +590,7 @@ distinto, pero nunca se expone en la respuesta.
 | `event` | Catalog (`events`, `event_snapshots`) | Inventory (`event_inventories.event_id`, `event_cancellations.event_id`), Purchase (`purchase_orders.event_id`, `refund_requests.event_id`, `event_cancellations.event_id`), Ticket (`tickets.event_id`) | Referencias UUID sin FK. Cada servicio conserva sólo los atributos que necesita. |
 | `sector` | Catalog (`snapshot_sectors.source_sector_id`) | Inventory (`inventory_sectors.source_sector_id`), Purchase (`purchase_order_items.source_sector_id`) | Inventory materializa el sector con su propio ID y conserva `source_sector_id`; Purchase guarda ambos identificadores. Ningún servicio copia el precio salvo Purchase. |
 | `seat` | Catalog (`snapshot_seats.source_seat_id`) | Inventory (`inventory_items.source_seat_id`), Purchase (`order_item_units.source_seat_id`) | Inventory es dueño de la disponibilidad y estado vendido/retenido; Catalog describe el layout. |
-| `customer` | Identidad provisional por header `X-User-Id` | Purchase (`purchase_orders.customer_id`, `customer_event_limits.customer_id`, `refund_requests.customer_id`), Ticket (`tickets.customer_id`) | No hay servicio de identidad en esta entrega; se propaga el UUID del header. |
+| `customer` | Identidad externa (proveedor de identidad externo; claim `sub` del JWT) | Purchase (`purchase_orders.customer_id`, `customer_event_limits.customer_id`, `refund_requests.customer_id`), Ticket (`tickets.customer_id`) | No hay servicio de identidad propio: el Gateway valida el JWT y propaga a los servicios el `sub` como UUID. |
 | `price` | Catalog (`snapshot_sectors.price`) | Purchase (`purchase_order_items.unit_price`, `purchase_orders.total_amount`, `refund_requests.amount`) | Inventory nunca almacena precios. Purchase congela el precio del snapshot al crear la orden. |
 | `payment` | Payment (`payments`, `refunds`) | Purchase (`purchase_orders.payment_id`, `purchase_orders.payment_status`) | Purchase guarda el identificador y estado del pago. `payments.order_id` y `refunds.payment_id` no crean FK entre bases. |
 | `ticket` | Ticket (`tickets`, hash QR y estado) | Purchase (`order_tickets.ticket_id`, `qr_payload`, `qr_png_base64`; `refund_requests.ticket_id`) | Ticket es dueño del ticket y su revocación. Purchase conserva la copia del payload/PNG que devuelve al titular al consultar su orden; no hay FK hacia `ticket_db`. |

@@ -1,5 +1,34 @@
 # Verificación de Entrega 1
 
+## Verificación de la épica E2-01 - JWT y roles (2026-11-16)
+
+Estado: **cerrada**. El cambio `add-jwt-and-role-security` quedó archivado como `openspec/changes/archive/2026-11-16-add-jwt-and-role-security/` (10/10 tareas) y sus capacidades sincronizadas en `openspec/specs/`.
+
+Entorno: Windows, Docker Desktop 29.7.2, JDK 19 (el `pom.xml` fija `maven.compiler.release=19`), Maven 3.9.15, Testcontainers con PostgreSQL 16.4 real.
+
+| Verificación | Comando / entorno | Resultado |
+|---|---|---|
+| Módulos afectados | `mvn -pl services/api-gateway,services/catalog-service,services/purchase-service -am verify` | **BUILD SUCCESS**. Gateway **49**, Catalog **48**, Purchase **55** = **152 pruebas, 0 fallos, 0 errores, 0 omitidos**. XML Surefire recientes revisados clase por clase. |
+| Reactor completo | `mvn verify` desde la raíz | **BUILD SUCCESS**. Gateway 49, Catalog 48, Inventory 73, Ticket 17, Payment Mock 24, Purchase 55 = **266 pruebas, 0 fallos, 0 errores, 0 omitidos** (la línea base de E1 era 260; la épica agrega 6 pruebas netas de seguridad en el Gateway). |
+| Seguridad del Gateway | `GatewayJwtSecurityIntegrationTest` (IdP de prueba con firma RS256 real y JWKS local) | 5 pruebas: token válido para `CLIENT`, `ORGANIZER`, `ADMIN` y `ACCESS_STAFF` llega al upstream con `X-User-Id` = `sub` y `X-User-Role` = único rol; 13 variantes inválidas (ausente, malformado, vencido, firma ajena, issuer incorrecto, `sub` ausente, `sub` no UUID, `roles` ausente/vacía/no array/rol no permitido/dos roles, `exp` ausente) responden `401` sin llamar al upstream; headers de identidad falsificados solos no autentican; las tres consultas públicas y `/actuator/health` siguen anónimas. |
+| Contrato OpenAPI | `ConsolidatedOpenApiDocumentContractTest` | 16 pruebas: esquema HTTP `BearerJWT` declarado, requisito global heredado, `security: []` explícito en las tres consultas públicas y en las operaciones internas, `401` declarado en toda operación protegida, ausencia de `X-User-Id`/`X-User-Role` como parámetros del documento. |
+| Compose aislado | `$env:JWT_ISSUER_URI='http://host.docker.internal:19998'; $env:JWT_JWK_SET_URI='http://host.docker.internal:19998/.well-known/jwks.json'; docker compose -p ticketya_jwt_verification up --build -d --wait` | **11/11 servicios healthy**, incluidos el Gateway y las cinco imágenes recompiladas. El stack quedó detenido sin borrar volúmenes. |
+| Comportamiento en runtime | Requests manuales contra `http://localhost:8080` | Públicas sin token: `GET /api/events` 200, `GET /api/events/{id}` 404 (recurso inexistente, ruta alcanzable), `GET .../availability` 404, `/actuator/health` 200. Protegidas sin token: `POST /api/venues`, `GET /api/management/events` y `GET /api/orders` → **401**. `GET /api/management/events` con token ADMIN → 200. `POST /api/venues` con `X-User-Role: ADMIN` pero sin JWT → **401**. |
+| Roles y ownership por Gateway | Colección Postman con tokens reales | `ACCESS_STAFF` en operación ADMIN → **403**; `ORGANIZER` sobre borrador ajeno → **403**; `CLIENT` decidiendo una devolución → **403**; `CLIENT` consultando orden ajena → **404**; las denegaciones conservan `X-Correlation-Id`. |
+| Colección Postman vía Gateway | `npx --yes newman run postman/ticketya.postman_collection.json --env-var baseUrl=http://localhost:8080 --env-var organizerToken=... --env-var clientToken=... --env-var numberedBuyerToken=... --env-var adminToken=... --env-var accessStaffToken=...` | **48 requests, 82 aserciones, 0 fallos**. Las rutas públicas se recorren sin token y todas las protegidas con Bearer. Incluye `00a` (ruta protegida sin token → `401` en `application/problem+json` con `X-Correlation-Id`) y `00b` (headers `X-User-Id`/`X-User-Role` sin JWT → `401`). |
+| Compras simultáneas por Gateway | `BASE_URL=http://localhost:8080 IDP_TOKEN_URL=http://localhost:19998/token python postman/concurrent-purchases.py` | **PASS**: 12 compras, 1 `CONFIRMED`, 11 `409`, 1 asiento `SOLD`, `reserved=0`; evento `681a375c-de64-4e4f-9396-843bb4322024`. La corrida es repetible: cada ejecución crea su propio evento y sus propias identidades. |
+| OpenSpec y diff | `openspec validate --specs` (12 specs válidas), `openspec validate add-jwt-and-role-security --strict` antes de archivar, `git diff --check` | Sin errores. Los avisos de texto largo en `api-gateway` son preexistentes y no bloqueantes. |
+
+### Defectos encontrados y corregidos durante la verificación
+
+1. **`postman/concurrent-purchases.py` incompatible con la seguridad JWT.** El script seguía autenticando con `X-User-Id`/`X-User-Role`, que el Gateway ahora descarta: la primera llamada (`POST /api/venues`) devolvía `401` y la prueba de concurrencia documentada en el README quedaba rota. Se corrigió para emitir un token por identidad contra el endpoint de token del IdP (`IDP_TOKEN_URL`) y enviar `Authorization: Bearer`. Cobertura equivalente: sigue verificando 12 compras concurrentes, una sola venta y la liberación del cupo.
+2. **Sincronización manual de especificaciones incompleta.** Las specs principales se habían editado a mano en lugar de usar el archivado de OpenSpec, por lo que dos requisitos quedaron desactualizados frente al delta archivado: `purchase-orders` → *Consultar órdenes propias* seguía describiendo la identidad por header y le faltaba el escenario *Administrador consulta órdenes*; `api-gateway` → *Enrutar las órdenes de compra por el Gateway* seguía describiendo el reenvío de headers sin JWT. Se revirtieron las ediciones manuales y `openspec archive add-jwt-and-role-security` aplicó el sync canónico (`+ 5, ~ 6`).
+3. **README desactualizado.** Decía "esas cuatro variables" para cinco tokens y no documentaba el IdP de prueba local ni el nuevo requisito de `IDP_TOKEN_URL` para el script de concurrencia.
+
+### Herramienta de verificación agregada
+
+`tools/local-test-idp/LocalTestIdp.java` es un IdP de prueba mínimo, sólo con el JDK y **fuera del producto y del Compose**: publica el JWKS en `/.well-known/jwks.json` y emite tokens RS256 (`sub` UUID, `roles` con un único valor, `iss`, `iat`, `exp`). Expone además `GET /token?sub=<uuid>&role=<ROL>` para los scripts que necesitan identidades distintas por iteración, y `--key-file` para persistir el par de claves: el Gateway cachea el JWKS que ya leyó, de modo que reiniciar el IdP sin esa clave haría que los tokens nuevos dejaran de validar. Sustituye la dependencia de un IdP externo durante la verificación, en línea con el diseño (no se integra ni despliega un proveedor de identidad concreto).
+
 ## Verificación final del core E1 (2026-11-15)
 
 Entorno: Windows, Docker Desktop, reactor ejecutado en `maven:3.9.9-eclipse-temurin-21-alpine` (Java 21); los tests de integración usaron Testcontainers con PostgreSQL 16.4.

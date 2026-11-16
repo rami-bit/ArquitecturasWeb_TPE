@@ -136,7 +136,7 @@ Evidencia: [`docs/openapi.yaml`](docs/openapi.yaml) es el contrato consolidado d
 ## Implementación y ejecución
 
 - [x] [x] Implementar completamente en Spring Boot los microservicios y el API Gateway necesarios para el alcance de Entrega 1.
-- [x] [x] No exigir autenticación en esta entrega; identificar al usuario mediante parámetro o encabezado.
+- [x] [x] No exigir autenticación en esta entrega; identificar al usuario mediante parámetro o encabezado. *(Superado por la épica E2-01: desde 2026-11-16 las rutas protegidas exigen JWT y la identidad viaja como `Authorization: Bearer`; ver la sección "Entrega 2".)*
 - [x] [x] Preparar instrucciones de ejecución local de los microservicios; las bases de datos pueden iniciarse con Docker.
 - [x] [x] Incluir README con instrucciones para ejecutar el sistema.
 - [x] [x] Incluir documentación técnica adicional de diseño.
@@ -144,6 +144,16 @@ Evidencia: [`docs/openapi.yaml`](docs/openapi.yaml) es el contrato consolidado d
 - [x] [x] Incluir una colección de requests de Postman o herramienta similar para probar los endpoints.
 
 Evidencia: el `README.md` documenta requisitos, variables de entorno, build, Compose, healthchecks, OpenAPI, Postman y reset de volúmenes. La identidad viaja en `X-User-Id` (y `X-User-Role` para ADMIN), sin autenticación. Los datos de prueba los genera la colección Postman con un `runId` por corrida sobre un stack limpio; el README incluye ejemplos de compra y la colección cubre desde la creación del lugar hasta la compra aprobada y rechazada.
+
+## Entrega 2: Seguridad JWT y roles (E2-01)
+
+- [x] [x] Autenticar las operaciones protegidas con un JWT firmado por un proveedor de identidad externo, validado en el API Gateway (`PDF-NF-SECURITY`; cambio archivado `add-jwt-and-role-security`).
+- [x] [x] Autorizar por rol (`CLIENT`, `ORGANIZER`, `ADMIN`, `ACCESS_STAFF`) y por ownership, conservando las reglas de dominio de Catalog y Purchase.
+- [x] [x] Mantener públicas las consultas de eventos y de disponibilidad, sin exigir token.
+- [x] [x] No confiar en los encabezados de identidad enviados por el cliente: el Gateway deriva la identidad de los claims validados y no reenvía el Bearer.
+- [x] [x] Documentar el esquema Bearer en OpenAPI, actualizar la colección Postman y el README, y verificar el flujo protegido por el Gateway.
+
+Evidencia: el Gateway valida firma, expiración, `sub` UUID y un único rol permitido (`GatewayJwtSecurityIntegrationTest`, 5 pruebas con 13 variantes de token inválido). `docs/openapi.yaml` declara el esquema HTTP `BearerJWT` con `security: []` explícito en las operaciones públicas (`ConsolidatedOpenApiDocumentContractTest`, 16 pruebas). Verificación completa, con IdP de prueba local y Compose aislado, en [`docs/verification.md`](docs/verification.md) y en `NEXT.md`.
 
 ## Pruebas
 

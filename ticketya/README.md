@@ -1,4 +1,10 @@
-# TicketYa - Plataforma de venta de entradas (Entrega 1)
+# TicketYa - Plataforma de venta de entradas
+
+> **Autenticación:** desde la épica E2-01 todas las rutas protegidas exigen
+> `Authorization: Bearer <JWT>` emitido por un proveedor de identidad externo.
+> `X-User-Id` y `X-User-Role` ya no autentican: el Gateway los descarta y deriva
+> la identidad de los claims validados. Ver
+> [Autenticación con JWT](#autenticación-con-jwt-e2-01).
 
 ## Solicitud de devolución (US-F7.1)
 
@@ -6,44 +12,43 @@ El titular de un ticket pagado puede pedir su devolución hasta antes de las 72 
 
 ```http
 POST http://localhost:8080/api/refunds/tickets/{ticketId}
-X-User-Id: 66bd0a43-1baa-4f7b-8316-930593b84d7c
+Authorization: Bearer <JWT con sub=66bd0a43-1baa-4f7b-8316-930593b84d7c y roles=["CLIENT"]>
 ```
 
 ```http
 GET http://localhost:8080/api/refunds/{refundId}
-X-User-Id: 66bd0a43-1baa-4f7b-8316-930593b84d7c
+Authorization: Bearer <JWT con sub=66bd0a43-1baa-4f7b-8316-930593b84d7c y roles=["CLIENT"]>
 ```
 
 La respuesta inicial indica `PENDING`, decisión nula y progreso `NOT_STARTED`. Otro usuario recibe `404`.
 
 ## Decidir una devolución (US-F7.2)
 
-Un administrador aprueba o rechaza una solicitud mediante el Gateway. El rol se simula con el encabezado `X-User-Role`; no hay autenticación en esta entrega.
+Un administrador con rol `ADMIN` aprueba o rechaza una solicitud mediante el Gateway.
 
 ```http
 POST http://localhost:8080/api/refunds/{refundId}/decision
-X-User-Role: ADMIN
+Authorization: Bearer <JWT con roles=["ADMIN"]>
 Content-Type: application/json
 
 {"decision":"APPROVED"}
 ```
 
-Para rechazar, usa `{"decision":"REJECTED"}`. El rechazo conserva el ticket y su lugar vendido. Al aprobar, Purchase revoca el ticket, solicita el reintegro idempotente a Payment Mock y libera la unidad vendida en Inventory. Un `200` indica proceso completo; `202` indica que una dependencia falló y se puede repetir la misma decisión para continuar. Una decisión opuesta responde `409`.
+Para rechazar, usa `{"decision":"REJECTED"}`. El rechazo conserva el ticket y su lugar vendido. Al aprobar, Purchase revoca el ticket, solicita el reintegro idempotente a Payment Mock y libera la unidad vendida en Inventory. Un `200` indica proceso completo; `202` indica que una dependencia falló y se puede repetir la misma decisión para continuar. Una decisión opuesta responde `409`. Un token sin rol `ADMIN` recibe `403`.
 
 
 ## Cancelar un evento con reintegros (US-F7.3)
 
-ADMIN inicia la cancelación por el Gateway. Purchase pide a Catalog que marque el evento `CANCELLED` y bloquee nuevas reservas en Inventory; luego procesa los tickets pagados por lotes. Cada ticket se revoca, se reintegra por su importe y libera su unidad vendida. La respuesta `202` indica que queda trabajo; repetir el mismo POST continúa el lote sin duplicar reintegros. `200` y `status: COMPLETED` indican que terminó. La consulta GET muestra el progreso sin procesar otro lote. El rol y la identidad son encabezados simulados para E1.
+ADMIN inicia la cancelación por el Gateway. Purchase pide a Catalog que marque el evento `CANCELLED` y bloquee nuevas reservas en Inventory; luego procesa los tickets pagados por lotes. Cada ticket se revoca, se reintegra por su importe y libera su unidad vendida. La respuesta `202` indica que queda trabajo; repetir el mismo POST continúa el lote sin duplicar reintegros. `200` y `status: COMPLETED` indican que terminó. La consulta GET muestra el progreso sin procesar otro lote.
 
 ```http
 POST http://localhost:8080/api/events/{eventId}/cancellation
-X-User-Id: a1b2c3d4-1111-2222-3333-444455556666
-X-User-Role: ADMIN
+Authorization: Bearer <JWT con roles=["ADMIN"]>
 ```
 
 ```http
 GET http://localhost:8080/api/events/{eventId}/cancellation
-X-User-Role: ADMIN
+Authorization: Bearer <JWT con roles=["ADMIN"]>
 ```
 
 Una respuesta de ejemplo es `{"eventId":"...","status":"PROCESSING","totalTickets":4,"completedTickets":2,"pendingTickets":2}`. Catalog también expone `POST /api/management/events/{eventId}/cancel` para cambiar el estado del evento; esa ruta por sí sola no procesa ventas existentes. Las notificaciones a compradores corresponden a US-F11.
@@ -59,13 +64,13 @@ El flujo de compra se expone a través del Gateway:
 | `GET` | `/api/orders/{orderId}` | Consultar una orden propia con ítems, unidades, pago y tickets |
 | `POST` | `/api/orders/{orderId}/reconcile` | Reintentar una orden `PAYMENT_PENDING` o `PAID_PENDING_TICKETS` |
 
-Cada solicitud requiere `X-User-Id` (UUID) y, para crear una orden, `Idempotency-Key` (1 a 120 caracteres). El encabezado opcional `X-User-Role: ADMIN` permite listar y consultar órdenes de cualquier cliente. El cuerpo **no incluye precios**: `eventId`, `items` y `payment`. Cada ítem informa exactamente uno de `seatIds` (sector numerado) o `quantity` (admisión general), usando los identificadores de Inventory que devuelve la consulta de disponibilidad. El límite de entradas por cliente y evento es seis y se cambia con `PURCHASE_TICKET_LIMIT`.
+Cada solicitud requiere `Authorization: Bearer <JWT>` cuyo `sub` es el UUID del cliente, y para crear una orden, `Idempotency-Key` (1 a 120 caracteres). Un token con rol `ADMIN` permite listar y consultar órdenes de cualquier cliente. El cuerpo **no incluye precios**: `eventId`, `items` y `payment`. Cada ítem informa exactamente uno de `seatIds` (sector numerado) o `quantity` (admisión general), usando los identificadores de Inventory que devuelve la consulta de disponibilidad. El límite de entradas por cliente y evento es seis y se cambia con `PURCHASE_TICKET_LIMIT`.
 
 Ejemplo de compra:
 
 ```http
 POST http://localhost:8080/api/orders
-X-User-Id: 66bd0a43-1baa-4f7b-8316-930593b84d7c
+Authorization: Bearer <JWT con sub=66bd0a43-1baa-4f7b-8316-930593b84d7c y roles=["CLIENT"]>
 Idempotency-Key: demo-purchase-001
 Content-Type: application/json
 
@@ -87,7 +92,8 @@ El token de simulación decide el cobro: `tok_approved` aprueba, `tok_rejected` 
 | `200` | Reintento idempotente de una orden existente |
 | `202` | Pago pendiente; consultar o reconciliar la orden |
 | `402` | Pago rechazado; la reserva se libera |
-| `400`, `403`, `404`, `409` | Solicitud inválida, identidad inválida, evento no comprable o conflicto, respectivamente |
+| `400`, `403`, `404`, `409` | Solicitud inválida, rol insuficiente, evento no comprable o conflicto, respectivamente |
+| `401` | Falta el Bearer o el token no es válido; lo responde el Gateway sin llegar al servicio |
 | `503` | Una dependencia no está disponible; reintentar con la misma clave |
 
 El flujo completo y los errores están en [`docs/openapi.yaml`](docs/openapi.yaml). La colección Postman ejercita compras aprobadas, devolución y cancelación por el Gateway.
@@ -128,6 +134,34 @@ TicketYa no emite tokens ni mantiene usuarios: el cliente obtiene un JWT de un p
 El token debe incluir `iss` coincidente con `JWT_ISSUER_URI`, `sub` como UUID, `exp` vigente y `roles` como array con exactamente uno de `CLIENT`, `ORGANIZER`, `ADMIN` o `ACCESS_STAFF`. El Gateway valida firma e identidad, descarta `X-User-Id`/`X-User-Role` enviados por el cliente y deriva los encabezados internos de los claims. No se registran ni versionan tokens.
 
 Para ejecutar la colección Postman, configura `organizerToken`, `clientToken`, `numberedBuyerToken`, `adminToken` y `accessStaffToken` con JWTs emitidos por el IdP. Sus claims `sub` deben coincidir respectivamente con `userId`, `userId`, `numberedBuyerId`, `adminUserId` y `accessStaffUserId`; sus roles son `ORGANIZER`, `CLIENT`, `CLIENT`, `ADMIN` y `ACCESS_STAFF`. La colección usa además `foreignOrganizerId` para probar que un organizador no acceda a un borrador ajeno. No agregues tokens reales a la colección ni al repositorio.
+
+#### IdP de prueba local (herramienta de verificación)
+
+Para verificar el stack sin depender de un proveedor externo, el repositorio incluye un IdP de prueba mínimo en `tools/local-test-idp/LocalTestIdp.java`. No forma parte del producto ni del Compose: sólo publica el JWKS y emite tokens de prueba.
+
+```bash
+# Terminal 1: IdP de prueba (sin dependencias, sólo el JDK)
+java tools/local-test-idp/LocalTestIdp.java --port 19998 \
+  --issuer http://host.docker.internal:19998 \
+  --key-file .local/idp-key.pem \
+  --token organizer:e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b:ORGANIZER \
+  --token client:e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b:CLIENT \
+  --token numberedBuyer:9f44c33f-35eb-4764-becd-02f6e2414701:CLIENT \
+  --token admin:a1b2c3d4-1111-2222-3333-444455556666:ADMIN \
+  --token accessStaff:d160e54c-5f88-49a1-9e9a-2c901ac70a01:ACCESS_STAFF
+```
+
+El IdP publica el JWKS en `/.well-known/jwks.json` y expone un endpoint de token en `/token?sub=<uuid>&role=<ROL>` que devuelve `{"access_token": "<jwt>", ...}`. `--key-file` persiste el par de claves: el Gateway cachea el JWKS que ya leyó, así que reiniciar el IdP sin esa clave haría que los tokens nuevos dejaran de validar.
+
+Levanta el Compose apuntando al IdP de prueba (el `issuer` debe coincidir exactamente con el claim `iss`):
+
+```bash
+JWT_ISSUER_URI=http://host.docker.internal:19998 \
+JWT_JWK_SET_URI=http://host.docker.internal:19998/.well-known/jwks.json \
+docker compose up --build -d --wait
+```
+
+El issuer usa `host.docker.internal` porque el Gateway corre dentro de Docker y el IdP en el host.
 
 Los servicios internos reciben su configuración a través de variables de Compose (no necesitas definirlas a menos que quieras sobreescribirlas):
 
@@ -257,11 +291,20 @@ npx --yes newman run postman/ticketya.postman_collection.json \
   --env-var accessStaffToken="$ACCESS_STAFF_TOKEN"
 ```
 
-Exporta esas cuatro variables con tokens vigentes del IdP. `organizerToken` debe tener `sub=userId` y rol `ORGANIZER`; `clientToken`, `sub=userId` y rol `CLIENT`; `numberedBuyerToken`, `sub=numberedBuyerId` y rol `CLIENT`; `adminToken`, `sub=adminUserId` y rol `ADMIN`. Los tokens son datos sensibles: pásalos al proceso de Newman desde el entorno y no los guardes en archivos del repositorio.
+Exporta esas cinco variables con tokens vigentes del IdP. `organizerToken` debe tener `sub=userId` y rol `ORGANIZER`; `clientToken`, `sub=userId` y rol `CLIENT`; `numberedBuyerToken`, `sub=numberedBuyerId` y rol `CLIENT`; `adminToken`, `sub=adminUserId` y rol `ADMIN`; `accessStaffToken`, `sub=accessStaffUserId` y rol `ACCESS_STAFF`. Los tokens son datos sensibles: pásalos al proceso de Newman desde el entorno y no los guardes en archivos del repositorio.
 
 La colección es repetible: cada corrida genera un `runId` único para evitar colisiones. Cubre Catalog e Inventory, compras aprobadas de admisión general y asiento numerado con QR, reintento idempotente, consulta de tickets por su titular, pago rechazado con liberación del cupo y límite de seis entradas por cliente y evento. También prueba solicitud y resolución de devoluciones, cancelación con reintegros, suspensión y reanudación del evento. Todas las rutas públicas se recorren sin token y todas las operaciones protegidas por el Gateway. Inventory materializa el inventario de forma perezosa a partir del snapshot publicado de Catalog en la primera consulta.
 
 Para comprobar muchas compras completas simultáneas del mismo asiento con compradores y claves distintas, sobre un stack saludable ejecuta `python postman/concurrent-purchases.py`. La prueba crea sus propios datos, espera una compra confirmada y once conflictos, y comprueba que Inventory registra un solo asiento vendido.
+
+Desde la épica E2-01 el Gateway autentica con JWT, así que el script ya no envía `X-User-Id`/`X-User-Role`: emite un token por identidad contra el endpoint de token del IdP. Configura `IDP_TOKEN_URL` (predeterminado `http://localhost:19998/token`) apuntando al IdP configurado en el Gateway:
+
+```bash
+BASE_URL=http://localhost:8080 IDP_TOKEN_URL=http://localhost:19998/token \
+  python postman/concurrent-purchases.py
+```
+
+Si el IdP no expone un endpoint de token, el script falla al inicio con un mensaje explícito en lugar de producir compras anónimas rechazadas por el Gateway.
 
 ## Flujo interno de inventario (no publicado por el Gateway)
 
