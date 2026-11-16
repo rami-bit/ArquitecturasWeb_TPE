@@ -2,35 +2,33 @@ openapi: 3.0.3
 
 info:
   title: TicketYa API - Consolidated contracts
-  version: '0.2.0'
+  version: '0.3.0'
   description: |
-    Contrato versionado consolidado de TicketYa para los incrementos
-    `establish-inventory-and-reservations` (E1-02, PDF-F4/F5) y
-    `establish-purchase-and-ticketing` (E1-03, PDF-F4/F5/F6).
+    Contrato versionado consolidado de TicketYa para la Entrega 1. Cubre Catalog
+    (venues y eventos), Inventory (disponibilidad y reservas), Purchase (órdenes,
+    devoluciones y cancelaciones), Ticket (emisión y revocación de QR) y Payment
+    Mock (cobros y reintegros simulados).
 
-    Este documento cubre:
-    - La **disponibilidad pública** de inventario, publicada por el API Gateway.
-    - Los **contratos internos de Inventory** para reservas temporales, consulta,
-      confirmación, liberación y configuración de retención, consumidos por
-      Purchase Service.
-    - El **snapshot interno de Catalog**, contrato de lectura que Inventory usa
-      para materializar el layout de un evento sin copiar precios.
-    - El **snapshot interno de compra de Catalog**, que agrega el precio por
-      sector y sólo consume Purchase Service para valorizar la orden y emitir
-      tickets.
-    - La **API pública de Purchase Service** para crear, consultar, listar y
-      reconciliar órdenes de compra.
-    - Los **contratos internos de Payment Mock** para cobrar, consultar y
-      reintegrar pagos de forma idempotente.
+    Superficie pública a través del API Gateway (`http://localhost:8080`):
+    - **Catalog público:** `GET /api/events`, `GET /api/events/{id}`.
+    - **Catalog gestión (con `X-User-Role`):** `POST/PUT/GET /api/venues`,
+      `POST/GET /api/management/events`, `GET/PUT /api/management/events/{id}`,
+      `PUT /api/management/events/{id}/offerings`, y los comandos
+      `publish`, `suspend`, `cancel` y `resume`.
+    - **Inventory público:** `GET /api/inventory/events/{eventId}/availability`.
+    - **Purchase:** `POST /api/orders`, `GET /api/orders`,
+      `GET /api/orders/{orderId}`, `POST /api/orders/{orderId}/reconcile`.
+    - **Devoluciones individuales:** `POST /api/refunds/tickets/{ticketId}`,
+      `GET /api/refunds/{refundId}`, `POST /api/refunds/{refundId}/decision`.
+    - **Cancelación masiva de evento:** `POST /api/events/{eventId}/cancellation`,
+      `GET /api/events/{eventId}/cancellation`.
 
-    Las rutas `/internal/**` existen únicamente en la red interna de servicios y
-    **no se publican por el Gateway**. Inventory Service escucha en
-    `inventory-service:8082`, Catalog Service en `catalog-service:8081`,
-    Payment Mock en `payment-mock:8085` y Purchase Service en
-    `purchase-service:8084`. La superficie pública de este contrato es
-    `GET /api/inventory/events/{eventId}/availability`, `POST /api/orders`,
-    `GET /api/orders`, `GET /api/orders/{orderId}` y
-    `POST /api/orders/{orderId}/reconcile`.
+    Rutas internas (`/internal/**`), sólo en la red de servicios:
+    - Inventory: reservas, configuración TTL, cancelación de inventario y
+      liberación de unidades vendidas para devoluciones.
+    - Catalog: snapshot sin precios y snapshot de compra con precios.
+    - Ticket: emisión y revocación de entradas QR.
+    - Payment Mock: cobro, consulta, reintegro total y reintegro parcial.
 
     Reglas transversales:
     - La disponibilidad nunca incluye precios, comprador, `orderId` ni
@@ -45,9 +43,25 @@ info:
     - Todos los errores usan `application/problem+json` con `status`, `title`,
       `detail`, `instance` y `correlationId`.
     - Toda solicitud y toda respuesta llevan `X-Correlation-Id`.
-    - No hay autenticación JWT en E1. Purchase identifica al comprador con
-      `X-User-Id` obligatorio y `X-User-Role` opcional (`CLIENT` o `ADMIN`); los
-      comandos internos se protegen por aislamiento de red.
+    - **Identidad y roles por endpoint (E1 no usa JWT):**
+      - Búsqueda y detalle de eventos públicos (`/api/events`) no requieren
+        identidad.
+      - Venues (`/api/venues`) validan `X-User-Role`: creación y edición exigen
+        `ADMIN`; el listado exige `ORGANIZER` o `ADMIN`.
+      - Gestión de eventos (`/api/management/events/**`) exige `X-User-Id` y
+        `X-User-Role` con `ORGANIZER` o `ADMIN`; los comandos `suspend`,
+        `cancel` y `resume` exigen `ADMIN`.
+      - Purchase valida `X-User-Id` obligatorio y `X-User-Role` opcional
+        (`CLIENT` o `ADMIN`); `ADMIN` puede consultar órdenes ajenas.
+      - Los comandos internos (`/internal/**`) se protegen por aislamiento de
+        red; llevan `X-Correlation-Id` pero no identidad de usuario.
+    - **Nota sobre cancelación:** existen dos endpoints con semántica distinta:
+      - `POST /api/management/events/{id}/cancel` (Catalog): cambia el estado
+        del evento a `CANCELLED` y notifica a Inventory para bloquear nuevas
+        ventas. Es la cancelación lógica del evento.
+      - `POST /api/events/{eventId}/cancellation` (Purchase): procesa por lotes
+        los reintegros de las compras ya confirmadas del evento cancelado.
+        No los confundir; el segundo llama al primero internamente.
     - `POST /api/orders` exige `Idempotency-Key` (1..120 caracteres). La misma
       clave con el mismo contenido devuelve la orden existente; con otro
       contenido responde `409` sin modificarla.
@@ -64,30 +78,40 @@ info:
 servers:
   - url: http://localhost:8080
     description: |
-      API Gateway público. Expone únicamente `/api/inventory/**`, las rutas
-      públicas de Catalog y `/api/orders/**`, con precedencia de las órdenes
-      sobre la ruta catch-all de catálogo. No enruta `/internal/**`.
+      API Gateway público y único punto de entrada de clientes. Expone las rutas
+      públicas y de gestión de Catalog (`/api/venues/**`,
+      `/api/management/events/**`, `/api/events/**`), la disponibilidad de
+      Inventory (`/api/inventory/**`), órdenes de Purchase (`/api/orders/**`),
+      devoluciones (`/api/refunds/**`) y cancelación masiva
+      (`/api/events/{eventId}/cancellation`). Las rutas `/internal/**` no se
+      enrutan por el Gateway.
   - url: http://purchase-service:8084
     description: |
-      Red interna de Compose. Purchase Service expone la API de órdenes en
-      `/api/orders/**`, que el Gateway publica en `http://localhost:8080`. No
-      publica puerto al host.
+      Red interna de Compose. Purchase Service expone órdenes, devoluciones y
+      cancelación masiva de eventos, publicadas externamente sólo a través del
+      Gateway. No publica puerto al host.
   - url: http://payment-mock:8085
     description: |
-      Red interna de Compose. Payment Mock expone sólo los comandos internos
-      `/internal/payments/**`. No publica puerto al host y el Gateway no lo
-      enruta.
+      Red interna de Compose. Payment Mock expone cobros, consultas, reintegros
+      totales y parciales bajo `/internal/payments/**`. No publica puerto al host
+      y el Gateway no lo enruta.
   - url: http://catalog-service:8081
     description: |
-      Red interna de Compose. Catalog Service expone el snapshot interno sin
-      precios `GET /internal/events/{eventId}/snapshot` y el snapshot de compra
-      con precios `GET /internal/events/{eventId}/purchase-snapshot`. No publica
+      Red interna de Compose. Catalog Service sirve venues, gestión de eventos,
+      búsqueda y detalle; los clientes externos deben acceder por el Gateway.
+      También expone `GET /internal/events/{eventId}/snapshot` sin precios y
+      `GET /internal/events/{eventId}/purchase-snapshot` con precios. No publica
       puerto al host.
   - url: http://inventory-service:8082
     description: |
-      Red interna de Compose. Inventory Service expone la disponibilidad y los
-      comandos `/internal/**` de reservas y configuración. No publica puerto al
-      host.
+      Red interna de Compose. Inventory Service expone disponibilidad pública
+      (a través del Gateway) y comandos internos de reserva, configuración TTL,
+      cancelación de inventario y liberación de unidades vendidas. No publica
+      puerto al host.
+  - url: http://ticket-service:8083
+    description: |
+      Red interna de Compose. Ticket Service expone emisión y revocación de
+      entradas QR. No publica puerto al host.
 
 security: []
 
@@ -130,8 +154,753 @@ tags:
       Comandos internos de Payment Mock para cobrar, consultar y reintegrar pagos
       de forma idempotente. Sólo son accesibles dentro de la red de servicios en
       `payment-mock:8085`; el Gateway no publica ninguna de estas rutas.
+  - name: Catalog venues (public)
+    description: |
+      Creación, edición y listado de lugares (venues). Creación y edición
+      exigen `X-User-Role: ADMIN`; el listado exige `ORGANIZER` o `ADMIN`.
+  - name: Catalog event management
+    description: |
+      Creación, edición y control de estado de eventos. Requieren `X-User-Id` y
+      `X-User-Role` con `ORGANIZER` o `ADMIN`; los comandos `suspend`, `cancel`
+      y `resume` exigen `ADMIN`.
+  - name: Catalog event discovery (public)
+    description: |
+      Búsqueda y detalle de eventos publicados sin encabezados de identidad.
+  - name: Inventory cancellation (internal)
+    description: |
+      Bloqueo interno del inventario de un evento cancelado y liberación de
+      unidades vendidas durante devoluciones.
+  - name: Ticket issuance (internal)
+    description: |
+      Emisión interna de tickets QR. Consumido por Purchase tras confirmar pago
+      e inventario.
+  - name: Ticket revocation (internal)
+    description: |
+      Revocación interna de un ticket tras una devolución aprobada.
+  - name: Refunds and cancellation
+    description: |
+      Devoluciones individuales de tickets y cancelación masiva de eventos con
+      reintegros por lotes.
 
 paths:
+
+  # ─── CATALOG VENUES ────────────────────────────────────────────────────────
+
+  /api/venues:
+    post:
+      tags: [Catalog venues (public)]
+      operationId: createVenue
+      summary: Crear un lugar (venue)
+      description: |
+        `ADMIN` crea un venue con sectores numerados y/o de admisión general.
+      parameters:
+        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ADMIN] } }
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VenueRequest'
+            example:
+              name: Estadio River
+              address: Av. Figueroa Alcorta 7597
+              city: Buenos Aires
+              latitude: -34.5453
+              longitude: -58.4498
+              sectors:
+                - name: Platea
+                  type: NUMBERED
+                  capacity: 120
+                  seats:
+                    - { rowLabel: A, seatNumber: 1 }
+                    - { rowLabel: A, seatNumber: 2 }
+                - name: Campo
+                  type: GENERAL_ADMISSION
+                  capacity: 500
+      responses:
+        '201':
+          description: Venue creado exitosamente.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VenueResponse'
+              example:
+                id: v1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f601
+                name: Estadio River
+                address: Av. Figueroa Alcorta 7597
+                city: Buenos Aires
+                latitude: -34.5453
+                longitude: -58.4498
+                sectors:
+                  - id: s1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f601
+                    name: Platea
+                    type: NUMBERED
+                    capacity: 120
+                    seats:
+                      - { rowLabel: A, seatNumber: 1 }
+                      - { rowLabel: A, seatNumber: 2 }
+                  - id: s2a2b3c4-d5e6-4f70-8a91-b2c3d4e5f602
+                    name: Campo
+                    type: GENERAL_ADMISSION
+                    capacity: 500
+                    seats: []
+        '400':
+          description: Payload inválido.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403':
+          description: Rol ADMIN requerido.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    get:
+      tags: [Catalog venues (public)]
+      operationId: listVenues
+      summary: Listar venues paginados
+      description: |
+        Devuelve una página estable de venues. Requiere `X-User-Role` con
+        `ORGANIZER` o `ADMIN`.
+      parameters:
+        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ORGANIZER, ADMIN] } }
+        - $ref: '#/components/parameters/CorrelationId'
+        - { name: page, in: query, required: false, schema: { type: integer, minimum: 0, default: 0 }, description: Página base cero. }
+        - { name: size, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 20 }, description: Ítems por página. }
+      responses:
+        '200':
+          description: Página de venues.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VenuePageResponse'
+              example:
+                content:
+                  - id: v1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f601
+                    name: Estadio River
+                    address: Av. Figueroa Alcorta 7597
+                    city: Buenos Aires
+                    latitude: -34.5453
+                    longitude: -58.4498
+                    sectors: []
+                page: 0
+                size: 20
+                totalElements: 1
+                totalPages: 1
+        '400':
+          description: Paginación inválida.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403':
+          description: Rol requerido (ORGANIZER o ADMIN).
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /api/venues/{id}:
+    put:
+      tags: [Catalog venues (public)]
+      operationId: updateVenue
+      summary: Actualizar un venue existente
+      description: "`ADMIN` actualiza un venue existente."
+      parameters:
+        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ADMIN] } }
+        - $ref: '#/components/parameters/CorrelationId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VenueRequest'
+      responses:
+        '200':
+          description: Venue actualizado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VenueResponse'
+        '400':
+          description: Payload inválido.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403':
+          description: Rol ADMIN requerido.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: Venue no encontrado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  # ─── CATALOG EVENT MANAGEMENT ──────────────────────────────────────────────
+
+  /api/management/events:
+    post:
+      tags: [Catalog event management]
+      operationId: createEvent
+      summary: Crear un evento en borrador
+      description: |
+        ORGANIZER crea para su propia identidad; ADMIN provee `organizerId`.
+        El evento queda en estado `DRAFT`.
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ORGANIZER, ADMIN] } }
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventRequest'
+            example:
+              name: Concierto de verano
+              description: Evento musical de temporada
+              eventType: MUSIC
+              startsAt: '2030-01-01T20:00:00-03:00'
+              venueId: v1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f601
+              participants: [The Example Band]
+              offerings:
+                - sectorId: s1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f601
+                  price: 15000.00
+      responses:
+        '201':
+          description: Borrador creado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+              example:
+                id: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+                name: Concierto de verano
+                description: Evento musical de temporada
+                eventType: MUSIC
+                startsAt: '2030-01-01T20:00:00-03:00'
+                organizerId: 3f1a2b3c-4d5e-4f60-8a91-b2c3d4e5f601
+                venueId: v1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f601
+                status: DRAFT
+                participants: [The Example Band]
+                offerings:
+                  - sectorId: s1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f601
+                    price: 15000.00
+        '400':
+          description: Request inválido.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403':
+          description: Rol o ownership inválido.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    get:
+      tags: [Catalog event management]
+      operationId: listManageableEvents
+      summary: Listar eventos gestionables
+      description: |
+        ORGANIZER sólo ve sus propios eventos; ADMIN ve todos. Requiere
+        `X-User-Id` y `X-User-Role` con `ORGANIZER` o `ADMIN`.
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ORGANIZER, ADMIN] } }
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Lista de eventos del usuario.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EventResponse'
+        '403':
+          description: Rol no permitido.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /api/management/events/{id}:
+    get:
+      tags: [Catalog event management]
+      operationId: getManageableEvent
+      summary: Obtener un evento gestionable
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ORGANIZER, ADMIN] } }
+        - $ref: '#/components/parameters/CorrelationId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Evento encontrado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '403':
+          description: No es el dueño.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: Evento no encontrado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    put:
+      tags: [Catalog event management]
+      operationId: updateEventDraft
+      summary: Editar un evento en borrador
+      description: |
+        Solo modificable cuando el estado es `DRAFT`. El cuerpo acepta el mismo
+        schema que la creación (`EventRequest`) pero el campo `offerings` se
+        **ignora** en esta ruta; para modificar ofertas use
+        `PUT /api/management/events/{id}/offerings`.
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ORGANIZER, ADMIN] } }
+        - $ref: '#/components/parameters/CorrelationId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventRequest'
+      responses:
+        '200':
+          description: Evento actualizado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '400':
+          description: Datos inválidos o configuración de sector incorrecta.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403':
+          description: No es el dueño.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: Evento o venue no encontrado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: El evento no es un borrador.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /api/management/events/{id}/offerings:
+    put:
+      tags: [Catalog event management]
+      operationId: replaceEventOfferings
+      summary: Reemplazar las ofertas de sectores del evento
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ORGANIZER, ADMIN] } }
+        - $ref: '#/components/parameters/CorrelationId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OfferingsRequest'
+            example:
+              offerings:
+                - sectorId: s1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f601
+                  price: 15000.00
+                - sectorId: s2a2b3c4-d5e6-4f70-8a91-b2c3d4e5f602
+                  price: 5000.00
+      responses:
+        '200':
+          description: Ofertas reemplazadas.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '400':
+          description: Sector no pertenece al venue o precio inválido.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403':
+          description: No es el dueño.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: Evento no encontrado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: El evento no es un borrador.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /api/management/events/{id}/publish:
+    post:
+      tags: [Catalog event management]
+      operationId: publishEvent
+      summary: Publicar un evento en borrador
+      description: |
+        Crea un snapshot relacional inmutable y cambia `DRAFT` a `PUBLISHED`
+        atómicamente. Repetir la operación devuelve la publicación existente.
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ORGANIZER, ADMIN] } }
+        - $ref: '#/components/parameters/CorrelationId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Evento publicado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '400':
+          description: Evento incompleto o startsAt no es futuro.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403':
+          description: No es el dueño.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: Evento no encontrado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: El evento no puede publicarse en su estado actual.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /api/management/events/{id}/suspend:
+    post:
+      tags: [Catalog event management]
+      operationId: suspendEvent
+      summary: Suspender un evento publicado
+      description: |
+        Solo `ADMIN`. Mantiene el snapshot publicado sin cambios. Requiere
+        `X-User-Id` y `X-User-Role: ADMIN`.
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ADMIN] } }
+        - $ref: '#/components/parameters/CorrelationId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Evento suspendido.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '403':
+          description: Rol ADMIN requerido.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: Evento no encontrado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: Solo eventos PUBLISHED pueden suspenderse.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /api/management/events/{id}/cancel:
+    post:
+      tags: [Catalog event management]
+      operationId: cancelEventCatalog
+      summary: Cancelar un evento (Catalog)
+      description: |
+        Solo `ADMIN`. Mueve PUBLISHED o SUSPENDED a CANCELLED y notifica a
+        Inventory para bloquear nuevas ventas. Repetir la operación es seguro.
+
+        **Importante:** esta operación cambia el estado lógico del evento y
+        bloquea nuevas ventas en Inventory. Para procesar los reintegros de las
+        compras ya confirmadas, usar
+        `POST /api/events/{eventId}/cancellation` en Purchase, que llama a este
+        endpoint internamente.
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ADMIN] } }
+        - $ref: '#/components/parameters/CorrelationId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Evento cancelado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '403':
+          description: Rol ADMIN requerido.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: Evento no encontrado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: Solo PUBLISHED o SUSPENDED pueden cancelarse.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: Inventory no pudo ser notificado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /api/management/events/{id}/resume:
+    post:
+      tags: [Catalog event management]
+      operationId: resumeEvent
+      summary: Reanudar un evento suspendido
+      description: |
+        Solo `ADMIN`. Reutiliza el snapshot existente sin recrearlo. Requiere
+        `X-User-Id` y `X-User-Role: ADMIN`.
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ADMIN] } }
+        - $ref: '#/components/parameters/CorrelationId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Evento reanudado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '403':
+          description: Rol ADMIN requerido.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: Evento no encontrado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: Solo eventos SUSPENDED pueden reanudarse.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  # ─── CATALOG EVENT DISCOVERY (PUBLIC) ──────────────────────────────────────
+
+  /api/events:
+    get:
+      tags: [Catalog event discovery (public)]
+      operationId: searchPublishedEvents
+      summary: Buscar eventos publicados
+      description: |
+        Filtros combinan con AND. Fechas inclusivas. Página base cero, tamaño
+        1..50. Sort: `date`, `price`, `relevance`; direction: `asc` o `desc`.
+        `sort=relevance` exige `q`. No requiere encabezados de identidad.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - { name: type, in: query, required: false, schema: { type: string }, description: Tipo de evento. }
+        - { name: organizerId, in: query, required: false, schema: { type: string, format: uuid }, description: Filtrar por organizador. }
+        - { name: participant, in: query, required: false, schema: { type: string }, description: Filtrar por participante (substring). }
+        - { name: city, in: query, required: false, schema: { type: string }, description: Filtrar por ciudad (case insensitive). }
+        - { name: from, in: query, required: false, schema: { type: string, format: date-time }, description: Inicio de rango (inclusivo). }
+        - { name: to, in: query, required: false, schema: { type: string, format: date-time }, description: Fin de rango (inclusivo). }
+        - { name: q, in: query, required: false, schema: { type: string }, description: Texto para sort=relevance. }
+        - { name: page, in: query, required: false, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: size, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+        - { name: sort, in: query, required: false, schema: { type: string, enum: [date, price, relevance], default: date } }
+        - { name: direction, in: query, required: false, schema: { type: string, enum: [asc, desc] } }
+      responses:
+        '200':
+          description: Resultado paginado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventSearchPage'
+              example:
+                items:
+                  - id: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+                    name: Summer Live
+                    eventType: MUSIC
+                    startsAt: '2030-01-01T20:00:00-03:00'
+                    city: Buenos Aires
+                    minimumPrice: 25.50
+                page: 0
+                size: 20
+                totalElements: 1
+                totalPages: 1
+        '400':
+          description: Rango de fechas, paginación, sort inválido o falta q.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /api/events/{id}:
+    get:
+      tags: [Catalog event discovery (public)]
+      operationId: getPublishedEventDetail
+      summary: Obtener detalle de un evento publicado
+      description: |
+        Devuelve datos inmutables del snapshot. No incluye disponibilidad.
+        No requiere encabezados de identidad.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid }, description: Event UUID }
+      responses:
+        '200':
+          description: Snapshot publicado del evento.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventDetail'
+              example:
+                id: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+                organizerId: 3f1a2b3c-4d5e-4f60-8a91-b2c3d4e5f601
+                name: Summer Live
+                description: Concierto de verano
+                eventType: MUSIC
+                startsAt: '2030-01-01T20:00:00-03:00'
+                venueName: River Hall
+                venueAddress: Av. Siempreviva 742
+                city: Buenos Aires
+                latitude: -34.6037
+                longitude: -58.3816
+                participants: [The Example Band]
+                sectors:
+                  - id: s1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f601
+                    name: General
+                    type: GENERAL_ADMISSION
+                    capacity: 500
+                    price: 25.50
+                    seats: []
+        '404':
+          description: Evento inexistente o no visible públicamente.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
   /api/inventory/events/{eventId}/availability:
     get:
       tags:
@@ -820,7 +1589,19 @@ paths:
   /api/events/{eventId}/cancellation:
     post:
       tags: [Refunds and cancellation]
+      operationId: startEventCancellation
       summary: Cancelar un evento y procesar un lote de reintegros
+      description: |
+        ADMIN dispara la cancelación masiva. Purchase llama internamente a
+        `POST /api/management/events/{id}/cancel` en Catalog para cambiar el
+        estado del evento y luego procesa por lotes los tickets pagados:
+        revocación, reintegro y liberación de la unidad vendida.
+
+        **Diferente de** `POST /api/management/events/{id}/cancel` (Catalog),
+        que solo cambia el estado lógico y bloquea nuevas ventas.
+
+        Devuelve `200` si todos los tickets fueron procesados, o `202` si quedan
+        pendientes (repetir POST para continuar).
       parameters:
         - $ref: '#/components/parameters/EventId'
         - $ref: '#/components/parameters/UserId'
@@ -828,24 +1609,55 @@ paths:
           name: X-User-Role
           required: true
           schema: { type: string, enum: [ADMIN] }
+        - $ref: '#/components/parameters/CorrelationId'
       responses:
         '200':
           description: Todos los tickets procesados, o reintento idempotente
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/CancellationProgress' }
               example: { eventId: 'e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b', status: COMPLETED, totalTickets: 2, completedTickets: 2, pendingTickets: 0 }
         '202':
           description: Hay tickets pendientes; repetir POST para continuar
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/CancellationProgress' }
               example: { eventId: 'e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b', status: PROCESSING, totalTickets: 2, completedTickets: 1, pendingTickets: 1 }
-        '403': { description: Solo ADMIN puede cancelar }
-        '404': { description: Evento inexistente }
-        '409': { description: Estado del evento no cancelable }
+        '403':
+          description: Solo ADMIN puede cancelar
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: Evento inexistente
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: Estado del evento no cancelable
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: Catalog o servicio downstream no disponible
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
     get:
       tags: [Refunds and cancellation]
+      operationId: getEventCancellationProgress
       summary: Consultar avance de reintegros de un evento cancelado
       parameters:
         - $ref: '#/components/parameters/EventId'
@@ -853,61 +1665,151 @@ paths:
           name: X-User-Role
           required: true
           schema: { type: string, enum: [ADMIN] }
+        - $ref: '#/components/parameters/CorrelationId'
       responses:
         '200':
           description: Progreso actual
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/CancellationProgress' }
-        '403': { description: Solo ADMIN puede consultar }
-        '404': { description: Cancelacion no iniciada }
+              example: { eventId: 'e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b', status: COMPLETED, totalTickets: 2, completedTickets: 2, pendingTickets: 0 }
+        '403':
+          description: Solo ADMIN puede consultar
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: Cancelacion no iniciada
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /api/refunds/tickets/{ticketId}:
     post:
       tags: [Refunds and cancellation]
-      summary: Solicitar devolucion de un ticket propio antes de las 72 horas previas al evento
+      operationId: requestTicketRefund
+      summary: Solicitar devolución de un ticket propio antes de las 72 horas previas al evento
+      description: |
+        El titular solicita devolución antes de las 72 horas previas al evento.
+        Idempotente por ticket; si ya existe una solicitud propia, la devuelve.
       parameters:
         - in: path
           name: ticketId
           required: true
           schema: { type: string, format: uuid }
         - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/CorrelationId'
       responses:
         '201':
           description: Solicitud pendiente creada
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RefundView' }
+              example:
+                id: 'b766df75-bfc3-4d64-b502-ea24dca4ef34'
+                ticketId: '2a2383ad-0396-4465-820f-5d75710c0206'
+                orderId: 'c3d0a75d-ac17-4d33-a240-aa91c492cd89'
+                eventId: 'e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b'
+                amount: 12000.00
+                status: PENDING
+                decision: null
+                progress: NOT_STARTED
+                createdAt: '2026-11-10T12:00:00Z'
         '200':
           description: Reintento devuelve la misma solicitud
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RefundView' }
-        '404': { description: Ticket no pertenece al comprador o no existe }
-        '409': { description: Ventana cerrada o ticket no reembolsable }
+              example:
+                id: 'b766df75-bfc3-4d64-b502-ea24dca4ef34'
+                ticketId: '2a2383ad-0396-4465-820f-5d75710c0206'
+                orderId: 'c3d0a75d-ac17-4d33-a240-aa91c492cd89'
+                eventId: 'e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b'
+                amount: 12000.00
+                status: PENDING
+                decision: null
+                progress: NOT_STARTED
+                createdAt: '2026-11-10T12:00:00Z'
+        '404':
+          description: Ticket no pertenece al comprador o no existe
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: Ventana cerrada o ticket no reembolsable
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: Catalog no disponible al consultar la fecha del evento
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /api/refunds/{refundId}:
     get:
       tags: [Refunds and cancellation]
-      summary: Consultar devolucion propia
+      operationId: getRefundRequest
+      summary: Consultar devolución propia
       parameters:
         - in: path
           name: refundId
           required: true
           schema: { type: string, format: uuid }
         - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/CorrelationId'
       responses:
         '200':
           description: Estado, importe, decision y progreso
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RefundView' }
-        '404': { description: Solicitud inexistente o de otro comprador }
+              example:
+                id: 'b766df75-bfc3-4d64-b502-ea24dca4ef34'
+                ticketId: '2a2383ad-0396-4465-820f-5d75710c0206'
+                orderId: 'c3d0a75d-ac17-4d33-a240-aa91c492cd89'
+                eventId: 'e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b'
+                amount: 12000.00
+                status: COMPLETED
+                decision: APPROVED
+                progress: COMPLETED
+                createdAt: '2026-11-10T12:00:00Z'
+        '404':
+          description: Solicitud inexistente o de otro comprador
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /api/refunds/{refundId}/decision:
     post:
       tags: [Refunds and cancellation]
-      summary: Aprobar o rechazar devolucion como ADMIN
+      operationId: decideRefundRequest
+      summary: Aprobar o rechazar devolución como ADMIN
+      description: |
+        ADMIN decide sobre una solicitud de devolución. Al aprobar, Purchase
+        revoca el ticket, reintegra el pago y libera la unidad vendida de forma
+        progresiva; si algún paso falla, el progreso queda en el estado
+        alcanzado y puede reintentarse.
       parameters:
         - in: path
           name: refundId
@@ -917,6 +1819,7 @@ paths:
           name: X-User-Role
           required: true
           schema: { type: string, enum: [ADMIN] }
+        - $ref: '#/components/parameters/CorrelationId'
       requestBody:
         required: true
         content:
@@ -932,17 +1835,66 @@ paths:
       responses:
         '200':
           description: Rechazada o reintegro completado
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RefundView' }
+              example:
+                id: 'b766df75-bfc3-4d64-b502-ea24dca4ef34'
+                ticketId: '2a2383ad-0396-4465-820f-5d75710c0206'
+                orderId: 'c3d0a75d-ac17-4d33-a240-aa91c492cd89'
+                eventId: 'e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b'
+                amount: 12000.00
+                status: COMPLETED
+                decision: APPROVED
+                progress: COMPLETED
+                createdAt: '2026-11-10T12:00:00Z'
         '202':
           description: Decision guardada; falta completar un paso interno reintentable
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RefundView' }
-        '403': { description: Solo ADMIN puede decidir }
-        '404': { description: Solicitud inexistente }
-        '409': { description: Decision incompatible con la ya guardada }
+              example:
+                id: 'b766df75-bfc3-4d64-b502-ea24dca4ef34'
+                ticketId: '2a2383ad-0396-4465-820f-5d75710c0206'
+                orderId: 'c3d0a75d-ac17-4d33-a240-aa91c492cd89'
+                eventId: 'e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b'
+                amount: 12000.00
+                status: APPROVED
+                decision: APPROVED
+                progress: TICKET_REVOKED
+                createdAt: '2026-11-10T12:00:00Z'
+        '400':
+          description: Payload inválido o decision fuera de enum
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403':
+          description: Solo ADMIN puede decidir
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: Solicitud inexistente
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: Decision incompatible con la ya guardada
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /api/orders:
     post:
@@ -1039,6 +1991,8 @@ paths:
               examples:
                 paymentPending:
                   $ref: '#/components/examples/OrderPaymentPending'
+                paymentResponseLost:
+                  $ref: '#/components/examples/OrderPaymentResponseLost'
         '402':
           description: |
             Pago rechazado por la pasarela simulada. Purchase libera la reserva,
@@ -1119,10 +2073,14 @@ paths:
                   $ref: '#/components/examples/ProblemOrderConflict'
         '503':
           description: |
-            Dependencia no disponible: Catalog, Inventory, Payment o Ticket no
-            responden o exceden el tiempo de espera sin dejar una orden confirmada
-            parcialmente. La solicitud puede reintentarse con la misma
-            `Idempotency-Key`.
+            Fallo explícito de una dependencia (Catalog, Inventory, Payment Mock
+            o la consulta de Payment durante una reconciliación). Purchase no
+            deja una orden confirmada parcialmente y libera o conserva reservas
+            y límites según el estado persistido. Una respuesta de cobro perdida
+            o incierta se devuelve como `202 PAYMENT_PENDING`; un fallo transitorio
+            de emisión QR se devuelve como `202 PAID_PENDING_TICKETS`.
+            La solicitud puede repetirse con la misma `Idempotency-Key` sin
+            duplicar efectos.
           headers:
             X-Correlation-Id:
               $ref: '#/components/headers/CorrelationId'
@@ -1557,6 +2515,278 @@ paths:
               examples:
                 conflict:
                   $ref: '#/components/examples/ProblemPaymentConflict'
+
+  # ─── INVENTORY CANCELLATION (INTERNAL) ─────────────────────────────────────
+
+  /internal/events/{eventId}/cancellation:
+    put:
+      tags: [Inventory cancellation (internal)]
+      operationId: cancelEventInventory
+      summary: Bloquear nuevas ventas del inventario de un evento cancelado
+      description: |
+        Llamado por Catalog tras cambiar el estado del evento a `CANCELLED`.
+        Marca el inventario como cancelado e impide nuevas reservas. Idempotente;
+        repetir la operación devuelve `204` sin cambios adicionales.
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '204':
+          description: Inventario bloqueado (idempotente).
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+        '404':
+          description: Evento no encontrado o sin inventario.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '500':
+          description: Error inesperado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /internal/reservations/{reservationId}/sold-units/release:
+    post:
+      tags: [Inventory cancellation (internal)]
+      operationId: releaseSoldUnit
+      summary: Liberar una unidad vendida para una devolución
+      description: |
+        Marca una unidad individual como no-vendida en el inventario, tras una
+        devolución aprobada. Idempotente por (reservationId, sectorId, seatId,
+        unitNumber). Usado exclusivamente por Purchase durante el flujo de
+        reembolso.
+      parameters:
+        - $ref: '#/components/parameters/ReservationId'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SoldUnitReleaseRequest'
+            example:
+              sectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+              seatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+              unitNumber: 1
+      responses:
+        '200':
+          description: Unidad liberada o reintento idempotente.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SoldUnitReleaseResponse'
+              example:
+                reservationId: 7a6b5c4d-3e2f-41a0-9b8c-7d6e5f4a3b2c
+                sectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+                seatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+                unitNumber: 1
+                released: true
+        '400':
+          description: Número de unidad inválido.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: La unidad no está vendida por esta reserva.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '500':
+          description: Error inesperado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  # ─── TICKET ISSUANCE (INTERNAL) ────────────────────────────────────────────
+
+  /internal/orders/{orderId}/items/{orderItemId}/tickets:
+    post:
+      tags: [Ticket issuance (internal)]
+      operationId: issueTicketsForOrderItem
+      summary: Emitir o recuperar tickets QR para un ítem confirmado
+      description: |
+        Purchase llama este comando solo tras confirmar pago e inventario.
+        La idempotencia usa orderId + orderItemId. Repetir la solicitud con el
+        mismo contenido devuelve los mismos tickets y QR.
+      parameters:
+        - { name: orderId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: orderItemId, in: path, required: true, schema: { type: string, format: uuid } }
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TicketIssueRequest'
+            example:
+              customerId: 3f1a2b3c-4d5e-4f60-8a91-b2c3d4e5f601
+              eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+              eventName: Concierto de prueba
+              eventStartsAt: '2026-12-01T21:00:00Z'
+              venueName: Estadio
+              venueCity: Buenos Aires
+              sectorName: Platea
+              tickets:
+                - unitNumber: 1
+                  rowLabel: A
+                  seatNumber: 1
+      responses:
+        '201':
+          description: Tickets emitidos.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketIssueResponse'
+        '200':
+          description: Reintento idempotente; mismos tickets y QR.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketIssueResponse'
+        '400':
+          description: Snapshot o unidades inválidas.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: Idempotencia con contenido distinto.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  # ─── TICKET REVOCATION (INTERNAL) ──────────────────────────────────────────
+
+  /internal/tickets/{ticketId}/revoke:
+    post:
+      tags: [Ticket revocation (internal)]
+      operationId: revokeTicket
+      summary: Revocar un ticket emitido tras una devolución aprobada
+      description: |
+        Comando interno idempotente. Repetir para un ticket ya revocado
+        devuelve el mismo resultado. Un ticket `USED` no puede revocarse (409).
+      parameters:
+        - { name: ticketId, in: path, required: true, schema: { type: string, format: uuid } }
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Ticket revocado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketRevocationResponse'
+              example:
+                ticketId: 2a2383ad-0396-4465-820f-5d75710c0206
+                status: REVOKED
+        '404':
+          description: Ticket no encontrado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: Ticket ya usado; no puede revocarse.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  # ─── PAYMENT PARTIAL REFUND (INTERNAL) ─────────────────────────────────────
+
+  /internal/payments/{paymentId}/refunds:
+    post:
+      tags: [Payment processing (internal)]
+      operationId: refundPaymentPartial
+      summary: Reintegrar un monto parcial de un pago
+      description: |
+        Registra un reintegro parcial por un monto específico con clave de
+        idempotencia. Usado por Purchase durante devoluciones individuales de
+        tickets: cada ticket genera un reintegro parcial con su propio
+        `idempotencyKey` (el `refundId`).
+
+        Un pago puede tener múltiples reintegros parciales mientras la suma no
+        supere el monto original. Si la `idempotencyKey` ya fue usada con el
+        mismo monto, devuelve el reintegro existente (200).
+      parameters:
+        - $ref: '#/components/parameters/PaymentId'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PartialRefundRequest'
+            example:
+              idempotencyKey: b766df75-bfc3-4d64-b502-ea24dca4ef34
+              amount: 12000.00
+      responses:
+        '201':
+          description: Reintegro parcial registrado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartialRefundResponse'
+              example:
+                refundId: r1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f601
+                paymentId: 9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a
+                amount: 12000.00
+                status: REFUNDED
+                createdAt: '2026-11-10T12:01:00Z'
+        '200':
+          description: Reintento idempotente; mismo reintegro.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartialRefundResponse'
+        '400':
+          description: Monto inválido o idempotencyKey faltante.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: Pago no encontrado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: Pago no APPROVED, monto excede disponible, o idempotencyKey con otro monto.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
 components:
   parameters:
@@ -2659,7 +3889,11 @@ components:
         paymentId:
           type: string
           format: uuid
-          description: Identificador del pago.
+          nullable: true
+          description: |
+            Identificador del pago cuando la respuesta de Payment se recibió.
+            Puede ser `null` si se perdió la respuesta y la compra sigue
+            `PAYMENT_PENDING` hasta su reconciliación.
         status:
           $ref: '#/components/schemas/PaymentStatus'
         amount:
@@ -2680,10 +3914,12 @@ components:
         createdAt:
           type: string
           format: date-time
+          nullable: true
           description: Momento de creación del pago.
         updatedAt:
           type: string
           format: date-time
+          nullable: true
           description: Momento de la última actualización del pago.
 
     OrderResponse:
@@ -2912,6 +4148,354 @@ components:
           type: string
           format: date-time
           description: Momento de la última actualización del pago.
+
+    # ─── CATALOG SCHEMAS ──────────────────────────────────────────────────
+
+    VenueRequest:
+      type: object
+      additionalProperties: false
+      required: [name, address, city, latitude, longitude, sectors]
+      properties:
+        name: { type: string, maxLength: 200 }
+        address: { type: string, maxLength: 300 }
+        city: { type: string, maxLength: 120 }
+        latitude: { type: number, format: double, minimum: -90, maximum: 90 }
+        longitude: { type: number, format: double, minimum: -180, maximum: 180 }
+        sectors:
+          type: array
+          items:
+            $ref: '#/components/schemas/SectorRequest'
+
+    SectorRequest:
+      type: object
+      additionalProperties: false
+      required: [name, type, capacity]
+      properties:
+        name: { type: string, maxLength: 120 }
+        type: { $ref: '#/components/schemas/SectorType' }
+        capacity: { type: integer, minimum: 1 }
+        seats:
+          type: array
+          items:
+            $ref: '#/components/schemas/SeatRequest'
+
+    SeatRequest:
+      type: object
+      additionalProperties: false
+      required: [rowLabel, seatNumber]
+      properties:
+        rowLabel: { type: string, maxLength: 40 }
+        seatNumber: { type: integer, minimum: 1 }
+
+    VenueResponse:
+      type: object
+      required: [id, name, address, city, latitude, longitude, sectors]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        address: { type: string }
+        city: { type: string }
+        latitude: { type: number, format: double }
+        longitude: { type: number, format: double }
+        sectors:
+          type: array
+          items:
+            $ref: '#/components/schemas/SectorResponse'
+
+    SectorResponse:
+      type: object
+      required: [id, name, type, capacity, seats]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        type: { $ref: '#/components/schemas/SectorType' }
+        capacity: { type: integer }
+        seats:
+          type: array
+          items:
+            $ref: '#/components/schemas/SeatResponse'
+
+    SeatResponse:
+      type: object
+      required: [rowLabel, seatNumber]
+      properties:
+        rowLabel: { type: string }
+        seatNumber: { type: integer }
+
+    VenuePageResponse:
+      type: object
+      required: [content, page, size, totalElements, totalPages]
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/VenueResponse'
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer }
+        totalPages: { type: integer }
+
+    EventRequest:
+      type: object
+      additionalProperties: false
+      required: [name, description, eventType, startsAt, venueId]
+      properties:
+        name: { type: string, maxLength: 200 }
+        description: { type: string }
+        eventType: { type: string, maxLength: 80 }
+        startsAt: { type: string, format: date-time }
+        venueId: { type: string, format: uuid }
+        organizerId: { type: string, format: uuid, nullable: true, description: Requerido cuando ADMIN crea. }
+        participants:
+          type: array
+          items: { type: string }
+        offerings:
+          type: array
+          description: |
+            Ofertas de precio por sector. Se procesan en POST (create) y en
+            PUT /offerings. En PUT /{id} (update) se **ignoran**; use el
+            endpoint dedicado de offerings para modificarlas.
+          items:
+            $ref: '#/components/schemas/OfferingRequest'
+
+    OfferingRequest:
+      type: object
+      additionalProperties: false
+      required: [sectorId, price]
+      properties:
+        sectorId: { type: string, format: uuid }
+        price: { type: number, format: double, minimum: 0.01 }
+
+    OfferingsRequest:
+      type: object
+      additionalProperties: false
+      required: [offerings]
+      properties:
+        offerings:
+          type: array
+          items:
+            $ref: '#/components/schemas/OfferingRequest'
+
+    EventResponse:
+      type: object
+      required: [id, name, description, eventType, startsAt, organizerId, venueId, status, participants, offerings]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        eventType: { type: string }
+        startsAt: { type: string, format: date-time }
+        organizerId: { type: string, format: uuid }
+        venueId: { type: string, format: uuid }
+        status:
+          type: string
+          description: |
+            Estado del evento. `SOLD_OUT` y `FINISHED` están modelados; sus
+            transiciones no forman parte de los flujos implementados en E1.
+          enum: [DRAFT, PUBLISHED, SUSPENDED, SOLD_OUT, CANCELLED, FINISHED]
+        participants:
+          type: array
+          items: { type: string }
+        offerings:
+          type: array
+          items:
+            $ref: '#/components/schemas/OfferingResponse'
+
+    OfferingResponse:
+      type: object
+      required: [sectorId, price]
+      properties:
+        sectorId: { type: string, format: uuid }
+        price: { type: number, format: double }
+
+    EventSearchPage:
+      type: object
+      required: [items, page, size, totalElements, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchItem'
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer }
+        totalPages: { type: integer }
+
+    SearchItem:
+      type: object
+      required: [id, name, eventType, startsAt, city]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        eventType: { type: string }
+        startsAt: { type: string, format: date-time }
+        city: { type: string }
+        minimumPrice: { type: number, format: double, nullable: true }
+
+    EventDetail:
+      type: object
+      required: [id, organizerId, name, description, eventType, startsAt, venueName, venueAddress, city, latitude, longitude, participants, sectors]
+      properties:
+        id: { type: string, format: uuid }
+        organizerId: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        eventType: { type: string }
+        startsAt: { type: string, format: date-time }
+        venueName: { type: string }
+        venueAddress: { type: string }
+        city: { type: string }
+        latitude: { type: number, format: double }
+        longitude: { type: number, format: double }
+        participants:
+          type: array
+          items: { type: string }
+        sectors:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventDetailSector'
+
+    EventDetailSector:
+      type: object
+      required: [id, name, type, capacity, price, seats]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        type: { type: string, enum: [NUMBERED, GENERAL_ADMISSION] }
+        capacity: { type: integer }
+        price: { type: number, format: double }
+        seats:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventDetailSeat'
+
+    EventDetailSeat:
+      type: object
+      required: [row, number]
+      properties:
+        row: { type: string }
+        number: { type: integer }
+
+    # ─── INVENTORY CANCELLATION SCHEMAS ───────────────────────────────────
+
+    SoldUnitReleaseRequest:
+      type: object
+      additionalProperties: false
+      required: [sectorId, seatId, unitNumber]
+      properties:
+        sectorId: { type: string, format: uuid }
+        seatId: { type: string, format: uuid }
+        unitNumber: { type: integer, minimum: 1 }
+
+    SoldUnitReleaseResponse:
+      type: object
+      additionalProperties: false
+      required: [reservationId, sectorId, seatId, unitNumber, released]
+      properties:
+        reservationId: { type: string, format: uuid }
+        sectorId: { type: string, format: uuid }
+        seatId: { type: string, format: uuid }
+        unitNumber: { type: integer }
+        released: { type: boolean }
+
+    # ─── TICKET SCHEMAS ───────────────────────────────────────────────────
+
+    TicketIssueRequest:
+      type: object
+      additionalProperties: false
+      required: [customerId, eventId, eventName, eventStartsAt, venueName, venueCity, sectorName, tickets]
+      properties:
+        customerId: { type: string, format: uuid }
+        eventId: { type: string, format: uuid }
+        eventName: { type: string, maxLength: 200 }
+        eventStartsAt: { type: string, format: date-time }
+        venueName: { type: string, maxLength: 200 }
+        venueCity: { type: string, maxLength: 120 }
+        sectorName: { type: string, maxLength: 120 }
+        tickets:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/TicketUnitRequest'
+
+    TicketUnitRequest:
+      type: object
+      additionalProperties: false
+      required: [unitNumber]
+      properties:
+        unitNumber: { type: integer, minimum: 1 }
+        rowLabel: { type: string, maxLength: 40, nullable: true }
+        seatNumber: { type: integer, minimum: 1, nullable: true }
+
+    TicketIssueResponse:
+      type: object
+      additionalProperties: false
+      required: [orderId, orderItemId, tickets]
+      properties:
+        orderId: { type: string, format: uuid }
+        orderItemId: { type: string, format: uuid }
+        tickets:
+          type: array
+          items:
+            $ref: '#/components/schemas/TicketView'
+
+    TicketView:
+      type: object
+      additionalProperties: false
+      required: [ticketId, unitNumber, eventId, eventName, eventStartsAt, venueName, venueCity, sectorName, status, issuedAt, qrPayload, qrPngBase64]
+      properties:
+        ticketId: { type: string, format: uuid }
+        unitNumber: { type: integer }
+        eventId: { type: string, format: uuid }
+        eventName: { type: string }
+        eventStartsAt: { type: string, format: date-time }
+        venueName: { type: string }
+        venueCity: { type: string }
+        sectorName: { type: string }
+        rowLabel: { type: string, nullable: true }
+        seatNumber: { type: integer, nullable: true }
+        status: { type: string, enum: [ISSUED, REVOKED, USED] }
+        issuedAt: { type: string, format: date-time }
+        qrPayload: { type: string }
+        qrPngBase64: { type: string, format: byte }
+
+    TicketRevocationResponse:
+      type: object
+      additionalProperties: false
+      required: [ticketId, status]
+      properties:
+        ticketId: { type: string, format: uuid }
+        status: { type: string, enum: [REVOKED] }
+
+    # ─── PAYMENT PARTIAL REFUND SCHEMAS ───────────────────────────────────
+
+    PartialRefundRequest:
+      type: object
+      additionalProperties: false
+      required: [idempotencyKey, amount]
+      properties:
+        idempotencyKey:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Clave de idempotencia del reintegro (usualmente el refundId).
+        amount:
+          type: number
+          format: double
+          minimum: 0.01
+          multipleOf: 0.01
+          description: Monto a reintegrar.
+
+    PartialRefundResponse:
+      type: object
+      additionalProperties: false
+      required: [refundId, paymentId, amount, status, createdAt]
+      properties:
+        refundId: { type: string, format: uuid }
+        paymentId: { type: string, format: uuid }
+        amount: { type: number, format: double, minimum: 0.01 }
+        status: { type: string, enum: [REFUNDED] }
+        createdAt: { type: string, format: date-time }
 
     Problem:
       type: object
@@ -3437,6 +5021,47 @@ components:
                 sourceSeatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f602
                 row: A
                 number: 2
+            tickets: []
+
+    OrderPaymentResponseLost:
+      summary: Orden PAYMENT_PENDING porque se perdió la respuesta de Payment
+      value:
+        orderId: 8b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d
+        status: PAYMENT_PENDING
+        customerId: 3f1a2b3c-4d5e-4f60-8a91-b2c3d4e5f601
+        eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+        eventName: Concierto de prueba
+        eventStartsAt: '2026-12-01T21:00:00Z'
+        venueName: Estadio
+        venueCity: Buenos Aires
+        currency: ARS
+        totalAmount: 15000.00
+        reservationExpiresAt: '2026-11-07T18:20:00Z'
+        createdAt: '2026-11-07T18:15:00Z'
+        updatedAt: '2026-11-07T18:15:01Z'
+        payment:
+          paymentId: null
+          status: PENDING
+          amount: 15000.00
+          currency: ARS
+          method: CARD
+          createdAt: null
+          updatedAt: null
+        items:
+          - orderItemId: 3b4c5d6e-7f80-4a9b-8c1d-2e3f4a5b6c7d
+            sectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+            sourceSectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+            sectorName: Platea
+            sectorType: NUMBERED
+            quantity: 1
+            unitPrice: 15000.00
+            subtotal: 15000.00
+            units:
+              - unitNumber: 1
+                seatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+                sourceSeatId: f1d2c3b4-a5e6-4f70-8a91-b2c3d4e5f601
+                row: A
+                number: 1
             tickets: []
 
     OrderPage:
