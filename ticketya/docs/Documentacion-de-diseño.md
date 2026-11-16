@@ -1,223 +1,213 @@
-# Documento de Diseño Arquitectónico y Requerimientos - TicketYa (Entrega 1)
+# Documento de diseño y backlog funcional — TicketYa
 
-> **Estado del documento.** Esta es la propuesta de diseño inicial del equipo: features, user stories, diagramas y una primera versión de los contratos REST. La implementación evolucionó esos contratos. La fuente de verdad de lo implementado es [`docs/openapi.yaml`](openapi.yaml) (16 paths, 17 operaciones) y el resumen de arquitectura está en [`docs/architecture.md`](architecture.md). Diferencias concretas respecto de las secciones 5.1 a 5.3:
->
-> - El alta y la consulta de la orden usan `POST /api/orders` y `GET /api/orders/{orderId}` (no `/api/v1/orders`). El comprador se identifica con `X-User-Id` y el reintento se protege con `Idempotency-Key`, en lugar de `clientId` en el cuerpo.
-> - No hay endpoint `/pay` separado: la saga es síncrona y el cobro se dispara en el mismo `POST /api/orders`, con `payment.method` y un token de simulación (`tok_approved`, `tok_rejected`, `tok_pending`).
-> - Los asientos se identifican por `seatIds` (UUID de Inventory), no por texto libre como `"Fila 3, Asiento 14"`; la admisión general usa `quantity`. Los precios nunca viajan en el request: se toman del snapshot de Catalog.
-> - Los estados persistidos son `CONFIRMED`, `REJECTED`, `PAYMENT_PENDING`, `PAID_PENDING_TICKETS` y `COMPENSATED`.
-> - Los comandos internos de Inventory viven en `/internal/reservations/**` y los de Payment Mock en `/internal/payments/**`; ninguno se publica por el Gateway.
->
-> Los diagramas de las secciones 3 y 4 y las imágenes de la sección 6 se conservan como material de diseño; las versiones vigentes en Mermaid están en `docs/architecture.md`.
+> Este documento transforma los requerimientos funcionales del PDF en features y user stories trazables. Las historias **E1** describen capacidades implementadas en la primera entrega según el código y las especificaciones vigentes; las historias **E2** son únicamente el alcance pendiente indicado por el PDF. La inclusión de una historia E2 no implica implementación ni forma parte de esta tarea.
 
-## 1. Features y User Stories (con Criterios de Aceptación)
+## 1. Features y user stories
 
-### Feature 1: Gestión de Catálogo (Eventos y Lugares)
-**US 1.1: Creación de Eventos**
-* **Como** Organizador
-* **Quiero** crear y configurar un evento en estado "borrador" definiendo lugares, sectores y precios
-* **Para** poder publicarlo y vender entradas cuando esté listo.
-* **Criterios de Aceptación:**
-  * El evento debe incluir ID, nombre, descripción, tipo, fecha, hora, lugar y participantes.
-  * Se deben poder asociar precios a los sectores del lugar seleccionado.
-  * El evento debe guardarse inicialmente en estado "borrador".
+### Feature F1 — Datos y gestión de eventos (Entrega 1)
 
-**US 1.2: Búsqueda de Eventos**
-* **Como** Cliente
-* **Quiero** buscar eventos por tipo, organizador, ciudad y fechas
-* **Para** encontrar opciones de entretenimiento de mi interés.
-* **Criterios de Aceptación:**
-  * Los resultados deben poder filtrarse por al menos 3 criterios combinados.
-  * Los resultados deben poder ordenarse por fecha, precio o relevancia.
-  * Solo se muestran eventos en estado "publicado" o "agotado".
+#### US-E1-01 — Crear y configurar un evento en borrador
 
-### Feature 2: Inventario y Reservas
-**US 2.1: Reserva Temporal de Asientos**
-* **Como** Cliente
-* **Quiero** seleccionar un sector/asiento y que se reserve temporalmente (ej. 10 min)
-* **Para** asegurar mi lugar mientras completo el pago.
-* **Criterios de Aceptación:**
-  * El sistema debe bloquear el asiento seleccionado por exactamente 10 minutos.
-  * Ningún otro cliente puede reservar el mismo asiento durante este bloqueo (Prevención de doble venta).
-  * Si el pago no se completa en el tiempo, el asiento se libera automáticamente.
+**Como** organizador, **quiero** crear y configurar un evento propio, **para** prepararlo antes de publicarlo.
 
-### Feature 3: Gestión de Pedidos y Entradas
-**US 3.1: Emisión de Entradas**
-* **Como** Sistema
-* **Quiero** generar entradas únicas con código QR una vez aprobado el pago
-* **Para** otorgarle el acceso al cliente.
-* **Criterios de Aceptación:**
-  * Cada entrada tiene un QR criptográficamente único.
-  * Un mismo QR/entrada nunca puede emitirse dos veces.
+**Trazabilidad:** PDF-F1. **Estado:** implementado en E1.
 
----
+**Criterios de aceptación**
 
-## 2. Definición de Microservicios, Responsabilidades y API Pública
+- **Dado** un organizador y un lugar existente, **cuando** crea un evento, **entonces** el sistema le asigna un identificador, lo deja inicialmente en `DRAFT` y lo asocia a ese organizador.
+- **Dado** un evento en `DRAFT`, **cuando** su organizador configura los datos del evento, **entonces** puede definir nombre, descripción, tipo, participantes, fecha y hora, lugar y sectores con sus precios.
+- **Dado** un evento que ya no está en `DRAFT`, **cuando** se intenta modificar su configuración, **entonces** se rechaza el cambio y se conserva el snapshot publicado.
 
-*   **API Gateway:** Punto de entrada único. Enrutamiento de peticiones e inyección de identificadores de trazabilidad.
-*   **Catalog Service:** Gestiona lugares, sectores y eventos. Base de datos: PostgreSQL.
-*   **Inventory Service:** Mantiene la disponibilidad en tiempo real. Maneja bloqueos temporales concurrentes utilizando transacciones ACID y restricciones de unicidad (Unique Constraints) para evitar la doble venta. Base de datos: PostgreSQL.
-*   **Order & Payment Service:** Orquesta la compra. Se integra con la pasarela mockeada. Ejecuta las Sagas/Compensaciones si algo falla. Base de datos: PostgreSQL.
-*   **Ticket Service:** Genera el QR y mantiene el estado de la entrada. Base de datos: PostgreSQL.
+### Feature F2 — Lugares, sectores y asientos (Entrega 1)
 
-* DIAGRAMA DE ARQUITECTURA 
-![alt text](img/Diagrama-de-arquitectura.png)
+#### US-E1-02 — Administrar lugares y su configuración física
 
----
+**Como** administrador, **quiero** registrar lugares y configurar sus sectores, **para** que puedan usarse en eventos.
 
-## 3. Diagramas Entidad-Relación por Microservicio
+**Trazabilidad:** PDF-F2. **Estado:** implementado en E1.
 
-### DB: Catalog 
-![alt text](img/DB-Catalog.png)
+**Criterios de aceptación**
 
-### DB: Inventory
-![alt text](img/DB-Inventory.png)
+- **Dado** un administrador con datos válidos, **cuando** registra un lugar, **entonces** queda identificado con nombre, dirección, ciudad y ubicación geográfica.
+- **Dado** un lugar, **cuando** el administrador configura un sector numerado, **entonces** se registran sus filas y asientos identificables y no se aceptan duplicados dentro del sector.
+- **Dado** un lugar, **cuando** el administrador configura un sector no numerado, **entonces** se registra su capacidad máxima positiva.
+- **Dado** un lugar utilizado por un evento publicado, **cuando** se modifica la plantilla del lugar, **entonces** el snapshot de ese evento no cambia.
 
-### DB: Orders
-![alt text](img/DB-Orders.png)
+### Feature F3 — Publicación y visibilidad de eventos (Entrega 1)
 
-### DB: Tickets
-![alt text](img/DB-Tickets.png)
+#### US-E1-03 — Publicar un evento configurado
 
----
+**Como** organizador, **quiero** publicar un borrador válido, **para** que los clientes puedan consultarlo.
 
-## 4. Diagrama de Secuencia: Flujo de Compra (Entrada Numerada)
+**Trazabilidad:** PDF-F3. **Estado:** implementado en E1.
 
-Este diagrama modela el flujo síncrono orquestado por el `Order Service`. Contempla la creación de la reserva, el proceso de pago y las compensaciones en caso de rechazo o vencimiento de la reserva temporal (10 minutos).
+**Criterios de aceptación**
 
-![alt text](img/Compra-de-entradas.png)
+- **Dado** un borrador con fecha futura, participantes y al menos un sector habilitado con precio positivo, **cuando** el organizador solicita publicarlo, **entonces** pasa a `PUBLISHED` y se conserva un snapshot de su configuración.
+- **Dado** un evento, **cuando** se consulta su estado, **entonces** el modelo reconoce `DRAFT`, `PUBLISHED`, `SOLD_OUT`, `CANCELLED` y `FINISHED`, además de `SUSPENDED`; las transiciones de `SOLD_OUT` y `FINISHED` no forman parte de los flujos implementados en E1.
+- **Dado** un borrador incompleto o con fecha no futura, **cuando** se solicita publicarlo, **entonces** se rechaza la publicación y permanece en `DRAFT`.
+- **Dado** un evento publicado, **cuando** un administrador lo suspende, **entonces** deja de aparecer en las búsquedas públicas; un evento suspendido puede ser reanudado por un administrador.
+- **Dado** un evento ya publicado, **cuando** se repite la publicación, **entonces** se conserva la publicación existente sin duplicar el snapshot.
 
----
+### Feature F4 — Compra, reserva temporal y entradas (Entrega 1)
 
-## 5. Diseño de API REST (OpenAPI / Swagger)
+#### US-E1-04 — Completar una compra idempotente con límite por cliente
 
-A continuación se detallan los contratos principales para satisfacer la Entrega 1.
+**Como** cliente, **quiero** comprar asientos numerados o cupos de admisión general, **para** obtener entradas para un evento publicado.
 
-### 5.1. Iniciar Compra (Order Service)
-Crea una orden en estado pendiente e invoca al inventario para bloquear temporalmente el asiento.
+**Trazabilidad:** PDF-F4. **Estado:** implementado en E1.
 
-```yaml
-openapi: 3.0.3
-info:
-  title: TicketYa Order Service API
-  version: 1.0.0
-paths:
-  /api/v1/orders:
-    post:
-      summary: Inicia el proceso de compra de entradas
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                clientId:
-                  type: string
-                  format: uuid
-                eventId:
-                  type: string
-                  format: uuid
-                items:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      sectorId:
-                        type: string
-                        format: uuid
-                      seatNumber:
-                        type: string
-            example:
-              clientId: "d290f1ee-6c54-4b01-90e6-d701748f0851"
-              eventId: "a143f1ee-6c54-4b01-90e6-d701748f1111"
-              items:
-                - sectorId: "b222f1ee-6c54-4b01-90e6-d701748f2222"
-                  seatNumber: "Fila 3, Asiento 14"
-      responses:
-        '201':
-          description: Orden creada y asientos bloqueados temporalmente.
-          content:
-            application/json:
-              example:
-                orderId: "c333f1ee-6c54-4b01-90e6-d701748f3333"
-                status: "PENDING"
-                expiresAt: "2026-11-10T21:00:00Z"
-                totalAmount: 15000.00
-        '409':
-          description: Conflicto. Uno o más asientos solicitados ya están reservados o vendidos.
-          content:
-            application/json:
-              example:
-                error: "SEAT_ALREADY_TAKEN"
-                message: "El asiento 'Fila 3, Asiento 14' ya se encuentra reservado."
-```
+**Criterios de aceptación**
 
-### 5.2. Pagar Orden (Order Service)
-Procesa el cobro simulado y emite las entradas si es exitoso.
+- **Dado** un evento publicado y unidades disponibles, **cuando** el cliente solicita una compra válida, **entonces** el sistema obtiene los precios del snapshot del evento, reserva los lugares antes del cobro simulado y registra el detalle de la compra y su medio de pago.
+- **Dada** una reserva creada sin un TTL configurado para el evento, **cuando** se retienen temporalmente sus lugares, **entonces** vence a los 600 segundos y, si no se confirma, los lugares se liberan.
+- **Dado** un cliente que repite la misma compra con la misma `Idempotency-Key` y contenido, **cuando** reintenta la solicitud, **entonces** recibe la orden existente sin reservas, cobros ni entradas duplicadas. Si reutiliza la clave con otro contenido, la solicitud se rechaza como conflicto.
+- **Dado** un cliente que alcanza el límite de entradas de un evento, **cuando** intenta superarlo, **entonces** la compra se rechaza antes de reservar o cobrar. El límite es configurable, seis entradas por defecto, y su control incluye órdenes pendientes y confirmadas.
+- **Dado** un pago rechazado o una reserva vencida, **cuando** el sistema resuelve la compra, **entonces** libera los lugares y no confirma entradas; las compras rechazadas o compensadas liberan las unidades computadas para el límite.
+- **Dado** un pago cuyo resultado queda pendiente, **cuando** el cliente consulta/reconcilia la compra, **entonces** el sistema conserva la reserva hasta su vencimiento y puede continuar la operación sin volver a cobrar.
 
-```yaml
-paths:
-  /api/v1/orders/{orderId}/pay:
-    post:
-      summary: Procesa el pago de una orden pendiente
-      parameters:
-        - name: orderId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            example:
-              paymentMethod: "CREDIT_CARD"
-              cardNumberToken: "tok_1J2k3l..."
-      responses:
-        '200':
-          description: Pago exitoso y tickets emitidos.
-          content:
-            application/json:
-              example:
-                orderId: "c333f1ee-6c54-4b01-90e6-d701748f3333"
-                status: "PAID"
-                tickets:
-                  - ticketId: "t999f1ee-6c54-4b01-90e6-d701748f9999"
-                    qrData: "hash_unico_para_validar_en_puerta"
-        '400':
-          description: Reserva expirada.
-          content:
-            application/json:
-              example:
-                error: "ORDER_EXPIRED"
-                message: "El tiempo de reserva de 10 minutos ha expirado. Los asientos fueron liberados."
-        '402':
-          description: Pago rechazado por la pasarela.
-          content:
-            application/json:
-              example:
-                error: "PAYMENT_REJECTED"
-                message: "Fondos insuficientes. Se canceló la reserva."
-```
+#### US-E1-05 — Emitir entradas con QR único
 
-### 5.3. Bloquear Inventario (Inventory Service - Comunicación Interna)
-Llamado por el `Order Service` para garantizar la consistencia y exclusividad.
+**Como** cliente, **quiero** recibir una entrada digital por cada unidad comprada, **para** contar con una entrada verificable para el evento.
 
-*   **Endpoint:** `POST /api/v1/inventory/reservations`
-*   **Request JSON:** `{ "eventId": "...", "sectorId": "...", "seatNumber": "...", "ttlMinutes": 10 }`
-*   **Response `201 Created`:** Reserva exitosa.
-*   **Response `409 Conflict`:** Falla de llave única (Doble venta evitada).
+**Trazabilidad:** PDF-F4. **Estado:** implementado en E1.
 
-## 6. Services: 
+**Criterios de aceptación**
 
+- **Dado** un pago aprobado y una reserva confirmada, **cuando** termina la emisión, **entonces** se entrega una entrada con QR firmado por cada unidad comprada, tanto numerada como de admisión general.
+- **Dado** un ítem de compra cuya emisión ya se realizó, **cuando** se reintenta la misma emisión, **entonces** se devuelven las mismas entradas y QR, sin crear entradas duplicadas.
+- **Dado** un QR emitido, **cuando** Ticket Service lo persiste, **entonces** `ticket_db` conserva sólo el hash SHA-256 del payload y no el token en claro. Purchase conserva `qr_payload` y `qr_png_base64` en `purchase_db` para devolver la entrada al titular de la orden.
 
-### SERVICE: Catalog
-![alt text](img/Catalog-Service.png)
+### Feature F5 — Prevención de la doble venta (Entrega 1)
 
-### SERVICE: Inventory
-![alt text](img/Inventory-Service.png)
+#### US-E1-06 — Garantizar una única reserva/venta ante concurrencia
 
-### SERVICE: Tickets
-![alt text](img/Ticket-Service.png)
+**Como** cliente, **quiero** que el sistema proteja la disponibilidad al comprar, **para** que una entrada o el último cupo no se venda a más de una persona.
+
+**Trazabilidad:** PDF-F5. **Estado:** implementado en E1.
+
+**Criterios de aceptación**
+
+- **Dado** un asiento disponible, **cuando** varios clientes intentan reservarlo concurrentemente, **entonces** exactamente una solicitud obtiene la reserva y las restantes no pueden comprarlo.
+- **Dado** un único cupo disponible en admisión general, **cuando** varias solicitudes concurrentes compiten por él, **entonces** exactamente una reserva lo consume.
+- **Dado** que las solicitudes se atienden desde más de una instancia, **cuando** compiten por el mismo asiento o cupo, **entonces** se mantiene el mismo resultado de exclusividad.
+- **Dado** un reintento idéntico de una operación ya confirmada, **cuando** vuelve a procesarse, **entonces** no crea una reserva ni una venta adicional.
+
+### Feature F6 — Fila virtual para eventos de alta demanda (Entrega 2)
+
+#### US-E2-01 — Esperar turno para comprar
+
+**Como** cliente, **quiero** conocer mi posición en la fila de un evento de alta demanda, **para** saber cuándo puedo iniciar la compra.
+
+**Trazabilidad:** PDF-F6. **Estado:** **NO IMPLEMENTADO. NO PARTE DE ESTA TAREA.**
+
+**Criterios de aceptación**
+
+- **Dado** un evento marcado como de alta demanda cuya venta se abre, **cuando** un cliente ingresa a la fila virtual, **entonces** el sistema le informa su posición.
+- **Dado** que hay clientes esperando, **cuando** el sistema habilita el acceso a compra, **entonces** los habilita en orden y por tandas.
+
+### Feature F7 — Devoluciones y cancelación de eventos (Entrega 1)
+
+#### US-E1-07 — Solicitar y resolver la devolución de una entrada
+
+**Como** titular de una entrada, **quiero** solicitar su devolución y recibir una decisión administrativa, **para** obtener el reintegro cuando corresponda.
+
+**Trazabilidad:** PDF-F7. **Estado:** implementado en E1.
+
+**Criterios de aceptación**
+
+- **Dado** un ticket pagado propio y un evento que comienza en más de 72 horas, **cuando** su titular solicita la devolución, **entonces** se crea una solicitud pendiente; un reintento devuelve la misma solicitud.
+- **Dado** que faltan 72 horas o menos para el evento, **cuando** se solicita la devolución, **entonces** se rechaza sin alterar la entrada ni crear una solicitud.
+- **Dada** una solicitud pendiente, **cuando** un administrador la rechaza, **entonces** la entrada conserva su validez y el lugar permanece vendido.
+- **Dada** una solicitud pendiente, **cuando** un administrador la aprueba, **entonces** se procesa el reintegro, se revoca la entrada y se libera el lugar vendido; los pasos pueden reintentarse sin duplicar efectos.
+
+#### US-E1-08 — Cancelar un evento y procesar sus reintegros
+
+**Como** administrador, **quiero** cancelar un evento y procesar las entradas ya vendidas, **para** cerrar la venta y reintegrar a sus compradores.
+
+**Trazabilidad:** PDF-F7 (y PDF-F3 para la cancelación administrativa). **Estado:** implementado en E1.
+
+**Criterios de aceptación**
+
+- **Dado** un evento cancelable con entradas vendidas, **cuando** un administrador inicia la cancelación, **entonces** el evento queda `CANCELLED`, se bloquean nuevas reservas y se procesan las entradas vendidas para revocación, reintegro y liberación del lugar.
+- **Dado** un lote de reintegros que no terminó, **cuando** se reintenta su procesamiento, **entonces** se informa el progreso y no se duplican reintegros ni liberaciones ya completados.
+- **Dado** un evento cancelado, **cuando** se repite el procesamiento, **entonces** se conserva una única operación por entrada y se completa el trabajo pendiente.
+- La notificación a compradores por una cancelación pertenece a PDF-F11 y queda fuera de E1.
+
+### Feature F8 — Control de acceso mediante QR (Entrega 2)
+
+#### US-E2-02 — Validar una entrada en el acceso
+
+**Como** personal de acceso, **quiero** escanear y validar el QR de una entrada, **para** permitir el ingreso una sola vez al evento correspondiente.
+
+**Trazabilidad:** PDF-F8. **Estado:** **NO IMPLEMENTADO. NO PARTE DE ESTA TAREA.**
+
+**Criterios de aceptación**
+
+- **Dada** una entrada existente, **cuando** se escanea para el evento al que corresponde y todavía no fue utilizada, **entonces** el sistema la valida y la marca como utilizada.
+- **Dado** un QR inexistente, de otro evento o ya utilizado, **cuando** se intenta validarlo, **entonces** el sistema no autoriza el ingreso.
+- **Dado** el mismo QR escaneado nuevamente, **cuando** se intenta ingresar por segunda vez, **entonces** se rechaza el ingreso.
+
+### Feature F9 — Búsqueda y ordenamiento de eventos (Entrega 1)
+
+#### US-E1-09 — Buscar eventos con varios criterios
+
+**Como** cliente, **quiero** filtrar y ordenar eventos publicados, **para** encontrar eventos de mi interés.
+
+**Trazabilidad:** PDF-F9. **Estado:** implementado en E1.
+
+**Criterios de aceptación**
+
+- **Dado** que existen eventos publicados, **cuando** el cliente combina filtros de tipo, organizador, participante, ciudad o rango de fechas, **entonces** recibe únicamente los eventos que cumplen todos los filtros indicados.
+- **Dado** un rango de fechas válido, **cuando** se busca, **entonces** se incluyen los eventos dentro del rango; si el inicio es posterior al fin, la consulta se rechaza.
+- **Dada** una búsqueda, **cuando** se solicita ordenar por fecha, precio o relevancia, **entonces** los resultados se ordenan por ese criterio; la relevancia requiere texto de búsqueda.
+- **Dada** una búsqueda pública, **cuando** existen eventos en distintos estados, **entonces** sólo se muestran los eventos `PUBLISHED`.
+
+### Feature F10 — Preferencias y recomendaciones (Entrega 2)
+
+#### US-E2-03 — Registrar preferencias y recibir recomendaciones
+
+**Como** cliente, **quiero** registrar mis preferencias y recibir sugerencias de eventos, **para** descubrir opciones afines a mis intereses.
+
+**Trazabilidad:** PDF-F10. **Estado:** **NO IMPLEMENTADO. NO PARTE DE ESTA TAREA.**
+
+**Criterios de aceptación**
+
+- **Dado** un cliente, **cuando** registra preferencias, **entonces** el sistema contempla tipos de evento, artistas favoritos y ciudad.
+- **Dado** un cliente con preferencias o historial de compras, **cuando** consulta sugerencias, **entonces** recibe eventos recomendados en función de esa información.
+- **Dado** un evento comprado por clientes, **cuando** se generan recomendaciones basadas en historial, **entonces** se incluyen eventos que también compraron clientes que compraron para ese evento.
+
+### Feature F11 — Notificaciones al cliente (Entrega 2)
+
+#### US-E2-04 — Recibir avisos relevantes
+
+**Como** cliente, **quiero** recibir notificaciones sobre mis compras y eventos de mi interés, **para** estar informado de cambios relevantes.
+
+**Trazabilidad:** PDF-F11. **Estado:** **NO IMPLEMENTADO. NO PARTE DE ESTA TAREA.**
+
+**Criterios de aceptación**
+
+- **Dado** que una compra se confirma, **cuando** se completa la confirmación, **entonces** se envía una notificación por email o push.
+- **Dado** un evento que cambia o se cancela, **cuando** ocurre el cambio, **entonces** se notifica a sus compradores.
+- **Dado** un artista favorito de un cliente que publica un evento en su ciudad, **cuando** se publica el evento, **entonces** el cliente recibe una notificación.
+
+### Feature F12 — Reportes para organizadores (Entrega 2)
+
+#### US-E2-05 — Consultar resultados de un evento
+
+**Como** organizador, **quiero** consultar reportes de mis eventos, **para** conocer sus ventas y resultados.
+
+**Trazabilidad:** PDF-F12. **Estado:** **NO IMPLEMENTADO. NO PARTE DE ESTA TAREA.**
+
+**Criterios de aceptación**
+
+- **Dado** un evento del organizador, **cuando** consulta su reporte, **entonces** puede conocer las entradas vendidas y devueltas por sector.
+- **Dado** un evento con ventas, **cuando** consulta su reporte, **entonces** puede conocer el porcentaje de ocupación y la recaudación.
+
+## 2. Contratos, arquitectura y documentación vigente
+
+- El contrato HTTP vigente es [`docs/openapi.yaml`](openapi.yaml). Este documento no replica rutas, payloads, ejemplos ni códigos de respuesta; deben consultarse en OpenAPI.
+- El API Gateway es el punto de entrada de las operaciones externas.
+- La arquitectura, responsabilidades de servicios, secuencia de compra y modelos de datos actuales están en [`docs/architecture.md`](architecture.md).
+- Los requisitos para configurar, ejecutar y probar el sistema están en [`README.md`](../README.md).
+- Las imágenes del borrador inicial no se conservan aquí porque representan un modelo o flujo anterior. Las referencias de arquitectura vigentes son las de `docs/architecture.md`; OpenAPI es la fuente de verdad del contrato.

@@ -4,18 +4,24 @@ Documento de arquitectura de la Entrega 1. Resume los microservicios, sus
 responsabilidades y su API, la comunicación entre ellos, el mecanismo contra la
 doble venta y los modelos de datos. El contrato HTTP versionado está en
 [`docs/openapi.yaml`](openapi.yaml) y las decisiones de detalle en
-[`openspec/changes/establish-purchase-and-ticketing/design.md`](../openspec/changes/establish-purchase-and-ticketing/design.md).
+[`openspec/changes/archive/2026-11-15-establish-purchase-and-ticketing/design.md`](../openspec/changes/archive/2026-11-15-establish-purchase-and-ticketing/design.md).
 
 ## 1. Microservicios y responsabilidades
 
 | Servicio | Puerto | Base de datos | API pública (vía Gateway) | API interna |
 |---|---|---|---|---|
-| `api-gateway` | 8080 | — | Punto de entrada único: `/api/events/**`, `/api/venues/**`, `/api/inventory/**`, `/api/orders/**` | — |
-| `catalog-service` | 8081 | `ticketya_catalog` | Eventos publicados, detalle con sectores y precios, lugares y organizadores | `GET /internal/events/{eventId}/snapshot`, `GET /internal/events/{eventId}/purchase-snapshot`, `GET /internal/events/{eventId}/hold-ttl` |
-| `inventory-service` | 8082 | `ticketya_inventory` | `GET /api/inventory/events/{eventId}/availability` | Reserva, consulta, confirmación y liberación bajo `/internal/reservations/**` |
-| `ticket-service` | 8083 | `ticketya_ticket` | — (las entradas se leen desde la orden) | `POST /internal/orders/{orderId}/items/{orderItemId}/tickets` |
-| `purchase-service` | 8084 | `ticketya_purchase` | `POST/GET /api/orders`, `GET /api/orders/{orderId}`, `POST /api/orders/{orderId}/reconcile` | — |
-| `payment-mock` | 8085 | `ticketya_payment` | — | `POST /internal/payments`, `GET /internal/payments/{paymentId}`, `GET /internal/payments/by-order/{orderId}`, `POST /internal/payments/{paymentId}/refund` |
+| `api-gateway` | 8080 | — | Punto de entrada único. Enruta `/api/inventory/**`, `/api/orders/**`, `/api/refunds/**` y `/api/events/*/cancellation`; el resto de `/api/**` va a Catalog. | — |
+| `catalog-service` | 8081 | `ticketya_catalog` | Eventos: `GET /api/events`, `GET /api/events/{id}`; venues: `POST/GET /api/venues`, `PUT /api/venues/{id}`; gestión: `POST/GET /api/management/events`, `GET/PUT /api/management/events/{id}`, `PUT /api/management/events/{id}/offerings`, `POST /api/management/events/{id}/publish`, `/api/management/events/{id}/suspend`, `/api/management/events/{id}/cancel`, `/api/management/events/{id}/resume`. | `GET /internal/events/{eventId}/snapshot`, `GET /internal/events/{eventId}/purchase-snapshot` |
+| `inventory-service` | 8082 | `ticketya_inventory` | `GET /api/inventory/events/{eventId}/availability` | `POST/GET /internal/reservations/**`, confirmar/liberar reserva, `POST /internal/reservations/{reservationId}/sold-units/release`, `PUT /internal/events/{eventId}/hold-ttl` y `PUT /internal/events/{eventId}/cancellation` |
+| `ticket-service` | 8083 | `ticketya_ticket` | — (las entradas se leen desde la orden) | `POST /internal/orders/{orderId}/items/{orderItemId}/tickets` (emisión), `POST /internal/tickets/{ticketId}/revoke` |
+| `purchase-service` | 8084 | `ticketya_purchase` | `POST/GET /api/orders`, `GET /api/orders/{orderId}`, `POST /api/orders/{orderId}/reconcile`; `POST /api/refunds/tickets/{ticketId}`, `GET /api/refunds/{refundId}`, `POST /api/refunds/{refundId}/decision`; `POST/GET /api/events/{eventId}/cancellation` | — |
+| `payment-mock` | 8085 | `ticketya_payment` | — | `POST /internal/payments`, `GET /internal/payments/{paymentId}`, `GET /internal/payments/by-order/{orderId}`, `POST /internal/payments/{paymentId}/refund` (total), `POST /internal/payments/{paymentId}/refunds` (parcial) |
+
+Las rutas de cancelación tienen propósitos distintos. Catalog expone
+`POST /api/management/events/{id}/cancel`: cambia el estado a `CANCELLED` y
+bloquea nuevas ventas en Inventory. Purchase expone
+`POST /api/events/{eventId}/cancellation`: procesa los reintegros de entradas
+ya vendidas y llama a la ruta de Catalog.
 
 Sólo el Gateway publica un puerto al host (`8080`). Las rutas `/internal/**` no
 tienen ruta en el Gateway: cualquier llamada externa a un comando interno
@@ -26,15 +32,21 @@ Responsabilidades:
 - **Catalog** es dueño del catálogo publicado y de los precios. Publica una
   copia inmutable (`event_snapshots`) que es la que consumen el resto de los
   servicios, de modo que editar el lugar no altera un evento ya publicado.
+- El modelo `EventStatus` incluye `DRAFT`, `PUBLISHED`, `SUSPENDED`, `SOLD_OUT`,
+  `CANCELLED` y `FINISHED`. E1 implementa las transiciones editoriales actuales;
+  `SOLD_OUT` y `FINISHED` están modelados, pero sus transiciones están reservadas
+  para flujos posteriores.
 - **Inventory** es dueño de la disponibilidad: materializa sectores y asientos
   desde el snapshot de Catalog **sin copiar precios** y administra reservas con
   TTL.
 - **Ticket** es dueño de las entradas emitidas y del hash del QR; la emisión es
-  idempotente por orden e ítem.
+  idempotente por orden e ítem y Purchase puede revocarlas ante una devolución.
+  La validación del QR en el acceso no forma parte de E1.
 - **Purchase** es el orquestador de la compra: dueño de la orden, del snapshot
-  de precios y del límite por cliente y evento.
+  de precios, del límite por cliente y evento, y del progreso de devoluciones y
+  cancelaciones de eventos.
 - **Payment Mock** simula la pasarela: dueño del pago y del reintegro, sin datos
-  del comprador ni referencias a `purchase_db`.
+  del comprador ni referencias a `purchase_db`; registra reintegros parciales.
 
 ## 2. Diagrama de módulos
 
@@ -42,14 +54,15 @@ Responsabilidades:
 flowchart LR
     Client[Cliente / Postman] -->|HTTP :8080| GW[api-gateway]
 
-    GW -->|/api/events, /api/venues| CAT[catalog-service :8081]
+    GW -->|/api/** excepto rutas dedicadas| CAT[catalog-service :8081]
     GW -->|/api/inventory| INV[inventory-service :8082]
-    GW -->|/api/orders| PUR[purchase-service :8084]
+    GW -->|/api/orders, /api/refunds, cancelación de evento| PUR[purchase-service :8084]
 
-    PUR -->|snapshot de compra| CAT
-    PUR -->|reservar / confirmar / liberar| INV
-    PUR -->|cobrar / reintegrar| PAY[payment-mock :8085]
-    PUR -->|emitir tickets| TKT[ticket-service :8083]
+    PUR -->|snapshot / fecha / cancelación lógica (F7)| CAT
+    CAT -->|bloquear ventas de evento cancelado| INV
+    PUR -->|reservar / confirmar / liberar unidad vendida (F7)| INV
+    PUR -->|cobrar / reintegrar total o parcialmente (F7)| PAY[payment-mock :8085]
+    PUR -->|emitir / revocar tickets (F7)| TKT[ticket-service :8083]
 
     CAT --- DB1[(ticketya_catalog)]
     INV --- DB2[(ticketya_inventory)]
@@ -152,6 +165,45 @@ sequenceDiagram
 Estados persistidos de la orden: `CONFIRMED`, `REJECTED`, `PAYMENT_PENDING`,
 `PAID_PENDING_TICKETS` y `COMPENSATED`. Los estados terminales son `CONFIRMED`,
 `REJECTED` y `COMPENSATED`; reconciliar una orden terminal responde `409`.
+
+### Devolución individual y cancelación de evento (F7)
+
+Una devolución individual se solicita en `POST /api/refunds/tickets/{ticketId}` y
+un ADMIN la aprueba o rechaza en `POST /api/refunds/{refundId}/decision`. La
+cancelación masiva comienza en Purchase; Purchase solicita a Catalog la
+cancelación lógica del evento y Catalog bloquea el inventario. Por cada ticket
+pagado, Purchase persiste y ejecuta los mismos pasos de revocación, reintegro
+parcial y liberación de unidad vendida. Cada invocación procesa un lote de forma
+síncrona y persiste el avance para reintentar; no agrega broker ni servicio.
+
+```mermaid
+sequenceDiagram
+    actor A as ADMIN
+    participant G as Gateway
+    participant P as Purchase
+    participant C as Catalog
+    participant I as Inventory
+    participant T as Ticket
+    participant Pay as Payment
+
+    A->>G: POST /api/events/{eventId}/cancellation
+    G->>P: iniciar/procesar cancelación
+    P->>C: POST /api/management/events/{id}/cancel
+    C->>I: PUT /internal/events/{eventId}/cancellation
+    I-->>C: 204 inventario bloqueado
+    C-->>P: evento CANCELLED
+    loop por lotes de tickets pagados
+        P->>T: POST /internal/tickets/{ticketId}/revoke
+        P->>Pay: POST /internal/payments/{paymentId}/refunds (monto, idempotencyKey)
+        P->>I: POST /internal/reservations/{reservationId}/sold-units/release
+    end
+    P-->>G: avance de reintegros
+    G-->>A: estado PROCESSING o COMPLETED
+```
+
+La misma secuencia de revocación, reintegro y liberación se usa tras aprobar una
+devolución individual. E1 emite y revoca el QR; no implementa su validación en el
+acceso.
 
 ## 5. Doble venta
 
@@ -273,7 +325,8 @@ erDiagram
     inventory_sectors ||--o{ inventory_items : groups
     inventory_sectors ||--o{ reservation_items : holds
     reservations ||--o{ reservation_items : contains
-    inventory_items ||--o| reservation_items : reserved_by
+    inventory_items ||--o{ reservation_items : reserved_by
+    reservation_items ||--o{ sold_unit_releases : records
 
     event_inventories {
         uuid id PK
@@ -281,6 +334,7 @@ erDiagram
         uuid snapshot_id
         int hold_ttl_seconds
         timestamptz initialized_at
+        timestamptz cancelled_at
     }
     inventory_sectors {
         uuid id PK
@@ -299,7 +353,10 @@ erDiagram
         varchar status
         varchar request_fingerprint
         timestamptz expires_at
+        timestamptz created_at
         timestamptz confirmed_at
+        timestamptz released_at
+        timestamptz expired_at
     }
     inventory_items {
         uuid id PK
@@ -320,12 +377,23 @@ erDiagram
         uuid inventory_item_id FK
         int quantity
     }
+    event_cancellations {
+        uuid event_id PK
+        timestamptz cancelled_at
+    }
+    sold_unit_releases {
+        uuid reservation_item_id PK, FK
+        int unit_number PK
+        timestamptz released_at
+    }
 ```
 
 Restricciones clave: `UNIQUE (event_inventory_id, source_seat_id)` en
 `inventory_items`, `UNIQUE (event_id)` en `event_inventories`,
 `UNIQUE (order_id)` en `reservations`, y
-`CHECK (sold + reserved <= capacity)` en `inventory_sectors`.
+`CHECK (sold + reserved <= capacity)` en `inventory_sectors`. `event_cancellations`
+usa `event_id` como UUID sin FK; `sold_unit_releases` referencia localmente
+`reservation_items(id)` y tiene clave primaria `(reservation_item_id, unit_number)`.
 
 ### Ticket
 
@@ -346,46 +414,60 @@ erDiagram
         int unit_number
         uuid customer_id
         uuid event_id
+        varchar event_name
+        timestamptz event_starts_at
+        varchar venue_name
+        varchar venue_city
         varchar sector_name
         varchar row_label
         int seat_number
         varchar qr_hash
         varchar status
+        timestamptz issued_at
     }
 ```
 
 `UNIQUE (order_id, order_item_id)` hace idempotente la emisión y
 `UNIQUE (qr_hash)` impide duplicar una entrada. La base guarda el hash del
-payload, no el token del QR.
+payload, no el token del QR. `order_id`, `order_item_id`, `customer_id` y
+`event_id` son referencias UUID sin FK a otras bases; el único vínculo relacional
+local es `tickets.issuance_id`.
 
 ### Purchase
 
 ```mermaid
 erDiagram
-    orders ||--o{ order_items : contains
-    order_items ||--o{ order_item_units : describes
-    orders ||--o{ order_tickets : issues
+    purchase_orders ||--o{ purchase_order_items : contains
+    purchase_order_items ||--o{ order_item_units : describes
+    purchase_orders ||--o{ order_tickets : issues
+    purchase_order_items ||--o{ order_tickets : groups
+    purchase_orders ||--o{ refund_requests : receives
+    purchase_order_items ||--o{ refund_requests : identifies
 
-    orders {
+    purchase_orders {
         uuid id PK
         uuid customer_id
         uuid event_id
-        varchar status
-        varchar idempotency_key
-        varchar request_fingerprint
         varchar event_name
         timestamptz event_starts_at
         varchar venue_name
         varchar venue_city
-        numeric total_amount
         varchar currency
+        numeric total_amount
+        varchar status
         uuid payment_id
         varchar payment_status
+        varchar payment_method
+        timestamptz payment_created_at
+        timestamptz payment_updated_at
+        varchar idempotency_key
+        varchar request_fingerprint
+        uuid reservation_id
         timestamptz reservation_expires_at
         timestamptz created_at
         timestamptz updated_at
     }
-    order_items {
+    purchase_order_items {
         uuid id PK
         uuid order_id FK
         uuid inventory_sector_id
@@ -408,64 +490,106 @@ erDiagram
     order_tickets {
         uuid id PK
         uuid order_id FK
-        uuid order_item_id
+        uuid order_item_id FK
         uuid ticket_id
         int unit_number
         varchar status
+        text qr_payload
+        text qr_png_base64
+        varchar row_label
+        int seat_number
     }
     customer_event_limits {
-        uuid id PK "PK (customer_id, event_id)"
+        uuid id PK
         uuid customer_id
         uuid event_id
         int committed_units
         int pending_units
     }
+    refund_requests {
+        uuid id PK
+        uuid ticket_id
+        uuid order_id FK
+        uuid order_item_id FK
+        uuid customer_id
+        uuid event_id
+        numeric amount
+        varchar status
+        varchar decision
+        varchar progress
+        varchar source
+        timestamptz created_at
+    }
+    event_cancellations {
+        uuid event_id PK
+        uuid last_ticket_id
+        timestamptz created_at
+    }
 ```
 
-Restricciones: `UNIQUE (customer_id, idempotency_key)`,
-`UNIQUE (customer_id, event_id)` en el límite,
-`UNIQUE (order_id, order_item_id, unit_number)` en tickets y checks de montos y
-cantidades positivas. Purchase guarda el **snapshot de precios** porque
-Inventory nunca los persiste.
+Tablas y columnas de `schema.sql`: las FK de `purchase_order_items`,
+`order_item_units`, `order_tickets` y `refund_requests` sólo apuntan a tablas
+Purchase. `customer_event_limits` no tiene FK a órdenes; su índice único es
+`(customer_id, event_id)`. Restricciones adicionales: único
+`(customer_id, idempotency_key)` en `purchase_orders`, `(order_item_id,
+unit_number)` en `order_item_units`, `ticket_id` y `(order_id, order_item_id,
+unit_number)` en `order_tickets`, y `(ticket_id, source)` en `refund_requests`.
+`refund_requests.amount` tiene `CHECK (amount > 0)`.
+`ticket_id`, `last_ticket_id`, `event_id`, `payment_id`, `reservation_id` e
+`inventory_*` son referencias UUID sin FK entre servicios. Purchase guarda el
+**snapshot de precios** porque Inventory nunca los persiste.
 
 ### Payment
 
 ```mermaid
 erDiagram
+    payments ||--o{ refunds : records
+
     payments {
         uuid id PK
         uuid order_id
         varchar status
         numeric amount
-        varchar currency
+        char currency
         varchar method
         varchar simulation_token
         timestamptz created_at
         timestamptz updated_at
         timestamptz refunded_at
     }
+    refunds {
+        uuid id PK
+        uuid payment_id FK
+        numeric amount
+        varchar idempotency_key
+        char request_fingerprint
+        timestamptz created_at
+    }
 ```
 
-`UNIQUE (order_id)` hace idempotente el cobro. Estados: `APPROVED`, `REJECTED`,
-`PENDING` y `REFUNDED`. El token de simulación se persiste para detectar
-reintentos con contenido distinto, pero nunca se expone en la respuesta.
+`payments.order_id` es único y no tiene FK a Purchase. Estados del pago:
+`APPROVED`, `REJECTED`, `PENDING` y `REFUNDED`. Cada reintegro total o parcial
+queda en `refunds`, con clave de idempotencia única y FK local a `payments`.
+El token de simulación se persiste para detectar reintentos con contenido
+distinto, pero nunca se expone en la respuesta.
 
 ## 7. Entidades solapadas entre bases
 
 | Entidad | Dueño | Copias / referencias | Propósito y regla |
 |---|---|---|---|
-| `event` | Catalog (`events`, `event_snapshots`) | Inventory (`event_inventories.event_id`), Purchase (`orders.event_id`), Ticket (`tickets.event_id`) | Referencia UUID sin FK. Cada servicio guarda sólo los atributos que necesita para operar (Inventory el layout publicado; Purchase y Ticket los datos de presentación del snapshot). |
-| `sector` | Catalog (`snapshot_sectors.source_sector_id`) | Inventory (`inventory_sectors.source_sector_id`), Purchase (`order_items.source_sector_id`) | Inventory materializa el sector con su propio `id` interno y conserva `source_sector_id` para trazabilidad; Purchase guarda ambos identificadores. Ningún servicio copia el precio salvo Purchase. |
-| `seat` | Catalog (`snapshot_seats.source_seat_id`) | Inventory (`inventory_items.source_seat_id`), Purchase (`order_item_units.source_seat_id`) | Inventory es dueño de la disponibilidad y del estado vendido/retenido; Catalog sólo describe el layout. |
-| `customer` | Identidad provisional por header `X-User-Id` | Purchase (`orders.customer_id`), Ticket (`tickets.customer_id`) | No hay servicio de identidad en esta entrega; se propaga el UUID del header. |
-| `price` | Catalog (`snapshot_sectors.price`) | Purchase (`order_items.unit_price`, `orders.total_amount`) | Inventory nunca almacena precios. Purchase congela el precio del snapshot al crear la orden. |
-| `payment` | Payment (`payments`) | Purchase (`orders.payment_id`, `orders.payment_status`) | Purchase guarda sólo el identificador y el estado del pago para la saga y la reconciliación. |
-| `ticket` | Ticket (`tickets`) | Purchase (`order_tickets.ticket_id`) | Ticket es dueño del QR; Purchase guarda el identificador para exponerlo en la orden. |
+| `event` | Catalog (`events`, `event_snapshots`) | Inventory (`event_inventories.event_id`, `event_cancellations.event_id`), Purchase (`purchase_orders.event_id`, `refund_requests.event_id`, `event_cancellations.event_id`), Ticket (`tickets.event_id`) | Referencias UUID sin FK. Cada servicio conserva sólo los atributos que necesita. |
+| `sector` | Catalog (`snapshot_sectors.source_sector_id`) | Inventory (`inventory_sectors.source_sector_id`), Purchase (`purchase_order_items.source_sector_id`) | Inventory materializa el sector con su propio ID y conserva `source_sector_id`; Purchase guarda ambos identificadores. Ningún servicio copia el precio salvo Purchase. |
+| `seat` | Catalog (`snapshot_seats.source_seat_id`) | Inventory (`inventory_items.source_seat_id`), Purchase (`order_item_units.source_seat_id`) | Inventory es dueño de la disponibilidad y estado vendido/retenido; Catalog describe el layout. |
+| `customer` | Identidad provisional por header `X-User-Id` | Purchase (`purchase_orders.customer_id`, `customer_event_limits.customer_id`, `refund_requests.customer_id`), Ticket (`tickets.customer_id`) | No hay servicio de identidad en esta entrega; se propaga el UUID del header. |
+| `price` | Catalog (`snapshot_sectors.price`) | Purchase (`purchase_order_items.unit_price`, `purchase_orders.total_amount`, `refund_requests.amount`) | Inventory nunca almacena precios. Purchase congela el precio del snapshot al crear la orden. |
+| `payment` | Payment (`payments`, `refunds`) | Purchase (`purchase_orders.payment_id`, `purchase_orders.payment_status`) | Purchase guarda el identificador y estado del pago. `payments.order_id` y `refunds.payment_id` no crean FK entre bases. |
+| `ticket` | Ticket (`tickets`, hash QR y estado) | Purchase (`order_tickets.ticket_id`, `qr_payload`, `qr_png_base64`; `refund_requests.ticket_id`) | Ticket es dueño del ticket y su revocación. Purchase conserva la copia del payload/PNG que devuelve al titular al consultar su orden; no hay FK hacia `ticket_db`. |
+| `reservation` | Inventory (`reservations`) | Purchase (`purchase_orders.reservation_id`) | Referencia UUID entre bases; Purchase no consulta tablas de Inventory. |
 
 ## 8. Contrato y documentación
 
-- Contrato consolidado: [`docs/openapi.yaml`](openapi.yaml) — 17 operaciones
-  sobre 16 paths, con ejemplos, errores `problem+json` y esquemas de Purchase,
+- Contrato consolidado: [`docs/openapi.yaml`](openapi.yaml) — 41 operaciones
+  sobre 36 rutas, con ejemplos, errores `problem+json` y esquemas de Purchase,
   Payment, Catalog e Inventory.
 - OpenAPI en runtime: `/v3/api-docs` en los puertos internos de Catalog (8081),
   Inventory (8082), Ticket (8083), Purchase (8084) y Payment (8085).

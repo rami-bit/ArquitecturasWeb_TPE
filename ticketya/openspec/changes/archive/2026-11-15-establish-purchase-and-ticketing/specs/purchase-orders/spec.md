@@ -226,8 +226,14 @@ Purchase SHALL responder los errores con `application/problem+json` incluyendo `
 
 #### Scenario: Error de dependencia
 
-- **WHEN** Catalog, Inventory, Payment o Ticket no responden o exceden el tiempo de espera
-- **THEN** Purchase responde `503` como problema sin dejar una orden confirmada parcialmente
+- **GIVEN** la operación tiene un fallo explícito de dependencia, no una respuesta de cobro perdida o una emisión QR pendiente
+- **WHEN** Catalog, Inventory o Payment Mock responden un error HTTP de servidor, o falla la consulta de Payment durante la reconciliación
+- **THEN** Purchase responde `503` como `application/problem+json`, no deja una orden confirmada parcialmente y libera o conserva las reservas y límites según el estado persistido de la saga
+
+Un timeout o pérdida de respuesta durante el cobro es incierto y se rige por
+`Manejar un pago incierto y reconciliar la orden` (`202 PAYMENT_PENDING`); una
+falla transitoria de Ticket se rige por `Confirmar inventario y emitir tickets`
+(`202 PAID_PENDING_TICKETS`).
 
 #### Scenario: No exponer datos sensibles
 

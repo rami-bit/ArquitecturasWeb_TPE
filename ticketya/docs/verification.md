@@ -1,5 +1,24 @@
 # Verificación de Entrega 1
 
+## Verificación final del core E1 (2026-11-15)
+
+Entorno: Windows, Docker Desktop, reactor ejecutado en `maven:3.9.9-eclipse-temurin-21-alpine` (Java 21); los tests de integración usaron Testcontainers con PostgreSQL 16.4.
+
+| Verificación | Comando / entorno | Resultado |
+|---|---|---|
+| Reactor completo | `docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "${PWD}:/workspace" -w /workspace -e TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal maven:3.9.9-eclipse-temurin-21-alpine mvn -q clean verify` | Éxito; **260 tests, 0 fallos, 0 errores, 0 omitidos**. Gateway 43, Catalog 48, Inventory 73, Purchase 55, Payment Mock 24 y Ticket 17. XML Surefire recientes revisados. |
+| OpenAPI consolidado | `python -m openapi_spec_validator docs/openapi.yaml` y test `ConsolidatedOpenApiDocumentContractTest` | OpenAPI 3.0.3 válido; 36 rutas / 41 `operationId` únicos; 15 tests estáticos en Gateway pasan, incluidos roles E1, errores, correlación y ausencia de capacidades E2. |
+| Compose limpio | `$env:GATEWAY_PORT='18080'; docker compose -p ticketya_e1_final_verification_20261115 up --build -d --wait` | **11/11 servicios healthy**; seis imágenes de servicios construidas. Gateway publicado en `http://localhost:18080`. |
+| OpenAPI runtime | `docker compose -p ticketya_e1_final_verification_20261115 exec -T <catalog-service|inventory-service|ticket-service|purchase-service|payment-mock> wget -qO- http://localhost:<8081-8085>/v3/api-docs` | Las cinco APIs internas devolvieron `/v3/api-docs` correctamente. |
+| Postman vía Gateway | `npx --yes newman run postman/ticketya.postman_collection.json --env-var baseUrl=http://localhost:18080` | **42 requests, 72 aserciones, 0 fallos**; incluye compra general y numerada, pago rechazado, devoluciones, reintegros y cancelación de evento. |
+| Compras completas simultáneas | `$env:BASE_URL='http://localhost:18080'; python postman/concurrent-purchases.py` | **12 compras**, 1 `CONFIRMED`, 11 `409`, 1 asiento `SOLD`, `sold=1`, `reserved=0`. |
+| OpenSpec y diff | `openspec validate --specs`, `openspec validate establish-purchase-and-ticketing --strict`, `git diff --check` | 11 specs principales válidas; cambio Purchase validado con 14/14 tareas antes de archivarse; sin errores de whitespace. |
+| Detención del stack | `docker compose -p ticketya_e1_final_verification_20261115 down` | Contenedores/red eliminados; volúmenes conservados (no se usó `-v`). |
+
+La primera invocación de Newman incluyó `--no-report-events`, opción que el ejecutable `npx newman` no reconoce; se repitió el comando sin esa opción y la colección pasó. Los avisos `503` registrados dentro de los tests de reintento de devoluciones son fallos inyectados esperados; los tests finalizaron en verde.
+
+OpenSpec archivó `issue-ticket-qr` y `establish-purchase-and-ticketing`. Las capacidades F6, F8 y F10–F12 continúan sólo como backlog E2; no se inició su implementación.
+
 ## Cierre de pruebas expresas del PDF (2026-11-11)
 
 Se agregaron pruebas unitarias de reglas de compra (`PurchaseBusinessRulesTest`, 2), devoluciones (`RefundPolicyTest`, 4) y búsqueda/ordenamiento (`EventDiscoveryServiceTest`, 4). La regla de devolución de 72 horas y la inmutabilidad de la decisión se extrajeron a `RefundPolicy` sin cambiar las rutas ni las respuestas. La concurrencia se verifica con `postman/concurrent-purchases.py`, que crea un evento y asiento propios por corrida y dispara 12 compras completas por Gateway, cada una con comprador y clave de idempotencia distintos.

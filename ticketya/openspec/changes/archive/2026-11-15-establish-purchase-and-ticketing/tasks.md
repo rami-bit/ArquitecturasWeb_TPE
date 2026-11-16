@@ -3,7 +3,7 @@
 ## 1. Purchase Service and order API
 - [x] 1.1 Add Purchase Spring Boot module, application config, database schema, Dockerfile, and root Maven aggregation.
 - [x] 1.2 Implement order creation, catalog price snapshots, identity ownership, request fingerprint idempotency, and atomic per-client/event limit.
-- [ ] 1.3 Implement order lookup, problem responses, correlation propagation, OpenAPI, and unit/persistence tests.
+- [x] 1.3 Implement order lookup, problem responses, correlation propagation, OpenAPI, and unit/persistence tests.
 
 ## 2. Payment Mock
 - [x] 2.1 Add Payment Mock module, owned PostgreSQL schema, Dockerfile, configuration, and health endpoint.
@@ -12,11 +12,11 @@
 
 ## 3. Purchase orchestration and ticket integration
 - [x] 3.0 Align Inventory availability and reservation sector IDs with Catalog source sector IDs.
-- [ ] 3.1 Implement persisted purchase transitions calling Inventory hold/confirm/release and Payment charge/refund contracts.
+- [x] 3.1 Implement persisted purchase transitions calling Inventory hold/confirm/release and Payment charge/refund contracts.
 - [x] 3.2 Integrate idempotent Ticket issuance after successful payment and inventory confirmation; return tickets from order lookup.
-- [ ] 3.3 Cover approval, rejection, duplicate request, limit/concurrency, expiry, downstream failure, and ticket retry behavior with tests.
+- [x] 3.3 Cover approval, rejection, duplicate request, limit/concurrency, expiry, downstream failure, ticket retry, and uncertain-payment reconciliation with tests.
 
-  Cobertura diferida acordada para US-E1-05: vencimiento de compra, concurrencia de la compra completa, fallos downstream y reintento de emisión QR. Las pruebas existentes de aprobación, rechazo, idempotencia y límite siguen siendo parte de la regresión; esta tarea permanece abierta hasta cubrir todos sus escenarios.
+  Verificación: `PurchaseOrderCreationContractTest`, `PurchaseOrderCompensationContractTest`, `PurchaseOrderConcurrentLimitContractTest`, `PurchaseOrderDownstreamFailureContractTest`, `PurchaseOrderPaymentTimeoutContractTest`, `PurchaseOrderReconcileOutcomeContractTest` y `PurchaseOrderTicketRetryContractTest` cubren los desenlaces y reintentos. Los tests usan PostgreSQL real con Testcontainers y stubs HTTP.
 
 ## 4. Gateway and local integration
 - [x] 4.1 Route public purchase operations through Gateway and preserve identity, correlation, and problem responses.

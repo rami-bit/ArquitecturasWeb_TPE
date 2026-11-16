@@ -27,6 +27,7 @@ Quedan fuera de este cambio: devoluciones solicitadas por el cliente, cancelaci�
 
 - `purchase-orders`: ciclo de vida de la orden, idempotencia de la compra, límite de entradas por cliente y evento, orquestación de la saga y compensaciones observables.
 - `payment-processing`: pasarela de pagos simulada con cobro, consulta y reintegro idempotentes, utilizada exclusivamente dentro de la red de servicios.
+- `purchased-tickets`: integración idempotente de Ticket Service con órdenes cuyo pago e inventario ya fueron confirmados, con consulta de las entradas por su titular.
 
 ### Modified Capabilities
 
