@@ -95,7 +95,7 @@
 
 ### Feature F6 — Fila virtual para eventos de alta demanda (Entrega 2)
 
-#### US-E2-01 — Esperar turno para comprar
+#### US-E2-02 — Esperar turno para comprar
 
 **Como** cliente, **quiero** conocer mi posición en la fila de un evento de alta demanda, **para** saber cuándo puedo iniciar la compra.
 
@@ -136,7 +136,7 @@
 
 ### Feature F8 — Control de acceso mediante QR (Entrega 2)
 
-#### US-E2-02 — Validar una entrada en el acceso
+#### US-E2-03 — Validar una entrada en el acceso
 
 **Como** personal de acceso, **quiero** escanear y validar el QR de una entrada, **para** permitir el ingreso una sola vez al evento correspondiente.
 
@@ -165,7 +165,7 @@
 
 ### Feature F10 — Preferencias y recomendaciones (Entrega 2)
 
-#### US-E2-03 — Registrar preferencias y recibir recomendaciones
+#### US-E2-04 — Registrar preferencias y recibir recomendaciones
 
 **Como** cliente, **quiero** registrar mis preferencias y recibir sugerencias de eventos, **para** descubrir opciones afines a mis intereses.
 
@@ -179,7 +179,7 @@
 
 ### Feature F11 — Notificaciones al cliente (Entrega 2)
 
-#### US-E2-04 — Recibir avisos relevantes
+#### US-E2-05 — Recibir avisos relevantes
 
 **Como** cliente, **quiero** recibir notificaciones sobre mis compras y eventos de mi interés, **para** estar informado de cambios relevantes.
 
@@ -193,7 +193,7 @@
 
 ### Feature F12 — Reportes para organizadores (Entrega 2)
 
-#### US-E2-05 — Consultar resultados de un evento
+#### US-E2-06 — Consultar resultados de un evento
 
 **Como** organizador, **quiero** consultar reportes de mis eventos, **para** conocer sus ventas y resultados.
 
