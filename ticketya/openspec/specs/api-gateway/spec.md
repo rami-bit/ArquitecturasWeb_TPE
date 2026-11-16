@@ -8,17 +8,17 @@ Expone las APIs públicas de catálogo e inventario a través de un único punto
 
 ### Requirement: Enrutar las rutas de catálogo por el Gateway
 
-El Gateway SHALL exponer las rutas de Catalog Service bajo `/api/**` y reenviarlas a la URL base configurada sin quitar, agregar ni reescribir el prefijo `/api`. SHALL preservar método, path, query params, headers y body de la solicitud.
+El Gateway SHALL exponer las rutas de Catalog Service bajo `/api/**` y reenviarlas a la URL base configurada sin quitar, agregar ni reescribir el prefijo `/api`. SHALL preservar método, path, query params, body y encabezados no relacionados con autenticación. En operaciones protegidas SHALL consumir la autenticación Bearer y propagar únicamente la identidad derivada de claims validados, no los encabezados de identidad enviados por el cliente. Trazabilidad: PDF-NF-GATEWAY y PDF-NF-SECURITY.
 
 #### Scenario: Enrutar una consulta pública
 
-- **WHEN** un cliente solicita `GET /api/events` a través del Gateway
+- **WHEN** un cliente solicita `GET /api/events` a través del Gateway sin JWT
 - **THEN** Catalog Service recibe `GET /api/events` y su respuesta vuelve al cliente a través del Gateway
 
 #### Scenario: Enrutar una consulta de gestión
 
-- **WHEN** un cliente solicita `GET /api/management/events` a través del Gateway con identidad provisional
-- **THEN** Catalog Service recibe la misma ruta y los mismos headers de identidad
+- **WHEN** un cliente solicita `GET /api/management/events` a través del Gateway con un JWT válido
+- **THEN** Catalog Service recibe la misma ruta y la identidad derivada del `sub` y roles validados
 
 #### Scenario: Preservar query params y método
 
@@ -65,22 +65,33 @@ Toda respuesta producida por el Gateway, incluidas las rutas no encontradas y lo
 
 ### Requirement: Reenviar la identidad provisional sin autorizar en el Gateway
 
-El Gateway SHALL reenviar `X-User-Id` y `X-User-Role` tal como llegan y SHALL NOT inventarlos, modificarlos ni decidir autorización de dominio. Catalog Service SHALL seguir validando rol y ownership.
+El Gateway SHALL eliminar de toda solicitud externa los encabezados `X-User-Id` y `X-User-Role` enviados por el cliente y SHALL NOT reenviar el JWT Bearer a servicios. Si la solicitud presenta un JWT válido, SHALL propagar únicamente la identidad derivada de `sub` y roles validados. Las operaciones protegidas SHALL exigir JWT; las consultas públicas SHALL permitir solicitudes anónimas y no propagar una identidad ausente. El Gateway SHALL NOT decidir autorización de dominio; los servicios SHALL seguir validando rol y ownership. Trazabilidad: PDF-NF-SECURITY.
 
 #### Scenario: Reenviar identidad en una operación de gestión
 
-- **WHEN** un cliente envía `X-User-Id` y `X-User-Role` en una solicitud de gestión
-- **THEN** Catalog Service recibe exactamente los mismos valores
+- **WHEN** un cliente envía un JWT válido a una operación de gestión
+- **THEN** Catalog Service recibe la identidad correspondiente a los claims validados y el Gateway no usa headers de identidad externos
 
 #### Scenario: No inventar identidad ausente
 
-- **WHEN** un cliente no envía encabezados de identidad
-- **THEN** el Gateway no agrega identidad y Catalog Service decide el rechazo según sus reglas de dominio
+- **WHEN** un cliente solicita una operación protegida sin un JWT válido
+- **THEN** el Gateway responde `401` y no propaga una identidad al servicio
+
+#### Scenario: Ignorar headers de identidad falsificados
+
+- **GIVEN** un JWT válido con identidad distinta de la informada en `X-User-Id` o `X-User-Role`
+- **WHEN** el cliente solicita una operación protegida
+- **THEN** el Gateway propaga la identidad de los claims validados y descarta los valores externos
 
 #### Scenario: Permitir consultas públicas sin identidad
 
-- **WHEN** un cliente consulta un endpoint público sin encabezados de identidad
-- **THEN** el Gateway enruta la solicitud sin exigir identidad
+- **WHEN** un cliente consulta un endpoint público sin JWT
+- **THEN** el Gateway enruta la solicitud sin exigir autenticación
+
+#### Scenario: Descartar identidad falsificada en una consulta pública
+
+- **WHEN** un cliente consulta disponibilidad sin JWT e incluye `X-User-Id` o `X-User-Role`
+- **THEN** el Gateway enruta la consulta anónima y no propaga esos encabezados ni agrega identidad
 
 ### Requirement: Preservar las respuestas de error de Catalog Service
 
@@ -93,7 +104,7 @@ El Gateway SHALL reenviar el status, content type, headers y body de Catalog Ser
 
 ### Requirement: Enrutar la disponibilidad de inventario por el Gateway
 
-El Gateway SHALL enrutar las solicitudes públicas de disponibilidad bajo `/api/inventory/**` hacia Inventory Service, evaluando esa ruta antes de la ruta de catálogo `/api/**`. SHALL preservar método, path, query params, headers y body, y SHALL NOT exponer el puerto interno de Inventory.
+El Gateway SHALL enrutar las solicitudes públicas de disponibilidad bajo `/api/inventory/**` hacia Inventory Service, evaluando esa ruta antes de la ruta de catálogo `/api/**`. SHALL preservar método, path, query params, body y encabezados no relacionados con autenticación. SHALL consumir y no reenviar `Authorization` ni confiar en `X-User-Id` o `X-User-Role` externos; cuando un JWT válido esté presente, sólo SHALL propagar identidad derivada. SHALL NOT exponer el puerto interno de Inventory. Trazabilidad: PDF-NF-GATEWAY y PDF-NF-SECURITY.
 
 #### Scenario: Enrutar una consulta de disponibilidad
 
@@ -122,8 +133,8 @@ El Gateway SHALL enrutar las solicitudes públicas de disponibilidad bajo `/api/
 
 #### Scenario: Consultar disponibilidad sin identidad
 
-- **WHEN** un cliente consulta la disponibilidad sin encabezados de identidad
-- **THEN** el Gateway enruta la solicitud sin exigir autenticación
+- **WHEN** un cliente consulta la disponibilidad sin JWT y presenta encabezados de identidad arbitrarios
+- **THEN** el Gateway enruta la consulta sin exigir autenticación y Inventory no recibe esos encabezados ni una identidad derivada
 
 ### Requirement: No publicar los comandos internos de inventario
 
@@ -171,17 +182,17 @@ Gateway SHALL enrutar solicitudes del titular y decisiones administrativas a Pur
 
 ### Requirement: Enrutar las órdenes de compra por el Gateway
 
-El Gateway SHALL enrutar las solicitudes públicas bajo `/api/orders/**` hacia Purchase Service, evaluando esa ruta antes de la ruta de catálogo `/api/**`. SHALL preservar método, path, query params, headers, body e `Idempotency-Key`, sin decidir reglas de compra.
+El Gateway SHALL enrutar las solicitudes públicas bajo `/api/orders/**` hacia Purchase Service, evaluando esa ruta antes de la ruta de catálogo `/api/**`. SHALL preservar método, path, query params, body, `Idempotency-Key` y encabezados no relacionados con autenticación; SHALL validar la autenticación Bearer y propagar a Purchase la identidad derivada de claims validados, sin confiar en headers de identidad externos. Trazabilidad: PDF-F4, PDF-NF-GATEWAY y PDF-NF-SECURITY.
 
 #### Scenario: Crear una orden a través del Gateway
 
-- **WHEN** un cliente envía `POST /api/orders` con identidad e `Idempotency-Key`
-- **THEN** Purchase recibe la misma ruta, headers, clave y body, y su respuesta vuelve al cliente
+- **WHEN** un cliente envía `POST /api/orders` con JWT válido e `Idempotency-Key`
+- **THEN** Purchase recibe la misma ruta, clave y body junto con la identidad derivada del `sub` y roles validados, y su respuesta vuelve al cliente
 
 #### Scenario: Consultar una orden a través del Gateway
 
-- **WHEN** un cliente solicita `GET /api/orders/{orderId}`
-- **THEN** el Gateway la envía a Purchase sin reescribir la ruta
+- **WHEN** un cliente con JWT válido solicita `GET /api/orders/{orderId}`
+- **THEN** el Gateway envía a Purchase la misma ruta y la identidad derivada del token sin reescribir la ruta
 
 #### Scenario: Dar precedencia a las órdenes
 

@@ -8,12 +8,12 @@ Permite a un cliente comprar entradas de un evento publicado mediante una orden 
 
 ### Requirement: Crear una orden de compra idempotente
 
-Purchase SHALL crear una orden a partir de un `eventId`, uno o más ítems y un medio de pago, identificando al comprador mediante `X-User-Id` y exigiendo una `Idempotency-Key`. La misma clave con el mismo contenido SHALL devolver la orden existente sin reservar, cobrar ni emitir de nuevo; la misma clave con contenido distinto SHALL rechazarse como conflicto.
+Purchase SHALL crear una orden a partir de un `eventId`, uno o más ítems y un medio de pago, identificando al comprador por el `sub` del JWT validado y exigiendo una `Idempotency-Key`. La misma clave con el mismo contenido SHALL devolver la orden existente sin reservar, cobrar ni emitir de nuevo; la misma clave con contenido distinto SHALL rechazarse como conflicto. Trazabilidad: PDF-F4 y PDF-NF-SECURITY.
 
 #### Scenario: Crear una compra nueva
 
-- **WHEN** un cliente envía una orden válida con `X-User-Id`, `Idempotency-Key` e ítems disponibles
-- **THEN** Purchase devuelve la orden creada con su identificador y el estado resultante de la saga
+- **WHEN** un cliente autenticado envía una orden válida con JWT, `Idempotency-Key` e ítems disponibles
+- **THEN** Purchase devuelve la orden creada con su identificador y el estado resultante de la saga, asociada al `sub` autenticado
 
 #### Scenario: Repetir la misma compra
 
@@ -29,8 +29,8 @@ Purchase SHALL crear una orden a partir de un `eventId`, uno o más ítems y un 
 
 #### Scenario: Solicitud sin identidad o sin clave
 
-- **WHEN** la solicitud no incluye `X-User-Id` válido o no incluye `Idempotency-Key`
-- **THEN** Purchase rechaza la operación con `403` o `400` respectivamente y no crea la orden
+- **WHEN** la solicitud no incluye un JWT válido o no incluye `Idempotency-Key`
+- **THEN** el Gateway rechaza la identidad con `401`, o Purchase rechaza la clave faltante con `400`, y no se crea la orden
 
 ### Requirement: Validar los ítems contra el evento publicado
 
@@ -196,11 +196,11 @@ Purchase SHALL aplicar un límite configurable de entradas por cliente y evento,
 
 ### Requirement: Consultar órdenes propias
 
-Purchase SHALL permitir al comprador consultar una orden por identificador y listar sus propias órdenes. Un cliente SHALL NOT ver órdenes de otro comprador; un administrador SHALL poder consultarlas.
+Purchase SHALL permitir al comprador consultar una orden por identificador y listar sus propias órdenes, identificándolo mediante el `sub` del JWT validado. Un cliente SHALL NOT ver órdenes de otro comprador; un administrador SHALL poder consultarlas. Trazabilidad: PDF-F4 y PDF-NF-SECURITY.
 
 #### Scenario: Consultar la propia orden
 
-- **GIVEN** una orden creada por el cliente autenticado por header
+- **GIVEN** una orden creada por el cliente identificado por el `sub` del JWT validado
 - **WHEN** el cliente solicita `GET /api/orders/{orderId}`
 - **THEN** Purchase devuelve la orden con sus ítems, pago y tickets
 
@@ -212,8 +212,13 @@ Purchase SHALL permitir al comprador consultar una orden por identificador y lis
 
 #### Scenario: Listar órdenes propias
 
-- **WHEN** un cliente solicita `GET /api/orders`
-- **THEN** Purchase devuelve únicamente sus órdenes, paginadas
+- **WHEN** un cliente solicita `GET /api/orders` con un JWT válido
+- **THEN** Purchase devuelve únicamente las órdenes asociadas a su `sub`, paginadas
+
+#### Scenario: Administrador consulta órdenes
+
+- **WHEN** un administrador autorizado solicita órdenes
+- **THEN** Purchase permite consultar órdenes de cualquier comprador conforme a las reglas vigentes
 
 ### Requirement: Errores consistentes y trazabilidad de la compra
 
