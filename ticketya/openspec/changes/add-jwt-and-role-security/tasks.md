@@ -2,9 +2,9 @@
 
 ## 1. Validar JWT en el Gateway
 
-- [ ] 1.1 Agregar validación de tokens del IdP externo configurable por entorno (firma, expiración, `sub` UUID y exactamente un rol soportado); verificar con tokens de prueba firmados y casos de token válido, expirado, malformado y firma inválida.
-- [ ] 1.2 Exigir Bearer en operaciones protegidas y conservar anónimas las consultas públicas y healthchecks; probar respuestas `401` y preservación de `X-Correlation-Id` antes de llegar al upstream.
-- [ ] 1.3 Reemplazar `X-User-Id`/`X-User-Role` externos por identidad derivada de claims validados y no reenviar el Bearer al servicio; probar con upstream de prueba que headers falsificados no cambian identidad ni permisos.
+- [x] 1.1 Agregar validación de tokens del IdP externo configurable por entorno (firma, expiración, `sub` UUID y exactamente un rol soportado); verificar con tokens de prueba firmados y casos de token válido, expirado, malformado y firma inválida.
+- [x] 1.2 Exigir Bearer en operaciones protegidas y conservar anónimas las consultas públicas y healthchecks; probar respuestas `401` y preservación de `X-Correlation-Id` antes de llegar al upstream.
+- [x] 1.3 Reemplazar `X-User-Id`/`X-User-Role` externos por identidad derivada de claims validados y no reenviar el Bearer al servicio; probar con upstream de prueba que headers falsificados no cambian identidad ni permisos.
 - [ ] 1.4 Documentar configuración del issuer/JWKS y uso de tokens externos en README; integrar variables en Compose y verificar build de la imagen del Gateway y healthcheck del servicio.
 
 ## 2. Conservar autorización y ownership de dominio

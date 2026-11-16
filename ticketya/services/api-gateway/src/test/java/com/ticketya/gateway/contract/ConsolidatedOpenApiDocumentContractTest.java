@@ -28,26 +28,21 @@ import static org.assertj.core.api.Assertions.assertThat;
  * devoluciones y cancelacion de evento), Ticket (emision y revocacion de QR) y
  * Payment Mock (cobros, consultas y reintegros total/parcial). Ademas exige
  * {@code operationId} presentes y unicos en TODO el documento, asegura que las
- * capacidades de Entrega 2 (JWT, cola virtual, control de acceso, preferencias,
- * recomendaciones, notificaciones y reportes) NO esten declaradas, verifica las
  * reglas transversales de {@code application/problem+json} y {@code X-Correlation-Id},
- * y protege las reglas de autorizacion de Catalog: {@code X-User-Role} required con
- * enum exacto (ADMIN para crear/editar venues; ORGANIZER/ADMIN para listar venues y
- * gestionar eventos con {@code X-User-Id} obligatorio; ADMIN para
- * suspend/cancel/resume) y la advertencia de que el update de evento ignora
- * {@code offerings} y debe usarse {@code /offerings}.
+ * la advertencia de que el update de evento ignora {@code offerings} y debe usarse
+ * {@code /offerings}, y el modelo de seguridad de {@code add-jwt-and-role-security}:
+ * esquema HTTP Bearer ({@code BearerJWT}) en {@code components.securitySchemes} y
+ * requisito global heredado por las 21 operaciones protegidas (con respuesta
+ * {@code 401} declarada), {@code security: []} explicito en las tres consultas
+ * publicas ({@code GET /api/events}, {@code GET /api/events/{id}} y la
+ * disponibilidad) y en todas las rutas {@code /internal/**}, y ausencia de
+ * parametros de identidad externos ({@code X-User-Id}/{@code X-User-Role}) en
+ * todo el documento: la identidad viaja unicamente como Bearer JWT y los
+ * servicios la reciben derivada por el Gateway.
  */
 class ConsolidatedOpenApiDocumentContractTest {
 
     private record Operation(String path, String method, String operationId, String owner) {
-    }
-
-    /**
-     * Regla de autorizacion declarada en el contrato: roles exactos de
-     * {@code X-User-Role} y, para la gestion de eventos, {@code X-User-Id}
-     * obligatorio.
-     */
-    private record RoleRule(String path, String method, List<String> roles, boolean requiresUserId) {
     }
 
     private static final String CATALOG = "Catalog";
@@ -202,30 +197,28 @@ class ConsolidatedOpenApiDocumentContractTest {
                 Set.of(201, 200, 400, 404, 409));
     }
 
-    /** Capacidades planificadas para Entrega 2; no deben aparecer en el contrato E1. */
+    /**
+     * Consultas publicas por contrato (sin Bearer): busqueda y detalle de
+     * eventos publicados y disponibilidad de inventario.
+     */
+    private static final Set<String> PUBLIC_QUERY_KEYS = Set.of(
+            "/api/events:get",
+            "/api/events/{id}:get",
+            "/api/inventory/events/{eventId}/availability:get");
+
+    /** Requisito Bearer heredado del {@code security} global del documento. */
+    private static final Map<String, List<String>> BEARER_REQUIREMENT = Map.of("BearerJWT", List.of());
+
+    /**
+     * Fragmentos de capacidades fuera del alcance del contrato: aunque
+     * {@code add-jwt-and-role-security} declara el esquema BearerJWT, la
+     * superficie sigue sin paths ni schemas de login, tokens, cola virtual,
+     * preferencias, recomendaciones, notificaciones, reportes o control de
+     * acceso QR.
+     */
     private static final List<String> ENTREGA2_CAPABILITY_FRAGMENTS = List.of(
             "jwt", "auth", "login", "token", "queue", "preference", "recommendation",
             "notification", "report", "access-use", "accessuse");
-
-    /** Reglas de roles exigidas por Catalog: venues y gestion de eventos. */
-    private static final List<RoleRule> ROLE_RULES = List.of(
-            // Venues: creacion/edicion solo ADMIN; listado ORGANIZER o ADMIN.
-            new RoleRule("/api/venues", "post", List.of("ADMIN"), false),
-            new RoleRule("/api/venues/{id}", "put", List.of("ADMIN"), false),
-            new RoleRule("/api/venues", "get", List.of("ORGANIZER", "ADMIN"), false),
-            // Gestion de eventos: ORGANIZER o ADMIN con X-User-Id obligatorio.
-            new RoleRule("/api/management/events", "post", List.of("ORGANIZER", "ADMIN"), true),
-            new RoleRule("/api/management/events", "get", List.of("ORGANIZER", "ADMIN"), true),
-            new RoleRule("/api/management/events/{id}", "get", List.of("ORGANIZER", "ADMIN"), true),
-            new RoleRule("/api/management/events/{id}", "put", List.of("ORGANIZER", "ADMIN"), true),
-            new RoleRule("/api/management/events/{id}/offerings", "put",
-                    List.of("ORGANIZER", "ADMIN"), true),
-            new RoleRule("/api/management/events/{id}/publish", "post",
-                    List.of("ORGANIZER", "ADMIN"), true),
-            // Comandos de control de estado: solo ADMIN.
-            new RoleRule("/api/management/events/{id}/suspend", "post", List.of("ADMIN"), true),
-            new RoleRule("/api/management/events/{id}/cancel", "post", List.of("ADMIN"), true),
-            new RoleRule("/api/management/events/{id}/resume", "post", List.of("ADMIN"), true));
 
     private static Map<String, Object> contract;
 
@@ -395,48 +388,21 @@ class ConsolidatedOpenApiDocumentContractTest {
                 .collect(java.util.stream.Collectors.toList());
     }
 
-    /** Header (name, in=header) resuelto de la operacion, o null si no esta declarado. */
-    private static Map<String, Object> resolvedHeaderParameter(Operation operation,
-            String headerName) {
-        for (Map<String, Object> parameter : resolvedParameters(operation)) {
-            if (headerName.equals(parameter.get("name"))
-                    && "header".equals(parameter.get("in"))) {
-                return parameter;
-            }
-        }
-        return null;
+    /** Clasificacion de seguridad de una operacion: protegida o publica/interna. */
+    private static boolean isPublicOrInternal(Operation operation) {
+        return operation.path().startsWith("/internal/")
+                || PUBLIC_QUERY_KEYS.contains(operation.path() + ":" + operation.method());
     }
 
-    /** Enum exacto del schema del parametro, resolviendo $ref a components.schemas. */
-    @SuppressWarnings("unchecked")
-    private static List<String> schemaEnum(Map<String, Object> parameter) {
-        Object schema = parameter.get("schema");
-        assertThat(schema)
-                .as("el parametro %s declara schema", parameter.get("name"))
-                .isNotNull();
-        if (schema instanceof Map<?, ?> refSchema
-                && refSchema.get("$ref") instanceof String reference) {
-            assertThat(reference)
-                    .as("las refs de schemas apuntan a components.schemas")
-                    .startsWith("#/components/schemas/");
-            String name = reference.substring("#/components/schemas/".length());
-            schema = schema(name);
-        }
-        Object enums = ((Map<String, Object>) schema).get("enum");
-        assertThat(enums)
-                .as("el schema de %s declara enum", parameter.get("name"))
+    /** Requisito de seguridad efectivo: el de la operacion o el global del documento. */
+    private static List<?> effectiveSecurity(Map<String, Object> operation) {
+        Object security = operation.get("security") != null
+                ? operation.get("security")
+                : contract.get("security");
+        assertThat(security)
+                .as("la operacion declara security o hereda el requisito global")
                 .isInstanceOf(List.class);
-        return (List<String>) enums;
-    }
-
-    /** Operation de Entrega 1 correspondiente a un par path:metodo de las reglas. */
-    private static Operation operationOf(RoleRule rule) {
-        return ENTREGA1_OPERATIONS.stream()
-                .filter(candidate -> candidate.path().equals(rule.path())
-                        && candidate.method().equals(rule.method()))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError(
-                        "regla de rol sin operacion: " + rule.path() + ":" + rule.method()));
+        return (List<?>) security;
     }
 
     // ------------------------------------------------------------------------ tests
@@ -594,53 +560,82 @@ class ConsolidatedOpenApiDocumentContractTest {
     }
 
     @Test
-    void venueOperationsDeclareRequiredUserRoleWithExactEnums() {
-        for (RoleRule rule : ROLE_RULES.stream()
-                .filter(candidate -> candidate.path().startsWith("/api/venues"))
-                .toList()) {
-            Map<String, Object> roleParameter = resolvedHeaderParameter(
-                    operationOf(rule), "X-User-Role");
-            assertThat(roleParameter)
-                    .as("%s %s declara el header X-User-Role (inline o ref)",
-                            rule.method(), rule.path())
-                    .isNotNull();
-            assertThat(roleParameter.get("required"))
-                    .as("X-User-Role es required=true en %s %s", rule.method(), rule.path())
-                    .isEqualTo(Boolean.TRUE);
-            assertThat(schemaEnum(roleParameter))
-                    .as("enum exacto de X-User-Role en %s %s", rule.method(), rule.path())
-                    .containsExactlyInAnyOrderElementsOf(rule.roles());
+    void protectedOperationsRequireBearerJwtAndDeclareUnauthorized() {
+        for (Operation operation : ENTREGA1_OPERATIONS) {
+            if (isPublicOrInternal(operation)) {
+                continue;
+            }
+            Map<String, Object> op = operation(operation);
+            @SuppressWarnings("unchecked")
+            List<Object> security = (List<Object>) effectiveSecurity(op);
+            assertThat(security)
+                    .as("%s %s exige BearerJWT (global heredado o declarado)",
+                            operation.method(), operation.path())
+                    .containsExactly((Object) BEARER_REQUIREMENT);
+            assertThat(responses(operation).keySet())
+                    .as("%s %s declara 401 para token ausente, invalido o vencido",
+                            operation.method(), operation.path())
+                    .contains("401");
         }
     }
 
     @Test
-    void eventManagementOperationsDeclareRequiredUserIdAndExactRoleEnums() {
-        for (RoleRule rule : ROLE_RULES.stream()
-                .filter(candidate -> candidate.path().startsWith("/api/management/events"))
-                .toList()) {
-            Map<String, Object> roleParameter = resolvedHeaderParameter(
-                    operationOf(rule), "X-User-Role");
-            assertThat(roleParameter)
-                    .as("%s %s declara el header X-User-Role (inline o ref)",
-                            rule.method(), rule.path())
-                    .isNotNull();
-            assertThat(roleParameter.get("required"))
-                    .as("X-User-Role es required=true en %s %s", rule.method(), rule.path())
-                    .isEqualTo(Boolean.TRUE);
-            assertThat(schemaEnum(roleParameter))
-                    .as("enum exacto de X-User-Role en %s %s", rule.method(), rule.path())
-                    .containsExactlyInAnyOrderElementsOf(rule.roles());
-
-            Map<String, Object> userParameter = resolvedHeaderParameter(
-                    operationOf(rule), "X-User-Id");
-            assertThat(userParameter)
-                    .as("%s %s declara el header X-User-Id (inline o ref)",
-                            rule.method(), rule.path())
-                    .isNotNull();
-            assertThat(userParameter.get("required"))
-                    .as("X-User-Id es required=true en %s %s", rule.method(), rule.path())
-                    .isEqualTo(Boolean.TRUE);
+    void publicQueriesAndInternalOperationsDeclareExplicitEmptySecurity() {
+        for (Operation operation : ENTREGA1_OPERATIONS) {
+            if (!isPublicOrInternal(operation)) {
+                continue;
+            }
+            Object security = operation(operation).get("security");
+            assertThat(security)
+                    .as("%s %s declara security: [] explicito (sin Bearer)",
+                            operation.method(), operation.path())
+                    .isInstanceOf(List.class);
+            assertThat((List<?>) security).isEmpty();
         }
+    }
+
+    @Test
+    void noOperationDeclaresExternalIdentityHeaderParameters() {
+        for (Operation operation : ENTREGA1_OPERATIONS) {
+            for (Map<String, Object> parameter : resolvedParameters(operation)) {
+                String name = String.valueOf(parameter.get("name"));
+                assertThat(name)
+                        .as("%s %s no declara el header externo X-User-Id",
+                                operation.method(), operation.path())
+                        .isNotEqualTo("X-User-Id");
+                assertThat(name)
+                        .as("%s %s no declara el header externo X-User-Role",
+                                operation.method(), operation.path())
+                        .isNotEqualTo("X-User-Role");
+            }
+        }
+        Object registry = components().get("parameters");
+        if (registry instanceof Map<?, ?> parameterRegistry) {
+            @SuppressWarnings("unchecked")
+            java.util.Set<Object> names = (java.util.Set<Object>) parameterRegistry.keySet();
+            assertThat(names)
+                    .as("components.parameters no define X-User-Id ni X-User-Role")
+                    .doesNotContain("X-User-Id", "X-User-Role");
+        }
+    }
+
+    @Test
+    void documentDeclaresTheBearerJwtHttpSecuritySchemeWithGlobalRequirement() {
+        Object securitySchemes = components().get("securitySchemes");
+        assertThat(securitySchemes)
+                .as("el documento declara components.securitySchemes")
+                .isInstanceOf(Map.class);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> bearer = (Map<String, Object>)
+                ((Map<String, Object>) securitySchemes).get("BearerJWT");
+        assertThat(bearer).as("el esquema BearerJWT esta declarado").isNotNull();
+        assertThat(bearer.get("type")).as("BearerJWT es de tipo http").isEqualTo("http");
+        assertThat(bearer.get("scheme")).as("BearerJWT usa scheme bearer").isEqualTo("bearer");
+        assertThat(bearer.get("bearerFormat")).as("BearerJWT declara JWT").isEqualTo("JWT");
+
+        assertThat(contract.get("security"))
+                .as("el documento exige BearerJWT globalmente para las operaciones protegidas")
+                .isEqualTo(List.of(BEARER_REQUIREMENT));
     }
 
     @Test
@@ -671,30 +666,6 @@ class ConsolidatedOpenApiDocumentContractTest {
         assertThat(paths().keySet().stream().filter(path -> path.startsWith("/internal/")).count())
                 .as("el contrato declara rutas internas")
                 .isGreaterThan(0);
-    }
-
-    @Test
-    void theDocumentDeclaresNoAuthenticationSurfaceForEntrega1() {
-        assertThat(components())
-                .as("E1 no declara securitySchemes (sin JWT)")
-                .doesNotContainKey("securitySchemes");
-
-        Object documentSecurity = contract.get("security");
-        if (documentSecurity != null) {
-            assertThat((List<?>) documentSecurity)
-                    .as("security global vacio en E1")
-                    .isEmpty();
-        }
-
-        for (Map.Entry<String, Map<String, Object>> entry
-                : allDocumentedOperations().entrySet()) {
-            Object security = entry.getValue().get("security");
-            if (security != null) {
-                assertThat((List<Object>) security)
-                        .as("%s no declara requisitos de seguridad", entry.getKey())
-                        .isEmpty();
-            }
-        }
     }
 
     @Test

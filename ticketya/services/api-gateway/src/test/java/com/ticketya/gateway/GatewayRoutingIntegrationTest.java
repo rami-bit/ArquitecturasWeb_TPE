@@ -1,5 +1,7 @@
 package com.ticketya.gateway;
 
+import com.ticketya.gateway.contract.JwksTestServer;
+import com.ticketya.gateway.contract.TestJwtIssuer;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterAll;
@@ -27,9 +29,20 @@ import java.util.concurrent.Executors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * Enrutamiento del Gateway hacia Catalog: preservacion de path/metodo/query/body,
+ * precedencia de rutas, correlation ID y passthrough de problem+json. Desde
+ * {@code add-jwt-and-role-security}, las operaciones protegidas envian un JWT
+ * RS256 real emitido por un IdP de prueba ({@link TestJwtIssuer} con JWKS propio)
+ * y la identidad del upstream debe derivarse de sus claims, no de headers del
+ * cliente.
+ */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class GatewayRoutingIntegrationTest {
     private static final String CORRELATION_HEADER = "X-Correlation-Id";
+    private static final TestJwtIssuer IDP = new TestJwtIssuer();
+    private static final JwksTestServer JWKS_SERVER = JwksTestServer.start(IDP);
+    private static final String IDP_ISSUER = JWKS_SERVER.issuerUrl();
     private static final List<RecordedRequest> RECORDED = new CopyOnWriteArrayList<>();
     private static final HttpServer CATALOG_STUB = startStub();
 
@@ -50,13 +63,17 @@ class GatewayRoutingIntegrationTest {
     }
 
     @AfterAll
-    static void stopStub() {
+    static void stopStubs() {
         CATALOG_STUB.stop(0);
+        JWKS_SERVER.close();
     }
 
     @DynamicPropertySource
-    static void catalogUrl(DynamicPropertyRegistry registry) {
+    static void gatewayProperties(DynamicPropertyRegistry registry) {
         registry.add("CATALOG_SERVICE_URL", () -> "http://localhost:" + CATALOG_STUB.getAddress().getPort());
+        registry.add("spring.security.oauth2.resourceserver.jwt.issuer-uri", () -> IDP_ISSUER);
+        registry.add("spring.security.oauth2.resourceserver.jwt.jwk-set-uri",
+                () -> IDP_ISSUER + "/.well-known/jwks.json");
     }
 
     @Test
@@ -75,24 +92,32 @@ class GatewayRoutingIntegrationTest {
     }
 
     @Test
-    void routesManagementQueryWithIdentityHeaders() {
+    void routesManagementQueryWithIdentityDerivedFromJwt() {
+        String sub = UUID.randomUUID().toString();
         client.get().uri("/api/management/events")
-                .header("X-User-Id", "organizer-1")
-                .header("X-User-Role", "ORGANIZER")
+                .header("Authorization", "Bearer " + IDP.bearerToken(IDP_ISSUER, sub, "ORGANIZER"))
+                // Headers falsificados: el Gateway debe descartarlos y derivar del JWT.
+                .header("X-User-Id", "forged-user")
+                .header("X-User-Role", "ADMIN")
                 .exchange()
                 .expectStatus().isOk();
 
         assertThat(RECORDED).singleElement().satisfies(request -> {
             assertThat(request.method()).isEqualTo("GET");
             assertThat(request.path()).isEqualTo("/api/management/events");
-            assertThat(request.userId()).isEqualTo("organizer-1");
-            assertThat(request.userRole()).isEqualTo("ORGANIZER");
+            assertThat(request.userId()).as("X-User-Id derivado del sub del JWT").isEqualTo(sub);
+            assertThat(request.userRole()).as("X-User-Role derivado del rol del JWT")
+                    .isEqualTo("ORGANIZER");
+            assertThat(request.authorization()).as("el Bearer no se reenvia al servicio")
+                    .isNull();
         });
     }
 
     @Test
     void routesPostRequestWithoutRewritingMethodOrBody() {
         client.post().uri("/api/events")
+                .header("Authorization", "Bearer " + IDP.bearerToken(
+                        IDP_ISSUER, UUID.randomUUID().toString(), "ADMIN"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("{\"name\":\"Festival\"}")
                 .exchange()
@@ -202,15 +227,16 @@ class GatewayRoutingIntegrationTest {
     }
 
     @Test
-    void doesNotInjectIdentityHeadersThatClientDidNotSend() {
+    void protectedRouteWithoutJwtResponds401WithCorrelationIdWithoutCallingCatalog() {
         client.get().uri("/api/management/events")
+                .header(CORRELATION_HEADER, "unauthorized-trace")
                 .exchange()
-                .expectStatus().isOk();
+                .expectStatus().isUnauthorized()
+                .expectHeader().valueEquals(CORRELATION_HEADER, "unauthorized-trace");
 
-        assertThat(RECORDED).singleElement().satisfies(request -> {
-            assertThat(request.userId()).isNull();
-            assertThat(request.userRole()).isNull();
-        });
+        assertThat(RECORDED)
+                .as("el rechazo 401 no llega al upstream")
+                .isEmpty();
     }
 
     @Test
@@ -220,6 +246,8 @@ class GatewayRoutingIntegrationTest {
                 + "\"instance\":\"/api/problem\",\"correlationId\":\"domain-trace\"}";
 
         client.get().uri("/api/problem")
+                .header("Authorization", "Bearer " + IDP.bearerToken(
+                        IDP_ISSUER, UUID.randomUUID().toString(), "CLIENT"))
                 .header(CORRELATION_HEADER, correlationId)
                 .exchange()
                 .expectStatus().isForbidden()
@@ -260,6 +288,7 @@ class GatewayRoutingIntegrationTest {
                     correlationId,
                     exchange.getRequestHeaders().getFirst("X-User-Id"),
                     exchange.getRequestHeaders().getFirst("X-User-Role"),
+                    exchange.getRequestHeaders().getFirst("Authorization"),
                     body));
 
             String contentType = MediaType.APPLICATION_JSON_VALUE;
@@ -292,6 +321,7 @@ class GatewayRoutingIntegrationTest {
             String correlationId,
             String userId,
             String userRole,
+            String authorization,
             String body) {
     }
 }

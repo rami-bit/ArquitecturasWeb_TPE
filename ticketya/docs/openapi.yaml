@@ -2,16 +2,21 @@ openapi: 3.0.3
 
 info:
   title: TicketYa API - Consolidated contracts
-  version: '0.3.0'
+  version: '0.4.0'
   description: |
-    Contrato versionado consolidado de TicketYa para la Entrega 1. Cubre Catalog
-    (venues y eventos), Inventory (disponibilidad y reservas), Purchase (órdenes,
-    devoluciones y cancelaciones), Ticket (emisión y revocación de QR) y Payment
-    Mock (cobros y reintegros simulados).
+    Contrato versionado consolidado de TicketYa. Incluye el core de la Entrega 1
+    (Catalog, Inventory, Purchase, Ticket y Payment Mock) y la seguridad JWT de
+    la épica E2-01 (`add-jwt-and-role-security`): autenticación Bearer con JWT
+    firmado por un proveedor externo, claims `sub` (UUID) y `roles` (un único
+    valor entre `CLIENT`, `ORGANIZER`, `ADMIN` y `ACCESS_STAFF`), validación en
+    el Gateway y propagación de identidad derivada a los servicios.
+
+    No declara funcionalidades de Entrega 2 aún no implementadas (fila virtual,
+    acceso QR por `ACCESS_STAFF`, preferencias de cliente, etc.).
 
     Superficie pública a través del API Gateway (`http://localhost:8080`):
     - **Catalog público:** `GET /api/events`, `GET /api/events/{id}`.
-    - **Catalog gestión (con `X-User-Role`):** `POST/PUT/GET /api/venues`,
+    - **Catalog gestión (con Bearer JWT):** `POST/PUT/GET /api/venues`,
       `POST/GET /api/management/events`, `GET/PUT /api/management/events/{id}`,
       `PUT /api/management/events/{id}/offerings`, y los comandos
       `publish`, `suspend`, `cancel` y `resume`.
@@ -43,18 +48,22 @@ info:
     - Todos los errores usan `application/problem+json` con `status`, `title`,
       `detail`, `instance` y `correlationId`.
     - Toda solicitud y toda respuesta llevan `X-Correlation-Id`.
-    - **Identidad y roles por endpoint (E1 no usa JWT):**
-      - Búsqueda y detalle de eventos públicos (`/api/events`) no requieren
-        identidad.
-      - Venues (`/api/venues`) validan `X-User-Role`: creación y edición exigen
-        `ADMIN`; el listado exige `ORGANIZER` o `ADMIN`.
-      - Gestión de eventos (`/api/management/events/**`) exige `X-User-Id` y
-        `X-User-Role` con `ORGANIZER` o `ADMIN`; los comandos `suspend`,
-        `cancel` y `resume` exigen `ADMIN`.
-      - Purchase valida `X-User-Id` obligatorio y `X-User-Role` opcional
-        (`CLIENT` o `ADMIN`); `ADMIN` puede consultar órdenes ajenas.
-      - Los comandos internos (`/internal/**`) se protegen por aislamiento de
-        red; llevan `X-Correlation-Id` pero no identidad de usuario.
+    - **Autenticación y roles (Bearer JWT):**
+      - Todas las operaciones protegidas requieren
+        `Authorization: Bearer <JWT>` con `sub` (UUID) y `roles` (un único
+        valor: `CLIENT`, `ORGANIZER`, `ADMIN` o `ACCESS_STAFF`).
+      - El Gateway valida firma, expiración y claims; descarta
+        `X-User-Id`/`X-User-Role` del cliente y propaga identidad derivada.
+      - Operaciones anónimas (sin JWT): `GET /api/events`,
+        `GET /api/events/{id}` y
+        `GET /api/inventory/events/{eventId}/availability`.
+      - Venues: creación/edición `ADMIN`; listado `ORGANIZER`/`ADMIN`.
+      - Gestión de eventos: `ORGANIZER`/`ADMIN` con ownership del `sub`
+        para ORGANIZER; `suspend`/`cancel`/`resume` exigen `ADMIN`.
+      - Purchase: `CLIENT` opera sobre sus recursos (ownership del `sub`);
+        `ADMIN` puede consultar órdenes ajenas.
+      - `/internal/**` se protege por aislamiento de red; llevan
+        `X-Correlation-Id` pero no identidad de usuario.
     - **Nota sobre cancelación:** existen dos endpoints con semántica distinta:
       - `POST /api/management/events/{id}/cancel` (Catalog): cambia el estado
         del evento a `CANCELLED` y notifica a Inventory para bloquear nuevas
@@ -113,7 +122,8 @@ servers:
       Red interna de Compose. Ticket Service expone emisión y revocación de
       entradas QR. No publica puerto al host.
 
-security: []
+security:
+  - BearerJWT: []
 
 tags:
   - name: Inventory availability
@@ -144,11 +154,11 @@ tags:
   - name: Purchase orders
     description: |
       API pública de órdenes de compra publicada por el API Gateway en
-      `http://localhost:8080`. Requiere `X-User-Id` válido y, para crear una
-      orden, `Idempotency-Key`; `X-User-Role` es opcional y `ADMIN` puede
-      consultar órdenes de cualquier comprador. `X-Correlation-Id` es opcional en
-      todas las solicitudes. Los comandos internos de Purchase no forman parte de
-      esta superficie.
+      `http://localhost:8080`. Requiere Bearer JWT válido; el `sub` identifica
+      al comprador y para crear una orden se exige `Idempotency-Key`.
+      `ADMIN` puede consultar órdenes de cualquier comprador.
+      `X-Correlation-Id` es opcional en todas las solicitudes. Los comandos
+      internos de Purchase no forman parte de esta superficie.
   - name: Payment processing (internal)
     description: |
       Comandos internos de Payment Mock para cobrar, consultar y reintegrar pagos
@@ -156,13 +166,13 @@ tags:
       `payment-mock:8085`; el Gateway no publica ninguna de estas rutas.
   - name: Catalog venues (public)
     description: |
-      Creación, edición y listado de lugares (venues). Creación y edición
-      exigen `X-User-Role: ADMIN`; el listado exige `ORGANIZER` o `ADMIN`.
+      Creación, edición y listado de lugares (venues). Requieren Bearer JWT.
+      Creación y edición exigen `ADMIN`; el listado exige `ORGANIZER` o `ADMIN`.
   - name: Catalog event management
     description: |
-      Creación, edición y control de estado de eventos. Requieren `X-User-Id` y
-      `X-User-Role` con `ORGANIZER` o `ADMIN`; los comandos `suspend`, `cancel`
-      y `resume` exigen `ADMIN`.
+      Creación, edición y control de estado de eventos. Requieren Bearer JWT con
+      `ORGANIZER` o `ADMIN`; los comandos `suspend`, `cancel` y `resume`
+      exigen `ADMIN`. `ORGANIZER` sujeto a ownership del `sub`.
   - name: Catalog event discovery (public)
     description: |
       Búsqueda y detalle de eventos publicados sin encabezados de identidad.
@@ -180,7 +190,8 @@ tags:
   - name: Refunds and cancellation
     description: |
       Devoluciones individuales de tickets y cancelación masiva de eventos con
-      reintegros por lotes.
+      reintegros por lotes. Requieren Bearer JWT; la decisión y la
+      cancelación masiva exigen `ADMIN`.
 
 paths:
 
@@ -194,7 +205,6 @@ paths:
       description: |
         `ADMIN` crea un venue con sectores numerados y/o de admisión general.
       parameters:
-        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ADMIN] } }
         - $ref: '#/components/parameters/CorrelationId'
       requestBody:
         required: true
@@ -247,6 +257,15 @@ paths:
                     type: GENERAL_ADMISSION
                     capacity: 500
                     seats: []
+        '401':
+          description: |
+            Token Bearer ausente, inválido o vencido. El Gateway
+            rechaza la solicitud antes de invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '400':
           description: Payload inválido.
           headers:
@@ -266,10 +285,9 @@ paths:
       operationId: listVenues
       summary: Listar venues paginados
       description: |
-        Devuelve una página estable de venues. Requiere `X-User-Role` con
+        Devuelve una página estable de venues. Requiere Bearer JWT con rol
         `ORGANIZER` o `ADMIN`.
       parameters:
-        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ORGANIZER, ADMIN] } }
         - $ref: '#/components/parameters/CorrelationId'
         - { name: page, in: query, required: false, schema: { type: integer, minimum: 0, default: 0 }, description: Página base cero. }
         - { name: size, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 20 }, description: Ítems por página. }
@@ -295,6 +313,15 @@ paths:
                 size: 20
                 totalElements: 1
                 totalPages: 1
+        '401':
+          description: |
+            Token Bearer ausente, inválido o vencido. El Gateway
+            rechaza la solicitud antes de invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '400':
           description: Paginación inválida.
           headers:
@@ -317,7 +344,6 @@ paths:
       summary: Actualizar un venue existente
       description: "`ADMIN` actualiza un venue existente."
       parameters:
-        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ADMIN] } }
         - $ref: '#/components/parameters/CorrelationId'
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       requestBody:
@@ -335,6 +361,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/VenueResponse'
+        '401':
+          description: |
+            Token Bearer ausente, inválido o vencido. El Gateway
+            rechaza la solicitud antes de invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '400':
           description: Payload inválido.
           headers:
@@ -368,8 +403,6 @@ paths:
         ORGANIZER crea para su propia identidad; ADMIN provee `organizerId`.
         El evento queda en estado `DRAFT`.
       parameters:
-        - $ref: '#/components/parameters/UserId'
-        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ORGANIZER, ADMIN] } }
         - $ref: '#/components/parameters/CorrelationId'
       requestBody:
         required: true
@@ -409,6 +442,15 @@ paths:
                 offerings:
                   - sectorId: s1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f601
                     price: 15000.00
+        '401':
+          description: |
+            Token Bearer ausente, inválido o vencido. El Gateway
+            rechaza la solicitud antes de invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '400':
           description: Request inválido.
           headers:
@@ -429,10 +471,8 @@ paths:
       summary: Listar eventos gestionables
       description: |
         ORGANIZER sólo ve sus propios eventos; ADMIN ve todos. Requiere
-        `X-User-Id` y `X-User-Role` con `ORGANIZER` o `ADMIN`.
+        Bearer JWT con `ORGANIZER` o `ADMIN`.
       parameters:
-        - $ref: '#/components/parameters/UserId'
-        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ORGANIZER, ADMIN] } }
         - $ref: '#/components/parameters/CorrelationId'
       responses:
         '200':
@@ -445,6 +485,15 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/EventResponse'
+        '401':
+          description: |
+            Token Bearer ausente, inválido o vencido. El Gateway
+            rechaza la solicitud antes de invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '403':
           description: Rol no permitido.
           headers:
@@ -459,8 +508,6 @@ paths:
       operationId: getManageableEvent
       summary: Obtener un evento gestionable
       parameters:
-        - $ref: '#/components/parameters/UserId'
-        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ORGANIZER, ADMIN] } }
         - $ref: '#/components/parameters/CorrelationId'
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
@@ -472,6 +519,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventResponse'
+        '401':
+          description: |
+            Token Bearer ausente, inválido o vencido. El Gateway
+            rechaza la solicitud antes de invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '403':
           description: No es el dueño.
           headers:
@@ -496,8 +552,6 @@ paths:
         **ignora** en esta ruta; para modificar ofertas use
         `PUT /api/management/events/{id}/offerings`.
       parameters:
-        - $ref: '#/components/parameters/UserId'
-        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ORGANIZER, ADMIN] } }
         - $ref: '#/components/parameters/CorrelationId'
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       requestBody:
@@ -515,6 +569,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventResponse'
+        '401':
+          description: |
+            Token Bearer ausente, inválido o vencido. El Gateway
+            rechaza la solicitud antes de invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '400':
           description: Datos inválidos o configuración de sector incorrecta.
           headers:
@@ -550,8 +613,6 @@ paths:
       operationId: replaceEventOfferings
       summary: Reemplazar las ofertas de sectores del evento
       parameters:
-        - $ref: '#/components/parameters/UserId'
-        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ORGANIZER, ADMIN] } }
         - $ref: '#/components/parameters/CorrelationId'
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       requestBody:
@@ -575,6 +636,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventResponse'
+        '401':
+          description: |
+            Token Bearer ausente, inválido o vencido. El Gateway
+            rechaza la solicitud antes de invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '400':
           description: Sector no pertenece al venue o precio inválido.
           headers:
@@ -613,8 +683,6 @@ paths:
         Crea un snapshot relacional inmutable y cambia `DRAFT` a `PUBLISHED`
         atómicamente. Repetir la operación devuelve la publicación existente.
       parameters:
-        - $ref: '#/components/parameters/UserId'
-        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ORGANIZER, ADMIN] } }
         - $ref: '#/components/parameters/CorrelationId'
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
@@ -626,6 +694,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventResponse'
+        '401':
+          description: |
+            Token Bearer ausente, inválido o vencido. El Gateway
+            rechaza la solicitud antes de invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '400':
           description: Evento incompleto o startsAt no es futuro.
           headers:
@@ -662,10 +739,8 @@ paths:
       summary: Suspender un evento publicado
       description: |
         Solo `ADMIN`. Mantiene el snapshot publicado sin cambios. Requiere
-        `X-User-Id` y `X-User-Role: ADMIN`.
+        Bearer JWT con `ADMIN`.
       parameters:
-        - $ref: '#/components/parameters/UserId'
-        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ADMIN] } }
         - $ref: '#/components/parameters/CorrelationId'
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
@@ -677,6 +752,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventResponse'
+        '401':
+          description: |
+            Token Bearer ausente, inválido o vencido. El Gateway
+            rechaza la solicitud antes de invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '403':
           description: Rol ADMIN requerido.
           headers:
@@ -714,8 +798,6 @@ paths:
         `POST /api/events/{eventId}/cancellation` en Purchase, que llama a este
         endpoint internamente.
       parameters:
-        - $ref: '#/components/parameters/UserId'
-        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ADMIN] } }
         - $ref: '#/components/parameters/CorrelationId'
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
@@ -727,6 +809,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventResponse'
+        '401':
+          description: |
+            Token Bearer ausente, inválido o vencido. El Gateway
+            rechaza la solicitud antes de invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '403':
           description: Rol ADMIN requerido.
           headers:
@@ -763,10 +854,8 @@ paths:
       summary: Reanudar un evento suspendido
       description: |
         Solo `ADMIN`. Reutiliza el snapshot existente sin recrearlo. Requiere
-        `X-User-Id` y `X-User-Role: ADMIN`.
+        Bearer JWT con `ADMIN`.
       parameters:
-        - $ref: '#/components/parameters/UserId'
-        - { name: X-User-Role, in: header, required: true, schema: { type: string, enum: [ADMIN] } }
         - $ref: '#/components/parameters/CorrelationId'
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
@@ -778,6 +867,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventResponse'
+        '401':
+          description: |
+            Token Bearer ausente, inválido o vencido. El Gateway
+            rechaza la solicitud antes de invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '403':
           description: Rol ADMIN requerido.
           headers:
@@ -806,6 +904,7 @@ paths:
     get:
       tags: [Catalog event discovery (public)]
       operationId: searchPublishedEvents
+      security: []
       summary: Buscar eventos publicados
       description: |
         Filtros combinan con AND. Fechas inclusivas. Página base cero, tamaño
@@ -857,6 +956,7 @@ paths:
     get:
       tags: [Catalog event discovery (public)]
       operationId: getPublishedEventDetail
+      security: []
       summary: Obtener detalle de un evento publicado
       description: |
         Devuelve datos inmutables del snapshot. No incluye disponibilidad.
@@ -906,6 +1006,7 @@ paths:
       tags:
         - Inventory availability
       operationId: getEventAvailability
+      security: []
       summary: Consultar la disponibilidad pública de un evento
       description: |
         Devuelve la disponibilidad agregada por sector y, para sectores
@@ -998,6 +1099,7 @@ paths:
       tags:
         - Inventory reservations (internal)
       operationId: createReservation
+      security: []
       summary: Crear una reserva temporal
       description: |
         Retiene todos los ítems solicitados en una única transacción: o se
@@ -1134,6 +1236,7 @@ paths:
       tags:
         - Inventory reservations (internal)
       operationId: getReservationByOrderId
+      security: []
       summary: Recuperar la reserva de un orderId
       description: |
         Devuelve el estado, el vencimiento y los ítems de la reserva asociada al
@@ -1186,6 +1289,7 @@ paths:
       tags:
         - Inventory reservations (internal)
       operationId: getReservationById
+      security: []
       summary: Recuperar una reserva por identificador
       description: |
         Devuelve el estado, el vencimiento y los ítems de la reserva. Es una
@@ -1238,6 +1342,7 @@ paths:
       tags:
         - Inventory reservations (internal)
       operationId: confirmReservation
+      security: []
       summary: Confirmar la venta de una reserva
       description: |
         Convierte los lugares retenidos en vendidos de forma atómica. Las
@@ -1310,6 +1415,7 @@ paths:
       tags:
         - Inventory reservations (internal)
       operationId: releaseReservation
+      security: []
       summary: Liberar una reserva
       description: |
         Devuelve los lugares retenidos a disponible de forma atómica. Las
@@ -1383,6 +1489,7 @@ paths:
       tags:
         - Inventory configuration (internal)
       operationId: updateEventHoldTtl
+      security: []
       summary: Configurar la retención de un evento
       description: |
         Fija el TTL que usarán las reservas posteriores del evento cuando no
@@ -1464,6 +1571,7 @@ paths:
       tags:
         - Catalog snapshot (internal)
       operationId: getCatalogEventSnapshot
+      security: []
       summary: Leer el snapshot publicado de un evento
       description: |
         Contrato interno de Catalog que Inventory consume para materializar el
@@ -1526,6 +1634,7 @@ paths:
       tags:
         - Catalog purchase snapshot (internal)
       operationId: getCatalogPurchaseSnapshot
+      security: []
       summary: Leer el snapshot de compra de un evento con precios
       description: |
         Contrato interno de Catalog que Purchase Service consume para validar los
@@ -1604,11 +1713,6 @@ paths:
         pendientes (repetir POST para continuar).
       parameters:
         - $ref: '#/components/parameters/EventId'
-        - $ref: '#/components/parameters/UserId'
-        - in: header
-          name: X-User-Role
-          required: true
-          schema: { type: string, enum: [ADMIN] }
         - $ref: '#/components/parameters/CorrelationId'
       responses:
         '200':
@@ -1627,6 +1731,15 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/CancellationProgress' }
               example: { eventId: 'e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b', status: PROCESSING, totalTickets: 2, completedTickets: 1, pendingTickets: 1 }
+        '401':
+          description: |
+            Token Bearer ausente, inválido o vencido. El Gateway
+            rechaza la solicitud antes de invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '403':
           description: Solo ADMIN puede cancelar
           headers:
@@ -1661,10 +1774,6 @@ paths:
       summary: Consultar avance de reintegros de un evento cancelado
       parameters:
         - $ref: '#/components/parameters/EventId'
-        - in: header
-          name: X-User-Role
-          required: true
-          schema: { type: string, enum: [ADMIN] }
         - $ref: '#/components/parameters/CorrelationId'
       responses:
         '200':
@@ -1675,6 +1784,15 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/CancellationProgress' }
               example: { eventId: 'e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b', status: COMPLETED, totalTickets: 2, completedTickets: 2, pendingTickets: 0 }
+        '401':
+          description: |
+            Token Bearer ausente, inválido o vencido. El Gateway
+            rechaza la solicitud antes de invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '403':
           description: Solo ADMIN puede consultar
           headers:
@@ -1703,7 +1821,6 @@ paths:
           name: ticketId
           required: true
           schema: { type: string, format: uuid }
-        - $ref: '#/components/parameters/UserId'
         - $ref: '#/components/parameters/CorrelationId'
       responses:
         '201':
@@ -1740,6 +1857,15 @@ paths:
                 decision: null
                 progress: NOT_STARTED
                 createdAt: '2026-11-10T12:00:00Z'
+        '401':
+          description: |
+            Token Bearer ausente, inválido o vencido. El Gateway
+            rechaza la solicitud antes de invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '404':
           description: Ticket no pertenece al comprador o no existe
           headers:
@@ -1772,7 +1898,6 @@ paths:
           name: refundId
           required: true
           schema: { type: string, format: uuid }
-        - $ref: '#/components/parameters/UserId'
         - $ref: '#/components/parameters/CorrelationId'
       responses:
         '200':
@@ -1792,6 +1917,15 @@ paths:
                 decision: APPROVED
                 progress: COMPLETED
                 createdAt: '2026-11-10T12:00:00Z'
+        '401':
+          description: |
+            Token Bearer ausente, inválido o vencido. El Gateway
+            rechaza la solicitud antes de invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '404':
           description: Solicitud inexistente o de otro comprador
           headers:
@@ -1815,10 +1949,6 @@ paths:
           name: refundId
           required: true
           schema: { type: string, format: uuid }
-        - in: header
-          name: X-User-Role
-          required: true
-          schema: { type: string, enum: [ADMIN] }
         - $ref: '#/components/parameters/CorrelationId'
       requestBody:
         required: true
@@ -1867,6 +1997,15 @@ paths:
                 decision: APPROVED
                 progress: TICKET_REVOKED
                 createdAt: '2026-11-10T12:00:00Z'
+        '401':
+          description: |
+            Token Bearer ausente, inválido o vencido. El Gateway
+            rechaza la solicitud antes de invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '400':
           description: Payload inválido o decision fuera de enum
           headers:
@@ -1908,8 +2047,8 @@ paths:
         Mock, confirmación de inventario y emisión idempotente de tickets.
 
         Reglas del request:
-        - `X-User-Id` es obligatorio y determina el comprador; `X-User-Role` es
-          opcional (`CLIENT` o `ADMIN`).
+        - El `sub` del JWT determina el comprador. El rol (`CLIENT` o `ADMIN`)
+          proviene del claim `roles`.
         - `Idempotency-Key` es obligatorio (1..120 caracteres). La misma clave
           del mismo comprador con el mismo contenido devuelve la orden existente
           sin reservar, cobrar ni emitir de nuevo; con otro contenido responde
@@ -1925,8 +2064,6 @@ paths:
         El límite configurable de entradas por cliente y evento (seis por defecto)
         se valida de forma atómica antes de reservar.
       parameters:
-        - $ref: '#/components/parameters/UserId'
-        - $ref: '#/components/parameters/UserRole'
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/CorrelationId'
       requestBody:
@@ -1956,7 +2093,7 @@ paths:
         '200':
           description: |
             Repetición idempotente: ya existía una orden para la misma
-            `X-User-Id` e `Idempotency-Key` con el mismo contenido. Se devuelve la
+            `Idempotency-Key` del mismo `sub` con el mismo contenido. Se devuelve la
             orden existente en su estado actual, sin nuevas reservas, cobros ni
             tickets. Puede ser una orden `CONFIRMED`, `REJECTED`,
             `PAYMENT_PENDING`, `PAID_PENDING_TICKETS` o `COMPENSATED`.
@@ -1993,6 +2130,15 @@ paths:
                   $ref: '#/components/examples/OrderPaymentPending'
                 paymentResponseLost:
                   $ref: '#/components/examples/OrderPaymentResponseLost'
+        '401':
+          description: |
+            Token Bearer ausente, inválido o vencido. El Gateway
+            rechaza la solicitud antes de invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '402':
           description: |
             Pago rechazado por la pasarela simulada. Purchase libera la reserva,
@@ -2027,8 +2173,8 @@ paths:
                   $ref: '#/components/examples/ProblemOrderBadRequest'
         '403':
           description: |
-            Identidad inválida o ausente: `X-User-Id` falta, no es un UUID o el
-            rol informado no es válido. No se crea la orden.
+            Rol insuficiente: el token es válido pero el rol no basta para
+            esta operación, o el ownership no coincide con el `sub`. No se crea la orden.
           headers:
             X-Correlation-Id:
               $ref: '#/components/headers/CorrelationId'
@@ -2097,13 +2243,11 @@ paths:
       operationId: listOrders
       summary: Listar las órdenes del comprador
       description: |
-        Devuelve las órdenes del comprador identificado por `X-User-Id`,
-        paginadas y ordenadas por `createdAt` descendente. Un cliente sólo ve sus
-        propias órdenes; `X-User-Role: ADMIN` puede ver las de todos los
+        Devuelve las órdenes del comprador identificado por el `sub` del
+        JWT, paginadas y ordenadas por `createdAt` descendente. Un cliente
+        sólo ve sus propias órdenes; `ADMIN` puede ver las de todos los
         compradores.
       parameters:
-        - $ref: '#/components/parameters/UserId'
-        - $ref: '#/components/parameters/UserRole'
         - $ref: '#/components/parameters/PageNumber'
         - $ref: '#/components/parameters/PageSize'
         - $ref: '#/components/parameters/OrderStatusFilter'
@@ -2124,6 +2268,15 @@ paths:
               examples:
                 page:
                   $ref: '#/components/examples/OrderPage'
+        '401':
+          description: |
+            Token Bearer ausente, inválido o vencido. El Gateway
+            rechaza la solicitud antes de invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '400':
           description: |
             Parámetros de paginación o filtro inválidos: `page` negativo,
@@ -2140,8 +2293,8 @@ paths:
                   $ref: '#/components/examples/ProblemOrderBadRequest'
         '403':
           description: |
-            Identidad inválida o ausente: `X-User-Id` falta, no es un UUID o el
-            rol informado no es válido.
+            Rol insuficiente: el token es válido pero el rol no basta para
+            esta operación, o el ownership no coincide con el `sub`.
           headers:
             X-Correlation-Id:
               $ref: '#/components/headers/CorrelationId'
@@ -2166,8 +2319,6 @@ paths:
         consultar cualquier orden.
       parameters:
         - $ref: '#/components/parameters/OrderId'
-        - $ref: '#/components/parameters/UserId'
-        - $ref: '#/components/parameters/UserRole'
         - $ref: '#/components/parameters/CorrelationId'
       responses:
         '200':
@@ -2182,10 +2333,19 @@ paths:
               examples:
                 confirmed:
                   $ref: '#/components/examples/OrderConfirmed'
+        '401':
+          description: |
+            Token Bearer ausente, inválido o vencido. El Gateway
+            rechaza la solicitud antes de invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '403':
           description: |
-            Identidad inválida o ausente: `X-User-Id` falta, no es un UUID o el
-            rol informado no es válido.
+            Rol insuficiente: el token es válido pero el rol no basta para
+            esta operación, o el ownership no coincide con el `sub`.
           headers:
             X-Correlation-Id:
               $ref: '#/components/headers/CorrelationId'
@@ -2228,8 +2388,6 @@ paths:
         `409` sin cambios.
       parameters:
         - $ref: '#/components/parameters/OrderId'
-        - $ref: '#/components/parameters/UserId'
-        - $ref: '#/components/parameters/UserRole'
         - $ref: '#/components/parameters/CorrelationId'
       responses:
         '200':
@@ -2249,10 +2407,19 @@ paths:
                   $ref: '#/components/examples/OrderConfirmed'
                 rejected:
                   $ref: '#/components/examples/OrderRejected'
+        '401':
+          description: |
+            Token Bearer ausente, inválido o vencido. El Gateway
+            rechaza la solicitud antes de invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '403':
           description: |
-            Identidad inválida o ausente: `X-User-Id` falta, no es un UUID o el
-            rol informado no es válido.
+            Rol insuficiente: el token es válido pero el rol no basta para
+            esta operación, o el ownership no coincide con el `sub`.
           headers:
             X-Correlation-Id:
               $ref: '#/components/headers/CorrelationId'
@@ -2297,6 +2464,7 @@ paths:
       tags:
         - Payment processing (internal)
       operationId: createPayment
+      security: []
       summary: Cobrar una orden de forma idempotente
       description: |
         Registra un cobro por `orderId` de forma idempotente y decide el resultado
@@ -2385,6 +2553,7 @@ paths:
       tags:
         - Payment processing (internal)
       operationId: getPaymentByOrderId
+      security: []
       summary: Consultar el pago de una orden
       description: |
         Devuelve el pago registrado para el `orderId`, con su estado actual,
@@ -2424,6 +2593,7 @@ paths:
       tags:
         - Payment processing (internal)
       operationId: getPaymentById
+      security: []
       summary: Consultar un pago por identificador
       description: |
         Devuelve el pago con su estado actual, monto, moneda, medio de pago y
@@ -2463,6 +2633,7 @@ paths:
       tags:
         - Payment processing (internal)
       operationId: refundPayment
+      security: []
       summary: Reintegrar un pago aprobado
       description: |
         Marca un pago `APPROVED` como `REFUNDED` de forma idempotente. Repetir el
@@ -2522,6 +2693,7 @@ paths:
     put:
       tags: [Inventory cancellation (internal)]
       operationId: cancelEventInventory
+      security: []
       summary: Bloquear nuevas ventas del inventario de un evento cancelado
       description: |
         Llamado por Catalog tras cambiar el estado del evento a `CANCELLED`.
@@ -2554,6 +2726,7 @@ paths:
     post:
       tags: [Inventory cancellation (internal)]
       operationId: releaseSoldUnit
+      security: []
       summary: Liberar una unidad vendida para una devolución
       description: |
         Marca una unidad individual como no-vendida en el inventario, tras una
@@ -2616,6 +2789,7 @@ paths:
     post:
       tags: [Ticket issuance (internal)]
       operationId: issueTicketsForOrderItem
+      security: []
       summary: Emitir o recuperar tickets QR para un ítem confirmado
       description: |
         Purchase llama este comando solo tras confirmar pago e inventario.
@@ -2681,6 +2855,7 @@ paths:
     post:
       tags: [Ticket revocation (internal)]
       operationId: revokeTicket
+      security: []
       summary: Revocar un ticket emitido tras una devolución aprobada
       description: |
         Comando interno idempotente. Repetir para un ticket ya revocado
@@ -2721,6 +2896,7 @@ paths:
     post:
       tags: [Payment processing (internal)]
       operationId: refundPaymentPartial
+      security: []
       summary: Reintegrar un monto parcial de un pago
       description: |
         Registra un reintegro parcial por un monto específico con clave de
@@ -2789,6 +2965,18 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
 
 components:
+  securitySchemes:
+    BearerJWT:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT firmado por el proveedor de identidad externo. Claims:
+        `sub` (UUID) y `roles` (lista con exactamente un valor:
+        CLIENT, ORGANIZER, ADMIN o ACCESS_STAFF). El Gateway valida
+        firma, expiración y claims; los servicios internos conservan
+        autorización de dominio (rol y ownership) sobre la identidad
+        derivada.
   parameters:
     CorrelationId:
       name: X-Correlation-Id
@@ -2835,33 +3023,7 @@ components:
         format: uuid
         example: 7a6b5c4d-3e2f-41a0-9b8c-7d6e5f4a3b2c
 
-    UserId:
-      name: X-User-Id
-      in: header
-      required: true
-      description: |
-        Identificador del comprador. Es obligatorio en toda la API pública de
-        Purchase; si falta o no es un UUID se responde `403`. Un cliente sólo
-        opera sobre sus propias órdenes.
-      schema:
-        type: string
-        format: uuid
-        example: 3f1a2b3c-4d5e-4f60-8a91-b2c3d4e5f601
 
-    UserRole:
-      name: X-User-Role
-      in: header
-      required: false
-      description: |
-        Rol del usuario. Es opcional; si falta se asume `CLIENT`. `ADMIN` puede
-        consultar órdenes de cualquier comprador. Cualquier otro valor se rechaza
-        con `403`.
-      schema:
-        type: string
-        enum:
-          - CLIENT
-          - ADMIN
-        example: CLIENT
 
     IdempotencyKey:
       name: Idempotency-Key
@@ -2869,7 +3031,7 @@ components:
       required: true
       description: |
         Clave de idempotencia del comprador para `POST /api/orders`. Es
-        obligatoria, de 1 a 120 caracteres. Junto con `X-User-Id` identifica la
+        obligatoria, de 1 a 120 caracteres. Junto con el `sub` del JWT identifica la
         solicitud: la misma clave con el mismo contenido devuelve la orden
         existente; con otro contenido responde `409`.
       schema:
@@ -3625,9 +3787,9 @@ components:
     CreateOrderRequest:
       type: object
       description: |
-        Solicitud de compra. El comprador se identifica con `X-User-Id` y la
-        solicitud se idempotencia con `Idempotency-Key`; ningún precio se envía
-        en el cuerpo.
+        Solicitud de compra. El comprador se identifica con el `sub` del JWT y
+        la solicitud se idempotencia con `Idempotency-Key`; ningún precio se
+        envía en el cuerpo.
       additionalProperties: false
       required:
         - eventId
@@ -3956,7 +4118,7 @@ components:
         customerId:
           type: string
           format: uuid
-          description: Comprador tomado de `X-User-Id`.
+          description: Comprador tomado del `sub` del JWT.
         eventId:
           type: string
           format: uuid
@@ -5163,12 +5325,12 @@ components:
         orderStatus: REJECTED
 
     ProblemIdentityRequired:
-      summary: Identidad ausente o inválida
+      summary: Rol insuficiente para la operación
       value:
         type: about:blank
         title: Forbidden
         status: 403
-        detail: A valid X-User-Id header is required
+        detail: El rol del token no es suficiente para esta operación
         instance: /api/orders
         correlationId: trace-purchase-1
 

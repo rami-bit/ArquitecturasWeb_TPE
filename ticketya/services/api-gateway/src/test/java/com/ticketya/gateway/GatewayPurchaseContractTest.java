@@ -1,5 +1,7 @@
 package com.ticketya.gateway;
 
+import com.ticketya.gateway.contract.JwksTestServer;
+import com.ticketya.gateway.contract.TestJwtIssuer;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterAll;
@@ -20,14 +22,24 @@ import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * Contrato de enrutamiento del Gateway hacia Purchase: precedencia de
+ * {@code /api/orders} sobre el catch-all de Catalog, no publicacion de rutas
+ * internas, preservacion de correlation ID y identidad derivada de un JWT
+ * RS256 real (IdP de prueba, no headers externos del cliente).
+ */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class GatewayPurchaseContractTest {
     private static final String CORRELATION = "X-Correlation-Id";
+    private static final TestJwtIssuer IDP = new TestJwtIssuer();
+    private static final JwksTestServer JWKS_SERVER = JwksTestServer.start(IDP);
+    private static final String IDP_ISSUER = JWKS_SERVER.issuerUrl();
     private static final List<String> REQUESTS = new CopyOnWriteArrayList<>();
     private static final HttpServer PURCHASE_STUB = startStub();
 
@@ -40,9 +52,12 @@ class GatewayPurchaseContractTest {
     private WebTestClient client;
 
     @DynamicPropertySource
-    static void purchaseUrl(DynamicPropertyRegistry registry) {
+    static void gatewayProperties(DynamicPropertyRegistry registry) {
         registry.add("PURCHASE_SERVICE_URL",
                 () -> "http://localhost:" + PURCHASE_STUB.getAddress().getPort());
+        registry.add("spring.security.oauth2.resourceserver.jwt.issuer-uri", () -> IDP_ISSUER);
+        registry.add("spring.security.oauth2.resourceserver.jwt.jwk-set-uri",
+                () -> IDP_ISSUER + "/.well-known/jwks.json");
     }
 
     @BeforeEach
@@ -52,15 +67,19 @@ class GatewayPurchaseContractTest {
     }
 
     @AfterAll
-    static void stopStub() {
+    static void stopStubs() {
         PURCHASE_STUB.stop(0);
+        JWKS_SERVER.close();
     }
 
     @Test
-    void routesPurchasePreservingIdentityAndCorrelation() {
+    void routesPurchasePreservingDerivedIdentityAndCorrelation() {
+        String sub = UUID.randomUUID().toString();
         client.post().uri("/api/orders?source=demo")
-                .header("X-User-Id", "client-1")
-                .header("X-User-Role", "CLIENT")
+                .header("Authorization", "Bearer " + IDP.bearerToken(IDP_ISSUER, sub, "CLIENT"))
+                // Headers falsificados: el Gateway debe derivar la identidad del JWT.
+                .header("X-User-Id", "forged-user")
+                .header("X-User-Role", "ADMIN")
                 .header(CORRELATION, "purchase-trace")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("{\"eventId\":\"event-1\"}")
@@ -69,8 +88,9 @@ class GatewayPurchaseContractTest {
                 .expectHeader().valueEquals(CORRELATION, "purchase-trace")
                 .expectBody().jsonPath("$.path").isEqualTo("/api/orders");
 
-        assertThat(REQUESTS).containsExactly("POST /api/orders?source=demo "
-                + "client-1 CLIENT purchase-trace {\"eventId\":\"event-1\"}");
+        assertThat(REQUESTS).containsExactly(
+                "POST /api/orders?source=demo user=" + sub + " role=CLIENT auth=null "
+                        + "corr=purchase-trace body={\"eventId\":\"event-1\"}");
     }
 
     @Test
@@ -120,10 +140,12 @@ class GatewayPurchaseContractTest {
             String query = exchange.getRequestURI().getRawQuery();
             String correlation = exchange.getRequestHeaders().getFirst(CORRELATION);
             String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-            REQUESTS.add("%s %s?%s %s %s %s %s".formatted(
+            REQUESTS.add("%s %s?%s user=%s role=%s auth=%s corr=%s body=%s".formatted(
                     exchange.getRequestMethod(), path, query,
                     exchange.getRequestHeaders().getFirst("X-User-Id"),
-                    exchange.getRequestHeaders().getFirst("X-User-Role"), correlation, body));
+                    exchange.getRequestHeaders().getFirst("X-User-Role"),
+                    exchange.getRequestHeaders().getFirst("Authorization"),
+                    correlation, body));
             byte[] response = ("{\"path\":\"" + path + "\"}")
                     .getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", MediaType.APPLICATION_JSON_VALUE);
