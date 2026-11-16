@@ -209,6 +209,8 @@ services:
       CATALOG_SERVICE_URL: ${GATEWAY_CATALOG_SERVICE_URL}
       INVENTORY_SERVICE_URL: ${GATEWAY_INVENTORY_SERVICE_URL}
       PURCHASE_SERVICE_URL: ${GATEWAY_PURCHASE_SERVICE_URL}
+      JWT_ISSUER_URI: ${JWT_ISSUER_URI}
+      JWT_JWK_SET_URI: ${JWT_JWK_SET_URI}
     depends_on:
       catalog-service:
         condition: service_healthy

@@ -114,10 +114,20 @@ Docker Compose carga automáticamente el archivo `.env` de esta carpeta. Mantenl
 | `POSTGRES_USER` | `ticketya` | Usuario de ambas bases PostgreSQL |
 | `POSTGRES_PASSWORD` | `ticketya` | Contraseña de ambas bases PostgreSQL |
 | `GATEWAY_PORT` | `8080` | Puerto publicado del API Gateway en el host |
+| `JWT_ISSUER_URI` | `https://identity.example.invalid/issuer` | Emisor externo esperado por el Gateway |
+| `JWT_JWK_SET_URI` | `https://identity.example.invalid/.well-known/jwks.json` | JWKS público del proveedor de identidad |
 | `PURCHASE_TICKET_LIMIT` | `6` | Máximo de entradas por cliente y evento |
 | `TICKET_QR_SIGNING_SECRET` | Clave local definida en `.env` | Clave estable de al menos 32 bytes para firmar los QR |
 
 Ticket Service requiere `TICKET_QR_SIGNING_SECRET`; el `.env` incluye una clave local de desarrollo para arrancar el stack directamente. Conserva el mismo valor entre reinicios si quieres validar QR ya emitidos. Al cambiarlo, los QR existentes dejarán de validarse. No reutilices esta clave fuera del entorno didáctico local.
+
+### Autenticación con JWT (E2-01)
+
+TicketYa no emite tokens ni mantiene usuarios: el cliente obtiene un JWT de un proveedor de identidad externo y lo envía como `Authorization: Bearer <JWT>`. Antes de usar rutas protegidas, reemplaza los dos valores de ejemplo terminados en `.invalid` por el `issuer` y el JWKS reales del proveedor. Sin esa configuración los endpoints públicos y los healthchecks siguen disponibles, pero las rutas protegidas fallan cerradas.
+
+El token debe incluir `iss` coincidente con `JWT_ISSUER_URI`, `sub` como UUID, `exp` vigente y `roles` como array con exactamente uno de `CLIENT`, `ORGANIZER`, `ADMIN` o `ACCESS_STAFF`. El Gateway valida firma e identidad, descarta `X-User-Id`/`X-User-Role` enviados por el cliente y deriva los encabezados internos de los claims. No se registran ni versionan tokens.
+
+Para ejecutar la colección Postman, configura `organizerToken`, `clientToken`, `numberedBuyerToken`, `adminToken` y `accessStaffToken` con JWTs emitidos por el IdP. Sus claims `sub` deben coincidir respectivamente con `userId`, `userId`, `numberedBuyerId`, `adminUserId` y `accessStaffUserId`; sus roles son `ORGANIZER`, `CLIENT`, `CLIENT`, `ADMIN` y `ACCESS_STAFF`. La colección usa además `foreignOrganizerId` para probar que un organizador no acceda a un borrador ajeno. No agregues tokens reales a la colección ni al repositorio.
 
 Los servicios internos reciben su configuración a través de variables de Compose (no necesitas definirlas a menos que quieras sobreescribirlas):
 
@@ -155,6 +165,8 @@ Los servicios internos reciben su configuración a través de variables de Compo
 | api-gateway | `CATALOG_SERVICE_URL` | `http://catalog-service:8081` |
 | api-gateway | `INVENTORY_SERVICE_URL` | `http://inventory-service:8082` |
 | api-gateway | `PURCHASE_SERVICE_URL` | `http://purchase-service:8084` |
+| api-gateway | `JWT_ISSUER_URI` | `https://identity.example.invalid/issuer` |
+| api-gateway | `JWT_JWK_SET_URI` | `https://identity.example.invalid/.well-known/jwks.json` |
 
 Ninguna variable contiene rutas personales ni secretos de producción.
 
@@ -237,10 +249,17 @@ La colección está en `ticketya/postman/ticketya.postman_collection.json`. Ejec
 
 ```bash
 npx --yes newman run postman/ticketya.postman_collection.json \
-  --env-var baseUrl=http://localhost:8080
+  --env-var baseUrl=http://localhost:8080 \
+  --env-var organizerToken="$ORGANIZER_TOKEN" \
+  --env-var clientToken="$CLIENT_TOKEN" \
+  --env-var numberedBuyerToken="$NUMBERED_BUYER_TOKEN" \
+  --env-var adminToken="$ADMIN_TOKEN" \
+  --env-var accessStaffToken="$ACCESS_STAFF_TOKEN"
 ```
 
-La colección es repetible: cada corrida genera un `runId` único para evitar colisiones. Cubre Catalog e Inventory, compras aprobadas de admisión general y asiento numerado con QR, reintento idempotente, consulta de tickets por su titular, pago rechazado con liberación del cupo y límite de seis entradas por cliente y evento. También prueba solicitud y resolución de devoluciones, cancelación con reintegros, suspensión y reanudación del evento. Todas las rutas públicas se recorren por el Gateway. Inventory materializa el inventario de forma perezosa a partir del snapshot publicado de Catalog en la primera consulta.
+Exporta esas cuatro variables con tokens vigentes del IdP. `organizerToken` debe tener `sub=userId` y rol `ORGANIZER`; `clientToken`, `sub=userId` y rol `CLIENT`; `numberedBuyerToken`, `sub=numberedBuyerId` y rol `CLIENT`; `adminToken`, `sub=adminUserId` y rol `ADMIN`. Los tokens son datos sensibles: pásalos al proceso de Newman desde el entorno y no los guardes en archivos del repositorio.
+
+La colección es repetible: cada corrida genera un `runId` único para evitar colisiones. Cubre Catalog e Inventory, compras aprobadas de admisión general y asiento numerado con QR, reintento idempotente, consulta de tickets por su titular, pago rechazado con liberación del cupo y límite de seis entradas por cliente y evento. También prueba solicitud y resolución de devoluciones, cancelación con reintegros, suspensión y reanudación del evento. Todas las rutas públicas se recorren sin token y todas las operaciones protegidas por el Gateway. Inventory materializa el inventario de forma perezosa a partir del snapshot publicado de Catalog en la primera consulta.
 
 Para comprobar muchas compras completas simultáneas del mismo asiento con compradores y claves distintas, sobre un stack saludable ejecuta `python postman/concurrent-purchases.py`. La prueba crea sus propios datos, espera una compra confirmada y once conflictos, y comprueba que Inventory registra un solo asiento vendido.
 

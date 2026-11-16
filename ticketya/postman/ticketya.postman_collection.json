@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "TicketYa - Entrega 1 E2E via Gateway",
-    "description": "Flujo E2E por Gateway: catalogo, disponibilidad, compra general y numerada aprobada, rechazo, idempotencia, devoluciones y cancelacion. Cada corrida genera IDs de datos nuevos.",
+    "name": "TicketYa - Entrega 1 + E2-01 E2E via Gateway",
+    "description": "Flujo E2E por Gateway con JWT de un IdP externo: catalogo, disponibilidad, compra, devoluciones y cancelacion. Configure los tokens del IdP en las variables de la coleccion antes de ejecutar; cada corrida genera IDs de datos nuevos.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -51,36 +51,135 @@
       "key": "userId",
       "value": "e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b",
       "type": "string",
-      "description": "UUID de usuario provisional para ORGANIZER"
+      "description": "UUID del claim sub para organizerToken y clientToken usados por la corrida."
     },
     {
       "key": "adminUserId",
       "value": "a1b2c3d4-1111-2222-3333-444455556666",
       "type": "string",
-      "description": "UUID de usuario provisional para ADMIN"
+      "description": "UUID del claim sub del token adminToken."
     },
     {
       "key": "numberedBuyerId",
       "value": "9f44c33f-35eb-4764-becd-02f6e2414701",
       "type": "string",
-      "description": "Cliente de la compra numerada, separado del comprador de admision general."
+      "description": "UUID del claim sub del token numberedBuyerToken, distinto del comprador general."
     },
     {
       "key": "purchaseOrderId",
       "value": "",
       "type": "string",
       "description": "Orden aprobada consultable durante la corrida."
+    },
+    {
+      "key": "organizerToken",
+      "value": "",
+      "type": "string",
+      "description": "JWT roles=[ORGANIZER], sub igual a userId"
+    },
+    {
+      "key": "clientToken",
+      "value": "",
+      "type": "string",
+      "description": "JWT roles=[CLIENT], sub igual a userId"
+    },
+    {
+      "key": "numberedBuyerToken",
+      "value": "",
+      "type": "string",
+      "description": "JWT roles=[CLIENT], sub igual a numberedBuyerId"
+    },
+    {
+      "key": "adminToken",
+      "value": "",
+      "type": "string",
+      "description": "JWT roles=[ADMIN], sub igual a adminUserId"
+    },
+    {
+      "key": "accessStaffUserId",
+      "value": "d160e54c-5f88-49a1-9e9a-2c901ac70a01",
+      "type": "string",
+      "description": "UUID sub de la identidad ACCESS_STAFF usada para comprobar la denegación."
+    },
+    {
+      "key": "accessStaffToken",
+      "value": "",
+      "type": "string",
+      "description": "JWT roles=[ACCESS_STAFF], sub igual a accessStaffUserId."
+    },
+    {
+      "key": "foreignOrganizerId",
+      "value": "a6d64a75-eab8-4d51-9f3c-887f94421b35",
+      "type": "string",
+      "description": "UUID de organizerId de un borrador creado por ADMIN para comprobar ownership."
+    },
+    {
+      "key": "foreignEventId",
+      "value": "",
+      "type": "string",
+      "description": "ID del evento de prueba cuyo ownership pertenece a foreignOrganizerId."
     }
   ],
   "item": [
+    {
+      "name": "00 - ACCESS_STAFF no puede crear lugares",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessStaffToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"No autorizado {{runId}}\",\n  \"address\": \"Av. Siempre Viva 742\",\n  \"city\": \"Buenos Aires\",\n  \"latitude\": -34.6037,\n  \"longitude\": -58.3816,\n  \"sectors\": [{\"name\":\"General\",\"type\":\"GENERAL_ADMISSION\",\"capacity\":1,\"seats\":[]}]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/venues",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "venues"
+          ]
+        },
+        "description": "Verifica autorización de rol a través del Gateway; no crea datos."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('ACCESS_STAFF recibe 403 en una operación ADMIN', () => pm.response.to.have.status(403));",
+              "pm.test('La denegación conserva X-Correlation-Id', () => pm.expect(pm.response.headers.get('X-Correlation-Id')).to.not.be.empty);"
+            ]
+          }
+        }
+      ]
+    },
     {
       "name": "01 - Crear lugar (ADMIN)",
       "request": {
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Role",
-            "value": "ADMIN",
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
             "type": "text"
           },
           {
@@ -151,13 +250,8 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{userId}}",
-            "type": "text"
-          },
-          {
-            "key": "X-User-Role",
-            "value": "ORGANIZER",
+            "key": "Authorization",
+            "value": "Bearer {{organizerToken}}",
             "type": "text"
           },
           {
@@ -222,13 +316,8 @@
         "method": "PUT",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{userId}}",
-            "type": "text"
-          },
-          {
-            "key": "X-User-Role",
-            "value": "ORGANIZER",
+            "key": "Authorization",
+            "value": "Bearer {{organizerToken}}",
             "type": "text"
           },
           {
@@ -292,13 +381,8 @@
         "method": "PUT",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{userId}}",
-            "type": "text"
-          },
-          {
-            "key": "X-User-Role",
-            "value": "ORGANIZER",
+            "key": "Authorization",
+            "value": "Bearer {{organizerToken}}",
             "type": "text"
           },
           {
@@ -363,13 +447,8 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{userId}}",
-            "type": "text"
-          },
-          {
-            "key": "X-User-Role",
-            "value": "ORGANIZER",
+            "key": "Authorization",
+            "value": "Bearer {{organizerToken}}",
             "type": "text"
           },
           {
@@ -415,6 +494,96 @@
               "  const json = pm.response.json();",
               "  pm.expect(json.status).to.eql('PUBLISHED');",
               "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "05a - ADMIN crea borrador de otro organizador",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Borrador ajeno {{runId}}\",\n  \"description\": \"Evento de prueba de ownership JWT\",\n  \"eventType\": \"CONFERENCE\",\n  \"startsAt\": \"2035-06-01T20:00:00Z\",\n  \"venueId\": \"{{venueId}}\",\n  \"organizerId\": \"{{foreignOrganizerId}}\",\n  \"participants\": [\"Disertante de prueba\"]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/management/events",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "management",
+            "events"
+          ]
+        },
+        "description": "Crea un borrador que pertenece a foreignOrganizerId para comprobar ownership."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('ADMIN crea borrador para otro organizador', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('foreignEventId', pm.response.json().id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "05b - ORGANIZER no puede consultar borrador ajeno",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{organizerToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/management/events/{{foreignEventId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "management",
+            "events",
+            "{{foreignEventId}}"
+          ]
+        },
+        "description": "El sub de organizerToken no coincide con el propietario del evento."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('ORGANIZER ajeno recibe 403', () => pm.response.to.have.status(403));"
             ]
           }
         }
@@ -621,8 +790,8 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{userId}}",
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
             "type": "text"
           },
           {
@@ -680,8 +849,8 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{numberedBuyerId}}",
+            "key": "Authorization",
+            "value": "Bearer {{numberedBuyerToken}}",
             "type": "text"
           },
           {
@@ -738,8 +907,9 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{userId}}"
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
           }
         ],
         "url": {
@@ -775,8 +945,9 @@
         "method": "GET",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{userId}}"
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
           }
         ],
         "url": {
@@ -809,8 +980,9 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{userId}}"
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
           }
         ],
         "url": {
@@ -844,8 +1016,9 @@
         "method": "GET",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{adminUserId}}"
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
           }
         ],
         "url": {
@@ -878,8 +1051,9 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Role",
-            "value": "CUSTOMER"
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
           },
           {
             "key": "Content-Type",
@@ -926,8 +1100,9 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Role",
-            "value": "ADMIN"
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
           },
           {
             "key": "Content-Type",
@@ -974,8 +1149,9 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Role",
-            "value": "ADMIN"
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
           },
           {
             "key": "Content-Type",
@@ -1022,8 +1198,8 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{userId}}",
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
             "type": "text"
           },
           {
@@ -1079,8 +1255,8 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{userId}}",
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
             "type": "text"
           },
           {
@@ -1135,8 +1311,8 @@
         "method": "GET",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{userId}}",
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
             "type": "text"
           }
         ],
@@ -1170,13 +1346,50 @@
       ]
     },
     {
+      "name": "12a - Otro cliente no puede consultar la orden",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{numberedBuyerToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/orders/{{purchaseOrderId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "orders",
+            "{{purchaseOrderId}}"
+          ]
+        },
+        "description": "numberedBuyerToken tiene un sub distinto del titular de la orden general."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Una orden ajena responde 404', () => pm.response.to.have.status(404));"
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "13 - Pago rechazado libera el cupo",
       "request": {
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{userId}}",
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
             "type": "text"
           },
           {
@@ -1268,8 +1481,8 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{userId}}",
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
             "type": "text"
           },
           {
@@ -1326,8 +1539,8 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{userId}}",
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
             "type": "text"
           },
           {
@@ -1381,8 +1594,9 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{userId}}"
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
           }
         ],
         "url": {
@@ -1417,8 +1631,9 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Role",
-            "value": "ADMIN"
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
           },
           {
             "key": "Content-Type",
@@ -1465,8 +1680,9 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Role",
-            "value": "ADMIN"
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
           },
           {
             "key": "Content-Type",
@@ -1544,8 +1760,9 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{userId}}"
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
           }
         ],
         "url": {
@@ -1580,8 +1797,9 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Role",
-            "value": "ADMIN"
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
           },
           {
             "key": "Content-Type",
@@ -1659,13 +1877,8 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{adminUserId}}",
-            "type": "text"
-          },
-          {
-            "key": "X-User-Role",
-            "value": "ADMIN",
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
             "type": "text"
           },
           {
@@ -1769,13 +1982,8 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{adminUserId}}",
-            "type": "text"
-          },
-          {
-            "key": "X-User-Role",
-            "value": "ADMIN",
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
             "type": "text"
           },
           {
@@ -1880,13 +2088,8 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{adminUserId}}",
-            "type": "text"
-          },
-          {
-            "key": "X-User-Role",
-            "value": "ADMIN",
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
             "type": "text"
           },
           {
@@ -1950,12 +2153,9 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{userId}}"
-          },
-          {
-            "key": "X-User-Role",
-            "value": "CUSTOMER"
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
           }
         ],
         "url": {
@@ -1989,12 +2189,9 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{adminUserId}}"
-          },
-          {
-            "key": "X-User-Role",
-            "value": "ADMIN"
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
           }
         ],
         "url": {
@@ -2030,8 +2227,9 @@
         "method": "GET",
         "header": [
           {
-            "key": "X-User-Role",
-            "value": "ADMIN"
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
           }
         ],
         "url": {
@@ -2065,12 +2263,9 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{adminUserId}}"
-          },
-          {
-            "key": "X-User-Role",
-            "value": "ADMIN"
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
           }
         ],
         "url": {
@@ -2104,12 +2299,9 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{adminUserId}}"
-          },
-          {
-            "key": "X-User-Role",
-            "value": "ADMIN"
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
           }
         ],
         "url": {
@@ -2144,8 +2336,9 @@
         "method": "POST",
         "header": [
           {
-            "key": "X-User-Id",
-            "value": "{{adminUserId}}"
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
           },
           {
             "key": "Idempotency-Key",
