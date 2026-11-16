@@ -27,15 +27,19 @@
   con Dockerfile, variables y healthcheck; verificar `docker compose config`,
   construccion de imagen y estado saludable.
 - [x] 3.2 Actualizar README y registrar la verificacion Maven, de contrato y
-  Compose; indicar que Purchase aun no existe y queda pendiente la integracion
-  del flujo de compra. Evidencia y limitaciones en `docs/ticket-verification.md`.
+  Compose. La integracion posterior con Purchase se registro en
+  `establish-purchase-and-ticketing` y su evidencia integrada esta en
+  `docs/verification.md`; la verificacion original de Ticket queda como evidencia
+  historica en `services/ticket-service/docs/ticket-verification.md`.
 
-Las verificaciones de este servicio pasaron con Docker disponible. La integracion
-de compra de punta a punta sigue pendiente porque Purchase Service todavia no existe.
+Las verificaciones originales de este servicio pasaron con Docker disponible.
+Purchase se integro posteriormente para emitir tickets despues de confirmar pago
+e inventario; esa integracion no cambia el alcance de esta historia de emision.
 
 ## Workflow follow-up
 
-- Integrar el contrato desde `establish-purchase-and-ticketing` cuando Purchase
-  Service este implementado.
-- Implementar revocacion, validacion de acceso y uso unico del QR en las epicas
-  que correspondan; no forman parte de esta emision.
+- [x] Integrar el contrato desde `establish-purchase-and-ticketing` cuando Purchase
+  Service este implementado; la integracion se completo y se probo por Gateway.
+- La revocacion se incorporo posteriormente en la capacidad de devoluciones
+  (`ticket-refunds`). La validacion de acceso y el uso unico del QR corresponden a
+  US-F8 de Entrega 2 y siguen fuera del alcance de esta historia.

@@ -86,4 +86,3 @@ respuestas SHALL propagar o generar `X-Correlation-Id`, y los errores SHALL usar
 - **GIVEN** una clave reutilizada con distinto contenido
 - **WHEN** Ticket rechaza la emision
 - **THEN** responde `409 application/problem+json` con el mismo correlation ID
-

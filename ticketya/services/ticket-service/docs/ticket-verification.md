@@ -19,11 +19,15 @@
   `{"status":"UP"}` en `/actuator/health`, y `/v3/api-docs` mostró la ruta interna
   de emisión de entradas.
 
-## Alcance pendiente
+## Integración posterior
 
-Purchase Service todavía no existe, por lo que aún no hay un flujo completo de
-compra y emisión de entradas. Purchase debe llamar al endpoint interno de emisión
-solo después de confirmar el pago y el inventario. La verificación de Compose
-inició intencionalmente solo Ticket Service y su base de datos, no todo el
-entorno de TicketYa. La validación de acceso, la revocación de QR y los
-reembolsos quedan fuera de este cambio.
+La verificación registrada arriba corresponde al incremento original de Ticket
+Service: inició intencionalmente solo `ticket-service` y `ticket-db`, no todo el
+entorno. Purchase se integró posteriormente y solicita la emisión interna sólo
+después de aprobar el pago y confirmar Inventory. La evidencia actual del flujo
+integrado por Gateway, junto con la verificación del stack completo, está en
+[`docs/verification.md`](../../../docs/verification.md).
+
+La revocación de tickets se incorporó posteriormente con las devoluciones y
+cancelaciones de Entrega 1. La validación de acceso y el uso único del QR
+corresponden a US-F8 de Entrega 2 y no forman parte de esta verificación.
