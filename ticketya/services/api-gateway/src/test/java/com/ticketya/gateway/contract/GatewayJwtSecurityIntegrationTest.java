@@ -226,6 +226,8 @@ class GatewayJwtSecurityIntegrationTest {
                 .exchange()
                 .expectStatus().isOk();
         client.get().uri("/api/inventory/events/" + eventId + "/availability")
+                .header("X-User-Id", "forged-public-user")
+                .header("X-User-Role", "ADMIN")
                 .exchange()
                 .expectStatus().isOk();
         client.get().uri("/actuator/health")
@@ -238,6 +240,15 @@ class GatewayJwtSecurityIntegrationTest {
                 .extracting(RecordedRequest::path)
                 .containsExactly("/api/events", "/api/events/" + eventId,
                         "/api/inventory/events/" + eventId + "/availability");
+
+        assertThat(UPSTREAM_REQUESTS)
+                .filteredOn(request -> request.path().endsWith("/availability"))
+                .singleElement()
+                .satisfies(request -> {
+                    assertThat(request.userId()).isNull();
+                    assertThat(request.userRole()).isNull();
+                    assertThat(request.authorization()).isNull();
+                });
     }
 
     // ------------------------------------------------------------------ stubs

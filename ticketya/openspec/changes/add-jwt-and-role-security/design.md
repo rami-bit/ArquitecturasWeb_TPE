@@ -34,7 +34,7 @@ Se elige un Resource Server estándar de Spring Security sobre validación cript
 
 Las rutas protegidas requieren `Authorization: Bearer`. Una lista explícita mantiene anónimos `GET /api/events`, `GET /api/events/{id}` y `GET /api/inventory/events/{eventId}/availability`. Los healthchecks necesarios para Compose siguen accesibles para las sondas existentes; el acceso de administración de Actuator no se amplía.
 
-Al autenticar una ruta protegida, el Gateway descarta los `X-User-Id` y `X-User-Role` entrantes y crea esos headers internos a partir de `sub` y del único rol validado. No reenvía el token Bearer a los servicios. Así Catalog y Purchase conservan sus comprobaciones de rol y ownership sin recibir una identidad elegida por el cliente. El Gateway resuelve autenticación, pero no decide permisos de dominio.
+En toda solicitud API enrutada, el Gateway descarta los `X-User-Id` y `X-User-Role` entrantes y consume el header `Authorization` sin reenviar el token Bearer a los servicios. Si valida un JWT, deriva de `sub` y del único rol los headers internos de identidad; si la ruta es pública y no hay token, no propaga identidad. Así Catalog, Inventory y Purchase no reciben identidad elegida por el cliente. El Gateway resuelve autenticación, pero no decide permisos de dominio.
 
 No se agrega una segunda validación JWT en cada servicio: todos permanecen en la red interna de Compose, sin puertos publicados, y el Gateway es el único punto de entrada externo. Los comandos `/internal/**` continúan protegidos por su contrato de red y no pasan por el Gateway.
 
