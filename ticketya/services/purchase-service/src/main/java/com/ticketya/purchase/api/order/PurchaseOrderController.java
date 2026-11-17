@@ -1,11 +1,17 @@
 package com.ticketya.purchase.api.order;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ticketya.purchase.api.error.ApiProblemException;
 import com.ticketya.purchase.application.PurchaseService;
+import com.ticketya.purchase.infrastructure.audit.AuditEvent;
+import com.ticketya.purchase.infrastructure.audit.AuditPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -16,15 +22,23 @@ import java.util.UUID;
  * Identifica al comprador mediante {@code X-User-Id} y opcionalmente el rol
  * mediante {@code X-User-Role}. Todas las respuestas llevan {@code X-Correlation-Id}
  * (establecido por el filtro de trazabilidad).
+ *
+ * <p>E2-02: el resultado de cada compra y de cada reconciliación (confirmada,
+ * pendiente, rechazada, compensada o fallida) se registra en la bitácora
+ * centralizada con el mismo {@code X-Correlation-Id} que recorre la saga.
  */
 @RestController
 @RequestMapping("/api/orders")
 public class PurchaseOrderController {
 
     private final PurchaseService service;
+    private final AuditPublisher audit;
+    private final ObjectMapper mapper;
 
-    public PurchaseOrderController(PurchaseService service) {
+    public PurchaseOrderController(PurchaseService service, AuditPublisher audit, ObjectMapper mapper) {
         this.service = service;
+        this.audit = audit;
+        this.mapper = mapper;
     }
 
     @PostMapping
@@ -42,8 +56,18 @@ public class PurchaseOrderController {
                     org.springframework.http.HttpStatus.BAD_REQUEST,
                     "Invalid request", "Cuerpo de solicitud obligatorio");
         }
-        return service.createOrder(customerId, role, idempotencyKey,
-                resolveCorrelationId(correlationId), rawBody);
+        String trace = resolveCorrelationId(correlationId);
+        try {
+            ResponseEntity<JsonNode> response = service.createOrder(customerId, role, idempotencyKey, trace, rawBody);
+            auditSuccess("PURCHASE_ORDER", customerId, role, trace, response, idempotencyKey);
+            return response;
+        } catch (ApiProblemException problem) {
+            auditFailure("PURCHASE_ORDER", customerId, role, trace, problem, eventIdOf(rawBody), null);
+            throw problem;
+        } catch (RuntimeException unexpected) {
+            auditError("PURCHASE_ORDER", customerId, role, trace, unexpected, null);
+            throw unexpected;
+        }
     }
 
     @GetMapping
@@ -79,7 +103,76 @@ public class PurchaseOrderController {
             @RequestHeader(value = "X-Correlation-Id", required = false) String correlationId) {
         UUID customerId = resolveUserId(userIdHeader);
         String role = resolveRole(roleHeader);
-        return service.reconcileOrder(orderId, customerId, role, resolveCorrelationId(correlationId));
+        String trace = resolveCorrelationId(correlationId);
+        try {
+            ResponseEntity<JsonNode> response = service.reconcileOrder(orderId, customerId, role, trace);
+            auditSuccess("PURCHASE_RECONCILE", customerId, role, trace, response, null);
+            return response;
+        } catch (ApiProblemException problem) {
+            auditFailure("PURCHASE_RECONCILE", customerId, role, trace, problem, null, orderId);
+            throw problem;
+        } catch (RuntimeException unexpected) {
+            auditError("PURCHASE_RECONCILE", customerId, role, trace, unexpected, orderId);
+            throw unexpected;
+        }
+    }
+
+    // ------------------------------------------------------------------ bitácora (E2-02)
+
+    private void auditSuccess(String operation, UUID customerId, String role, String trace,
+                              ResponseEntity<JsonNode> response, String idempotencyKey) {
+        JsonNode body = response.getBody();
+        if (body == null) {
+            return;
+        }
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("httpStatus", response.getStatusCode().value());
+        details.put("eventId", body.path("eventId").asText(null));
+        details.put("totalAmount", body.path("totalAmount").asDouble());
+        details.put("paymentStatus", body.path("payment").path("status").asText(null));
+        int tickets = 0;
+        for (JsonNode item : body.path("items")) {
+            tickets += item.path("tickets").size();
+        }
+        details.put("ticketCount", tickets);
+        if (idempotencyKey != null) {
+            details.put("idempotencyKey", idempotencyKey);
+            details.put("replay", response.getStatusCode().value() == 200);
+        }
+        audit.publish(AuditEvent.of(trace, operation, body.path("status").asText("UNKNOWN"),
+                customerId.toString(), role, "ORDER", body.path("orderId").asText(null), details));
+    }
+
+    private void auditFailure(String operation, UUID customerId, String role, String trace,
+                              ApiProblemException problem, String eventId, UUID orderId) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("httpStatus", problem.getStatus().value());
+        details.put("detail", problem.getMessage());
+        if (eventId != null) {
+            details.put("eventId", eventId);
+        }
+        UUID resource = problem.getOrderId() != null ? problem.getOrderId() : orderId;
+        String outcome = problem.getOrderStatus() != null ? problem.getOrderStatus() : "FAILED";
+        audit.publish(AuditEvent.of(trace, operation, outcome, customerId.toString(), role, "ORDER",
+                resource, details));
+    }
+
+    private void auditError(String operation, UUID customerId, String role, String trace,
+                            RuntimeException error, UUID orderId) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("httpStatus", 500);
+        details.put("error", error.getClass().getSimpleName());
+        audit.publish(AuditEvent.of(trace, operation, "ERROR", customerId.toString(), role, "ORDER",
+                orderId, details));
+    }
+
+    private String eventIdOf(String rawBody) {
+        try {
+            JsonNode node = mapper.readTree(rawBody).path("eventId");
+            return node.isTextual() ? node.asText() : null;
+        } catch (Exception unreadable) {
+            return null;
+        }
     }
 
     // ------------------------------------------------------------------ validación de headers

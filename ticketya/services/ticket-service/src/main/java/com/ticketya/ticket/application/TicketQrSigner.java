@@ -10,6 +10,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.Optional;
 import java.util.UUID;
 
 @Component
@@ -30,6 +31,33 @@ public class TicketQrSigner {
         String id = ticketId.toString();
         return "v1." + id + "." + Base64.getUrlEncoder().withoutPadding()
                 .encodeToString(sign(id));
+    }
+
+    /**
+     * Verifica un payload leído de un QR ({@code v1.<ticketId>.<firma>}) y
+     * devuelve el ticketId sólo si la firma HMAC coincide. La comparación es
+     * de tiempo constante para no filtrar información de la firma.
+     */
+    public Optional<UUID> verify(String payload) {
+        if (payload == null) {
+            return Optional.empty();
+        }
+        String[] parts = payload.trim().split("\\.");
+        if (parts.length != 3 || !"v1".equals(parts[0])) {
+            return Optional.empty();
+        }
+        UUID ticketId;
+        try {
+            ticketId = UUID.fromString(parts[1]);
+        } catch (IllegalArgumentException invalid) {
+            return Optional.empty();
+        }
+        if (!ticketId.toString().equals(parts[1])) {
+            return Optional.empty();
+        }
+        byte[] expected = payloadFor(ticketId).getBytes(StandardCharsets.UTF_8);
+        byte[] actual = payload.trim().getBytes(StandardCharsets.UTF_8);
+        return MessageDigest.isEqual(expected, actual) ? Optional.of(ticketId) : Optional.empty();
     }
 
     public String hash(String payload) {

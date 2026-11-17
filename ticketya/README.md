@@ -5,6 +5,65 @@
 > `X-User-Id` y `X-User-Role` ya no autentican: el Gateway los descarta y deriva
 > la identidad de los claims validados. Ver
 > [Autenticación con JWT](#autenticación-con-jwt-e2-01).
+>
+> **Entrega 2 implementada hasta hoy:** E2-01 (JWT y roles), E2-02
+> (trazabilidad HTTP y bitácora centralizada), E2-03 (control de acceso con QR)
+> y E2-04 (reportes del organizador). Ver
+> [Trazabilidad y bitácora](#trazabilidad-y-bitácora-centralizada-e2-02),
+> [Control de acceso QR](#control-de-acceso-con-qr-us-f8-e2-03) y
+> [Reportes del organizador](#reportes-del-organizador-us-f12-e2-04).
+
+## Control de acceso con QR (US-F8, E2-03)
+
+El personal de acceso (`ACCESS_STAFF`) escanea el QR que el comprador recibió en su orden (`qrPayload`) y lo envía por el Gateway:
+
+```http
+POST http://localhost:8080/api/access/events/{eventId}/validations
+Authorization: Bearer <JWT con roles=["ACCESS_STAFF"]>
+Content-Type: application/json
+
+{"qrPayload":"v1.2a2383ad-0396-4465-820f-5d75710c0206.<firma>","gate":"Puerta 3"}
+```
+
+| Código | `result` / `reason` | Significado |
+|---|---|---|
+| `200` | `ADMITTED` | Entrada válida; queda `USED` con fecha, puerta y validador |
+| `409` | `ALREADY_USED` | Ya ingresó; incluye `usedAt` y `usedGate` |
+| `409` | `REVOKED` | Revocada por devolución o cancelación |
+| `422` | `WRONG_EVENT` | Corresponde a otro evento; no se consume |
+| `404` | `UNKNOWN_TICKET` | Firma inválida, formato incorrecto o entrada inexistente |
+| `403` | — | El rol no es `ACCESS_STAFF` (lo responde el Gateway) |
+
+El ingreso se marca con un único `UPDATE ... WHERE status='ISSUED'`: ante escaneos simultáneos del mismo QR, aun desde varias instancias, exactamente uno ingresa. `ACCESS_STAFF` o `ADMIN` pueden consultar los intentos de un evento con `GET /api/access/events/{eventId}/scans`, que devuelve los totales por resultado y los intentos paginados.
+
+## Reportes del organizador (US-F12, E2-04)
+
+```http
+GET http://localhost:8080/api/reports/events/{eventId}
+Authorization: Bearer <JWT con roles=["ORGANIZER"] (dueño del evento) o ["ADMIN"]>
+```
+
+Devuelve por sector y en total `soldTickets`, `refundedTickets`, `activeTickets`, `capacity`, `occupancyPercent`, `grossRevenue`, `refundedAmount` y `netRevenue`. Sólo cuentan como vendidas las órdenes pagadas, y las devoluciones cuentan cuando el reintegro está completado. Un organizador ajeno recibe `403`; `CLIENT` y `ACCESS_STAFF` también. Si Inventory no responde, el reporte llega igual con `capacityAvailable: false`, la capacidad y la ocupación en `null` y una advertencia en `warnings`.
+
+## Trazabilidad y bitácora centralizada (E2-02)
+
+- **Cada solicitud HTTP** queda en el log del Gateway y del servicio que la atiende (logger `ticketya.http`), con método, endpoint, usuario, rol, código, duración y correlation id. El Gateway registra también los `401`/`403` que no llegan a los servicios:
+
+  ```
+  http method=POST path=/api/orders status=201 durationMs=281 userId=4bd7… role=CLIENT correlationId=17e9…
+  ```
+
+  Para verlos todos juntos, ejecuta `docker compose logs -f | grep ticketya.http`.
+- **Cada operación crítica** (compra, reconciliación, devolución, cancelación, cambios de estado del evento, emisión/revocación de entradas e ingreso al evento) se envía de forma asíncrona a `audit-service`, con el mismo `X-Correlation-Id` que recorre la operación. Si Audit Service no responde, la operación sigue normalmente y el evento queda en el log local (`ticketya.audit`).
+- **Consulta (sólo `ADMIN`):**
+
+  ```http
+  GET http://localhost:8080/api/audit/traces/{correlationId}
+  GET http://localhost:8080/api/audit/events?operation=PURCHASE_ORDER&outcome=CONFIRMED&page=0&size=50
+  Authorization: Bearer <JWT con roles=["ADMIN"]>
+  ```
+
+  Para seguir una operación propia, envíala con `X-Correlation-Id: mi-traza-1` y consulta `GET /api/audit/traces/mi-traza-1`. Filtros disponibles: `correlationId`, `service`, `operation`, `outcome`, `resourceId`, `actorId`, `from` y `to`.
 
 ## Solicitud de devolución (US-F7.1)
 
@@ -117,6 +176,8 @@ Docker Compose carga automáticamente el archivo `.env` de esta carpeta. Mantenl
 | `TICKET_POSTGRES_DB` | `ticketya_ticket` | Nombre de la base de datos de tickets |
 | `PURCHASE_POSTGRES_DB` | `ticketya_purchase` | Nombre de la base de datos de compras |
 | `PAYMENT_POSTGRES_DB` | `ticketya_payment` | Nombre de la base de datos de pagos simulados |
+| `AUDIT_POSTGRES_DB` | `ticketya_audit` | Nombre de la base de la bitácora centralizada (E2-02) |
+| `AUDIT_SERVICE_URL` | `http://audit-service:8086` | URL a la que Catalog, Ticket y Purchase envían los eventos de auditoría; vacía = sólo log local |
 | `POSTGRES_USER` | `ticketya` | Usuario de ambas bases PostgreSQL |
 | `POSTGRES_PASSWORD` | `ticketya` | Contraseña de ambas bases PostgreSQL |
 | `GATEWAY_PORT` | `8080` | Puerto publicado del API Gateway en el host |
@@ -161,7 +222,7 @@ JWT_JWK_SET_URI=http://host.docker.internal:19998/.well-known/jwks.json \
 docker compose up --build -d --wait
 ```
 
-El issuer usa `host.docker.internal` porque el Gateway corre dentro de Docker y el IdP en el host.
+El issuer usa `host.docker.internal` porque el Gateway corre dentro de Docker y el IdP en el host. En Docker Engine para Linux el nombre se resuelve gracias a `extra_hosts: host.docker.internal:host-gateway` del servicio `api-gateway`.
 
 Los servicios internos reciben su configuración a través de variables de Compose (no necesitas definirlas a menos que quieras sobreescribirlas):
 
@@ -195,10 +256,16 @@ Los servicios internos reciben su configuración a través de variables de Compo
 | payment-mock | `DB_URL` | `jdbc:postgresql://payment-db:5432/ticketya_payment` |
 | payment-mock | `DB_USER` | `ticketya` |
 | payment-mock | `DB_PASSWORD` | `ticketya` |
+| audit-service | `SERVER_PORT` | `8086` |
+| audit-service | `DB_URL` | `jdbc:postgresql://audit-db:5432/ticketya_audit` |
+| audit-service | `DB_USER` / `DB_PASSWORD` | `ticketya` / `ticketya` |
+| catalog-service, ticket-service, purchase-service | `AUDIT_SERVICE_URL` | `http://audit-service:8086` |
 | api-gateway | `SERVER_PORT` | `8080` |
 | api-gateway | `CATALOG_SERVICE_URL` | `http://catalog-service:8081` |
 | api-gateway | `INVENTORY_SERVICE_URL` | `http://inventory-service:8082` |
 | api-gateway | `PURCHASE_SERVICE_URL` | `http://purchase-service:8084` |
+| api-gateway | `TICKET_SERVICE_URL` | `http://ticket-service:8083` (control de acceso, E2-03) |
+| api-gateway | `AUDIT_SERVICE_URL` | `http://audit-service:8086` (bitácora, E2-02) |
 | api-gateway | `JWT_ISSUER_URI` | `https://identity.example.invalid/issuer` |
 | api-gateway | `JWT_JWK_SET_URI` | `https://identity.example.invalid/.well-known/jwks.json` |
 
@@ -219,6 +286,24 @@ mvn verify -pl services/inventory-service -am
 mvn verify -pl services/ticket-service -am
 mvn verify -pl services/purchase-service -am
 mvn verify -pl services/payment-mock -am
+mvn verify -pl services/audit-service -am
+```
+
+Pruebas específicas de las épicas E2-02, E2-03 y E2-04 (requieren Docker para Testcontainers):
+
+```bash
+# E2-03: control de acceso QR (incluye 25 escaneos simultáneos del mismo QR)
+mvn -pl services/ticket-service -am verify -Dtest='AccessControlContractTest,TicketQrVerificationTest' -Dsurefire.failIfNoSpecifiedTests=false
+
+# E2-04: reportes del organizador
+mvn -pl services/purchase-service -am verify -Dtest='OrganizerReportCalculatorTest,OrganizerReportIntegrationTest' -Dsurefire.failIfNoSpecifiedTests=false
+
+# E2-02: bitácora, publicador resiliente y registro de acceso HTTP
+mvn -pl services/audit-service -am verify
+mvn -pl services/purchase-service,services/ticket-service,services/catalog-service -am verify -Dtest='AuditPublisherTest,RequestLoggingFilterTest' -Dsurefire.failIfNoSpecifiedTests=false
+
+# Gateway: roles por ruta, 401/403 y log de acceso; contrato OpenAPI consolidado
+mvn -pl services/api-gateway -am verify -Dtest='GatewayEntrega2RoleAuthorizationTest,ConsolidatedOpenApiDocumentContractTest' -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
 El proyecto compila para Java 19 y usa Spring Boot 3.2.5. No se incluye Maven Wrapper (`mvnw`); se asume Maven 3.9+ instalado en el entorno. En Windows, si el host sólo tiene JDK 17, se puede ejecutar la verificación con Java 21 y Testcontainers desde PowerShell:
@@ -239,7 +324,7 @@ La verificación del Ticket Service está registrada en
 Desde la carpeta `ticketya/`:
 
 ```bash
-# Construir todas las imágenes (Gateway, Catalog, Inventory, Ticket, Purchase y Payment Mock)
+# Construir todas las imágenes (Gateway, Catalog, Inventory, Ticket, Purchase, Payment Mock y Audit)
 docker compose build
 
 # Levantar el incremento completo (reconstruye imágenes y espera las comprobaciones de estado)
@@ -261,21 +346,22 @@ docker compose down
 docker compose down -v
 ```
 
-El Gateway expone el único puerto publicado (`${GATEWAY_PORT:-8080}:8080`). Catalog, Inventory, Ticket, Purchase, Payment Mock y sus bases no publican puertos al host; se comunican por nombres de servicio de la red de Compose.
+El Gateway expone el único puerto publicado (`${GATEWAY_PORT:-8080}:8080`). Catalog, Inventory, Ticket, Purchase, Payment Mock, Audit y sus bases no publican puertos al host; se comunican por nombres de servicio de la red de Compose.
 
 ## Salud de los servicios
 
 Cada servicio tiene una comprobación de estado basada en `wget` contra su endpoint de actuator:
 
-- `postgres` (Catálogo), `inventory-db`, `ticket-db`, `purchase-db` y `payment-db`: `pg_isready`
+- `postgres` (Catálogo), `inventory-db`, `ticket-db`, `purchase-db`, `payment-db` y `audit-db`: `pg_isready`
 - Catalog Service: `http://localhost:8081/actuator/health`
 - Inventory Service: `http://localhost:8082/actuator/health`
 - Ticket Service: `http://localhost:8083/actuator/health`
 - Purchase Service: `http://localhost:8084/actuator/health`
 - Payment Mock: `http://localhost:8085/actuator/health`
+- Audit Service: `http://localhost:8086/actuator/health`
 - API Gateway: `http://localhost:8080/actuator/health`
 
-Espera a que todos informen `healthy` antes de ejecutar la colección Postman.
+Espera a que los 13 contenedores informen `healthy` antes de ejecutar la colección Postman.
 
 ## Ejecutar la colección Postman (vía Gateway)
 
@@ -293,7 +379,7 @@ npx --yes newman run postman/ticketya.postman_collection.json \
 
 Exporta esas cinco variables con tokens vigentes del IdP. `organizerToken` debe tener `sub=userId` y rol `ORGANIZER`; `clientToken`, `sub=userId` y rol `CLIENT`; `numberedBuyerToken`, `sub=numberedBuyerId` y rol `CLIENT`; `adminToken`, `sub=adminUserId` y rol `ADMIN`; `accessStaffToken`, `sub=accessStaffUserId` y rol `ACCESS_STAFF`. Los tokens son datos sensibles: pásalos al proceso de Newman desde el entorno y no los guardes en archivos del repositorio.
 
-La colección es repetible: cada corrida genera un `runId` único para evitar colisiones. Cubre Catalog e Inventory, compras aprobadas de admisión general y asiento numerado con QR, reintento idempotente, consulta de tickets por su titular, pago rechazado con liberación del cupo y límite de seis entradas por cliente y evento. También prueba solicitud y resolución de devoluciones, cancelación con reintegros, suspensión y reanudación del evento. Todas las rutas públicas se recorren sin token y todas las operaciones protegidas por el Gateway. Inventory materializa el inventario de forma perezosa a partir del snapshot publicado de Catalog en la primera consulta.
+La colección es repetible: cada corrida genera un `runId` único para evitar colisiones. Cubre Catalog e Inventory, compras aprobadas de admisión general y asiento numerado con QR, reintento idempotente, consulta de tickets por su titular, pago rechazado con liberación del cupo y límite de seis entradas por cliente y evento. También prueba solicitud y resolución de devoluciones, cancelación con reintegros, suspensión y reanudación del evento. Los pasos 28 a 47 cubren E2-02/E2-03/E2-04. Incluyen el reporte del evento cancelado (7 vendidas, 7 devueltas, neto 0) y el de un evento activo, los rechazos por rol, el ingreso con QR, el reingreso, el QR de otro evento, la entrada revocada y el QR adulterado, la consulta de intentos, y las trazas en la bitácora de una compra y de una cancelación. Todas las rutas públicas se recorren sin token y todas las operaciones protegidas por el Gateway. Inventory materializa el inventario de forma perezosa a partir del snapshot publicado de Catalog en la primera consulta.
 
 Para comprobar muchas compras completas simultáneas del mismo asiento con compradores y claves distintas, sobre un stack saludable ejecuta `python postman/concurrent-purchases.py`. La prueba crea sus propios datos, espera una compra confirmada y once conflictos, y comprueba que Inventory registra un solo asiento vendido.
 
@@ -366,11 +452,11 @@ docker compose exec -T ticket-service wget -qO- http://localhost:8083/v3/api-doc
 docker compose exec -T ticket-service wget -qO- http://localhost:8083/actuator/health
 ```
 
-El contrato versionado está en `services/ticket-service/docs/ticket-openapi.yaml`. Ticket permite revocar internamente una entrada vendida; la validación en acceso queda para US-F8.
+El contrato versionado está en `services/ticket-service/docs/ticket-openapi.yaml`. Ticket permite revocar internamente una entrada vendida (una entrada ya `USED` no puede revocarse) y, desde E2-03, valida las entradas en el acceso (ver [Control de acceso con QR](#control-de-acceso-con-qr-us-f8-e2-03)).
 
 ## Validar OpenAPI (interno, vía contenedor)
 
-OpenAPI y Swagger UI están expuestos en Catalog Service (puerto interno 8081), Inventory Service (8082), Ticket Service (8083), Purchase Service (8084) y Payment Mock (8085); no se publican por el Gateway. Valida desde dentro de cada contenedor:
+OpenAPI y Swagger UI están expuestos en Catalog Service (puerto interno 8081), Inventory Service (8082), Ticket Service (8083), Purchase Service (8084), Payment Mock (8085) y Audit Service (8086); no se publican por el Gateway. Valida desde dentro de cada contenedor:
 
 ```bash
 docker compose exec -T catalog-service wget -qO- http://localhost:8081/v3/api-docs
@@ -378,6 +464,7 @@ docker compose exec -T inventory-service wget -qO- http://localhost:8082/v3/api-
 docker compose exec -T ticket-service wget -qO- http://localhost:8083/v3/api-docs
 docker compose exec -T purchase-service wget -qO- http://localhost:8084/v3/api-docs
 docker compose exec -T payment-mock wget -qO- http://localhost:8085/v3/api-docs
+docker compose exec -T audit-service wget -qO- http://localhost:8086/v3/api-docs
 ```
 
 Deben contener los paths de cada flujo. El contrato consolidado de la entrega está en `docs/openapi.yaml`; Ticket mantiene además `services/ticket-service/docs/ticket-openapi.yaml`.
@@ -391,7 +478,7 @@ Desde una copia limpia del proyecto (sin rutas personales ni configuración del 
 3. Confirma que `JAVA_HOME` apunta a JDK 19 o superior y que `mvn -v` reporta esa versión.
 4. Ejecuta `mvn verify` desde la raíz de `ticketya/`.
 5. Ejecuta `docker compose -p ticketya_e1_verification up --build -d --wait`. Ese nombre crea volúmenes separados de los de otros proyectos Compose.
-6. Comprueba que `docker compose -p ticketya_e1_verification ps` muestre los 11 servicios saludables.
+6. Comprueba que `docker compose -p ticketya_e1_verification ps` muestre los 13 servicios saludables.
 7. Ejecuta la colección con `npx --yes newman run postman/ticketya.postman_collection.json --env-var baseUrl=http://localhost:8080`.
 8. Valida OpenAPI con `docker compose -p ticketya_e1_verification exec -T catalog-service wget -qO- http://localhost:8081/v3/api-docs` y el mismo comando para Inventory, Ticket, Purchase y Payment Mock en sus puertos internos respectivos.
 9. Ejecuta `docker compose -p ticketya_e1_verification down` al terminar; los volúmenes quedan conservados.
@@ -425,6 +512,8 @@ ticketya/
 |   +-- purchase-service/
 |   |   +-- pom.xml, Dockerfile, src/
 |   +-- payment-mock/
+|   |   +-- pom.xml, Dockerfile, src/
+|   +-- audit-service/          (E2-02: bitácora centralizada)
 |       +-- pom.xml, Dockerfile, src/
 +-- openspec/
 +-- OpenSpec.md
@@ -439,4 +528,4 @@ docker compose -p ticketya_e1_verification down -v
 docker compose -p ticketya_e1_verification up --build -d --wait
 ```
 
-Esto elimina sólo los cinco volúmenes PostgreSQL del proyecto `ticketya_e1_verification` y los recrea vacíos. Los esquemas se inicializan automáticamente con el `schema.sql` de cada servicio al arrancar Catalog, Inventory, Ticket, Purchase y Payment Mock.
+Esto elimina sólo los seis volúmenes PostgreSQL del proyecto `ticketya_e1_verification` y los recrea vacíos. Los esquemas se inicializan automáticamente con el `schema.sql` de cada servicio al arrancar Catalog, Inventory, Ticket, Purchase, Payment Mock y Audit. Los cambios de esquema de E2-03 (`used_at`, `used_by`, `used_gate`, `access_scans`) usan `IF NOT EXISTS`, por lo que también se aplican sobre volúmenes existentes sin necesidad de reset.

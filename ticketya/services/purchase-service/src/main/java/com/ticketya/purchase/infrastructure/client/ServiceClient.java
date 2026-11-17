@@ -51,6 +51,25 @@ public abstract class ServiceClient {
         }
     }
 
+    /** GET con encabezados adicionales (p. ej. la identidad derivada por el Gateway). */
+    protected JsonNode get(String path, String correlationId, java.util.Map<String, String> headers) {
+        try {
+            String body = http.get()
+                    .uri(baseUrl + path)
+                    .header("X-Correlation-Id", correlationId)
+                    .headers(h -> headers.forEach(h::set))
+                    .accept(MediaType.APPLICATION_JSON)
+                    .retrieve()
+                    .body(String.class);
+            return readTree(body, path);
+        } catch (HttpClientErrorException | HttpServerErrorException exception) {
+            throw new ServiceException(HttpStatusCode.valueOf(exception.getStatusCode().value()),
+                    "Error llamando " + baseUrl + path + ": " + exception.getStatusCode());
+        } catch (RestClientException exception) {
+            throw new ServiceException("Falla de conexión llamando " + baseUrl + path, exception);
+        }
+    }
+
     protected JsonNode post(String path, Object body, String correlationId) {
         try {
             String response = http.post()

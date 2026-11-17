@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.ticketya.purchase.infrastructure.audit.AuditEvent;
+import com.ticketya.purchase.infrastructure.audit.AuditPublisher;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -43,12 +46,22 @@ public class RefundDecisionController {
     private final String ticketUrl;
     private final String paymentUrl;
     private final String inventoryUrl;
+    private final AuditPublisher audit;
 
+    public RefundDecisionController(JdbcTemplate jdbc, TransactionTemplate transactions,
+            ObjectMapper mapper, String ticketUrl, String paymentUrl, String inventoryUrl) {
+        this(jdbc, transactions, mapper, ticketUrl, paymentUrl, inventoryUrl,
+                AuditPublisher.localOnly("purchase-service", mapper));
+    }
+
+    @Autowired
     public RefundDecisionController(JdbcTemplate jdbc, TransactionTemplate transactions,
             ObjectMapper mapper,
             @Value("${purchase.ticket.url:http://localhost:8083}") String ticketUrl,
             @Value("${purchase.payment.url:http://localhost:8085}") String paymentUrl,
-            @Value("${purchase.inventory.url:http://localhost:8082}") String inventoryUrl) {
+            @Value("${purchase.inventory.url:http://localhost:8082}") String inventoryUrl,
+            AuditPublisher audit) {
+        this.audit = audit;
         this.jdbc = jdbc;
         this.transactions = transactions;
         this.mapper = mapper;
@@ -60,6 +73,7 @@ public class RefundDecisionController {
     @PostMapping("/{refundId}/decision")
     public ResponseEntity<RefundRequestController.RefundView> decide(
             @RequestHeader(value = "X-User-Role", required = false) String role,
+            @RequestHeader(value = "X-User-Id", required = false) String adminId,
             @RequestHeader(value = "X-Correlation-Id", required = false) String correlationId,
             @PathVariable("refundId") UUID refundId, @RequestBody DecisionRequest request) {
         if (!"ADMIN".equals(role)) throw problem(HttpStatus.FORBIDDEN, "ADMIN role required");
@@ -82,9 +96,10 @@ public class RefundDecisionController {
                 }
             }
         });
-        if ("REJECTED".equals(decision)) return ResponseEntity.ok(view(refundId));
         String trace = correlationId == null || correlationId.isBlank()
                 ? UUID.randomUUID().toString() : correlationId;
+        auditRefund(trace, "REFUND_DECISION", decision, adminId, "ADMIN", refundId, Map.of());
+        if ("REJECTED".equals(decision)) return ResponseEntity.ok(view(refundId));
         boolean completed = resumeApproved(refundId, trace);
         return ResponseEntity.status(completed ? HttpStatus.OK : HttpStatus.ACCEPTED).body(view(refundId));
     }
@@ -129,16 +144,38 @@ public class RefundDecisionController {
                 if (!refund.reservationId().toString().equals(released.path("reservationId").asText())) {
                     throw new IllegalStateException("Sold unit release was not confirmed");
                 }
-                jdbc.update("""
+                int completed = jdbc.update("""
                         UPDATE refund_requests SET progress='COMPLETED',status='COMPLETED'
                         WHERE id=? AND progress='PAYMENT_REFUNDED'
                         """, refundId);
+                if (completed == 1) {
+                    Map<String, Object> details = new LinkedHashMap<>();
+                    details.put("ticketId", refund.ticketId().toString());
+                    details.put("amount", refund.amount());
+                    details.put("paymentId", String.valueOf(refund.paymentId()));
+                    auditRefund(trace, "REFUND_EXECUTION", "COMPLETED", null, null, refundId, details);
+                }
             }
             return "COMPLETED".equals(row(refundId).progress());
         } catch (Exception ex) {
             log.warn("Refund processing paused refundId={} correlationId={}", refundId, trace, ex);
+            String progress;
+            try {
+                progress = row(refundId).progress();
+            } catch (Exception unavailable) {
+                progress = "UNKNOWN";
+            }
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("progress", progress);
+            details.put("cause", ex.getClass().getSimpleName());
+            auditRefund(trace, "REFUND_EXECUTION", "PAUSED", null, null, refundId, details);
             return false;
         }
+    }
+
+    private void auditRefund(String trace, String operation, String outcome, String actorId, String actorRole,
+            UUID refundId, Map<String, Object> details) {
+        audit.publish(AuditEvent.of(trace, operation, outcome, actorId, actorRole, "REFUND", refundId, details));
     }
 
     private void advance(UUID id, String from, String to) {

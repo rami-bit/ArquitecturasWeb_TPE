@@ -1,6 +1,8 @@
 # Arquitectura y diseño — TicketYa
 
-Documento de arquitectura de la Entrega 1. Resume los microservicios, sus
+Documento de arquitectura de la Entrega 1 y de las épicas de Entrega 2
+E2-01 (JWT y roles), E2-02 (trazabilidad y bitácora centralizada), E2-03
+(control de acceso QR) y E2-04 (reportes del organizador). Resume los microservicios, sus
 responsabilidades y su API, la comunicación entre ellos, el mecanismo contra la
 doble venta y los modelos de datos. El contrato HTTP versionado está en
 [`docs/openapi.yaml`](openapi.yaml) y las decisiones de detalle en
@@ -10,12 +12,13 @@ doble venta y los modelos de datos. El contrato HTTP versionado está en
 
 | Servicio | Puerto | Base de datos | API pública (vía Gateway) | API interna |
 |---|---|---|---|---|
-| `api-gateway` | 8080 | — | Punto de entrada único. Valida el JWT (Bearer) y enruta `/api/inventory/**`, `/api/orders/**`, `/api/refunds/**` y `/api/events/*/cancellation`; el resto de `/api/**` va a Catalog. | — |
+| `api-gateway` | 8080 | — | Punto de entrada único. Valida el JWT (Bearer), exige rol en `/api/access/**`, `/api/reports/**` y `/api/audit/**`, registra cada solicitud y enruta `/api/inventory/**`, `/api/orders/**`, `/api/refunds/**`, `/api/events/*/cancellation`, `/api/reports/**` (Purchase), `/api/access/**` (Ticket) y `/api/audit/**` (Audit); el resto de `/api/**` va a Catalog. | — |
 | `catalog-service` | 8081 | `ticketya_catalog` | Eventos: `GET /api/events`, `GET /api/events/{id}`; venues: `POST/GET /api/venues`, `PUT /api/venues/{id}`; gestión: `POST/GET /api/management/events`, `GET/PUT /api/management/events/{id}`, `PUT /api/management/events/{id}/offerings`, `POST /api/management/events/{id}/publish`, `/api/management/events/{id}/suspend`, `/api/management/events/{id}/cancel`, `/api/management/events/{id}/resume`. | `GET /internal/events/{eventId}/snapshot`, `GET /internal/events/{eventId}/purchase-snapshot` |
 | `inventory-service` | 8082 | `ticketya_inventory` | `GET /api/inventory/events/{eventId}/availability` | `POST/GET /internal/reservations/**`, confirmar/liberar reserva, `POST /internal/reservations/{reservationId}/sold-units/release`, `PUT /internal/events/{eventId}/hold-ttl` y `PUT /internal/events/{eventId}/cancellation` |
-| `ticket-service` | 8083 | `ticketya_ticket` | — (las entradas se leen desde la orden) | `POST /internal/orders/{orderId}/items/{orderItemId}/tickets` (emisión), `POST /internal/tickets/{ticketId}/revoke` |
-| `purchase-service` | 8084 | `ticketya_purchase` | `POST/GET /api/orders`, `GET /api/orders/{orderId}`, `POST /api/orders/{orderId}/reconcile`; `POST /api/refunds/tickets/{ticketId}`, `GET /api/refunds/{refundId}`, `POST /api/refunds/{refundId}/decision`; `POST/GET /api/events/{eventId}/cancellation` | — |
+| `ticket-service` | 8083 | `ticketya_ticket` | Control de acceso (E2-03): `POST /api/access/events/{eventId}/validations`, `GET /api/access/events/{eventId}/scans`. Las entradas del comprador se leen desde la orden. | `POST /internal/orders/{orderId}/items/{orderItemId}/tickets` (emisión), `POST /internal/tickets/{ticketId}/revoke` |
+| `purchase-service` | 8084 | `ticketya_purchase` | `POST/GET /api/orders`, `GET /api/orders/{orderId}`, `POST /api/orders/{orderId}/reconcile`; `POST /api/refunds/tickets/{ticketId}`, `GET /api/refunds/{refundId}`, `POST /api/refunds/{refundId}/decision`; `POST/GET /api/events/{eventId}/cancellation`; reportes (E2-04): `GET /api/reports/events/{eventId}` | — |
 | `payment-mock` | 8085 | `ticketya_payment` | — | `POST /internal/payments`, `GET /internal/payments/{paymentId}`, `GET /internal/payments/by-order/{orderId}`, `POST /internal/payments/{paymentId}/refund` (total), `POST /internal/payments/{paymentId}/refunds` (parcial) |
+| `audit-service` (E2-02) | 8086 | `ticketya_audit` | `GET /api/audit/events`, `GET /api/audit/traces/{correlationId}` (sólo ADMIN) | `POST /internal/audit-events` (ingesta idempotente) |
 
 Las rutas de cancelación tienen propósitos distintos. Catalog expone
 `POST /api/management/events/{id}/cancel`: cambia el estado a `CANCELLED` y
@@ -50,12 +53,19 @@ Responsabilidades:
   TTL.
 - **Ticket** es dueño de las entradas emitidas y del hash del QR; la emisión es
   idempotente por orden e ítem y Purchase puede revocarlas ante una devolución.
-  La validación del QR en el acceso no forma parte de E1.
+  Desde E2-03 también valida el QR en el acceso: el primer escaneo válido marca
+  la entrada `USED` y registra cada intento en `access_scans`.
 - **Purchase** es el orquestador de la compra: dueño de la orden, del snapshot
   de precios, del límite por cliente y evento, y del progreso de devoluciones y
   cancelaciones de eventos.
 - **Payment Mock** simula la pasarela: dueño del pago y del reintegro, sin datos
   del comprador ni referencias a `purchase_db`; registra reintegros parciales.
+- **Purchase** arma además el reporte del organizador (E2-04) con sus propias
+  ventas y devoluciones, la autorización y precios de Catalog y la capacidad de
+  Inventory.
+- **Audit** (E2-02) es dueño de la bitácora centralizada: recibe eventos de
+  Catalog, Ticket y Purchase, los guarda append-only y permite seguir una
+  operación por su `X-Correlation-Id`.
 
 ## 2. Diagrama de módulos
 
@@ -65,20 +75,31 @@ flowchart LR
 
     GW -->|/api/** excepto rutas dedicadas| CAT[catalog-service :8081]
     GW -->|/api/inventory| INV[inventory-service :8082]
-    GW -->|/api/orders, /api/refunds, cancelación de evento| PUR[purchase-service :8084]
+    GW -->|/api/orders, /api/refunds, cancelación, /api/reports| PUR[purchase-service :8084]
+    GW -->|/api/access| TKT
+    GW -->|/api/audit| AUD[audit-service :8086]
 
     PUR -->|snapshot / fecha / cancelación lógica (F7)| CAT
     CAT -->|bloquear ventas de evento cancelado| INV
     PUR -->|reservar / confirmar / liberar unidad vendida (F7)| INV
     PUR -->|cobrar / reintegrar total o parcialmente (F7)| PAY[payment-mock :8085]
     PUR -->|emitir / revocar tickets (F7)| TKT[ticket-service :8083]
+    PUR -->|reporte: autorización y precios (F12)| CAT
+    PUR -->|reporte: capacidad (F12)| INV
+    CAT -.->|eventos de auditoría async| AUD
+    TKT -.->|eventos de auditoría async| AUD
+    PUR -.->|eventos de auditoría async| AUD
 
     CAT --- DB1[(ticketya_catalog)]
     INV --- DB2[(ticketya_inventory)]
     TKT --- DB3[(ticketya_ticket)]
     PUR --- DB4[(ticketya_purchase)]
     PAY --- DB5[(ticketya_payment)]
+    AUD --- DB6[(ticketya_audit)]
 ```
+
+Las flechas punteadas son envíos asíncronos *fire-and-forget* (E2-02): la
+operación de negocio nunca espera a Audit Service.
 
 Cada servicio es un proyecto Spring Boot independiente, con su propio `pom.xml`,
 su `Dockerfile`, su esquema y su proceso. El POM raíz sólo agrega los módulos
@@ -86,8 +107,12 @@ para construir todo junto.
 
 ## 3. Comunicación
 
-- **REST síncrono** sobre HTTP/JSON en esta entrega; no hay broker ni bus de
+- **REST síncrono** sobre HTTP/JSON para el negocio; no hay broker ni bus de
   eventos.
+- **Asíncrono fire-and-forget** sólo para la bitácora (E2-02): cada productor
+  encola el evento en un pool acotado y lo envía a `audit-service` con timeouts
+  cortos (1 s / 2 s) y hasta 3 intentos. Si Audit no responde, el evento queda
+  en el log local del productor y la operación sigue sin error.
 - Todas las llamadas propagan `X-Correlation-Id`; si falta, el servicio que
   recibe la solicitud genera un UUID y siempre lo devuelve en el header de
   respuesta, incluidas las respuestas de error.
@@ -434,8 +459,29 @@ erDiagram
         varchar qr_hash
         varchar status
         timestamptz issued_at
+        timestamptz used_at
+        uuid used_by
+        varchar used_gate
+    }
+    tickets ||--o{ access_scans : "intentos de ingreso"
+    access_scans {
+        uuid id PK
+        uuid event_id
+        uuid ticket_id
+        uuid staff_id
+        varchar gate
+        varchar result
+        varchar correlation_id
+        timestamptz scanned_at
     }
 ```
+
+E2-03 agrega `used_at`, `used_by` y `used_gate` (con `ALTER TABLE ... ADD
+COLUMN IF NOT EXISTS`, compatible con volúmenes existentes) y la tabla
+`access_scans`. `access_scans.ticket_id` no tiene FK porque también registra QR
+falsificados (`UNKNOWN_TICKET`, ticket nulo); un índice único parcial
+`(ticket_id) WHERE result = 'ADMITTED'` garantiza a lo sumo un ingreso por
+entrada.
 
 `UNIQUE (order_id, order_item_id)` hace idempotente la emisión y
 `UNIQUE (qr_hash)` impide duplicar una entrada. La base guarda el hash del
@@ -583,6 +629,32 @@ queda en `refunds`, con clave de idempotencia única y FK local a `payments`.
 El token de simulación se persiste para detectar reintentos con contenido
 distinto, pero nunca se expone en la respuesta.
 
+### Audit (E2-02)
+
+```mermaid
+erDiagram
+    audit_events {
+        uuid id PK "eventId del productor"
+        varchar correlation_id
+        varchar service
+        varchar operation
+        varchar outcome
+        varchar actor_id
+        varchar actor_role
+        varchar resource_type
+        varchar resource_id
+        jsonb details
+        timestamptz occurred_at
+        timestamptz received_at
+    }
+```
+
+Tabla append-only. La clave primaria es el `eventId` que genera el productor,
+por lo que un reintento del envío no duplica el registro (`ON CONFLICT DO
+NOTHING`). `resource_id` y `actor_id` son referencias de texto a otras bases,
+sin FK. Índices por `(correlation_id, occurred_at)`, `(operation,
+occurred_at)`, `resource_id` y `occurred_at`.
+
 ## 7. Entidades solapadas entre bases
 
 | Entidad | Dueño | Copias / referencias | Propósito y regla |
@@ -595,20 +667,172 @@ distinto, pero nunca se expone en la respuesta.
 | `payment` | Payment (`payments`, `refunds`) | Purchase (`purchase_orders.payment_id`, `purchase_orders.payment_status`) | Purchase guarda el identificador y estado del pago. `payments.order_id` y `refunds.payment_id` no crean FK entre bases. |
 | `ticket` | Ticket (`tickets`, hash QR y estado) | Purchase (`order_tickets.ticket_id`, `qr_payload`, `qr_png_base64`; `refund_requests.ticket_id`) | Ticket es dueño del ticket y su revocación. Purchase conserva la copia del payload/PNG que devuelve al titular al consultar su orden; no hay FK hacia `ticket_db`. |
 | `reservation` | Inventory (`reservations`) | Purchase (`purchase_orders.reservation_id`) | Referencia UUID entre bases; Purchase no consulta tablas de Inventory. |
+| `correlation` / operación | Audit (`audit_events.correlation_id`) | Ticket (`access_scans.correlation_id`) y el log de cada servicio | El `X-Correlation-Id` es el identificador común de una operación; no es una entidad con dueño sino la clave para unir registros de varios servicios. |
 
 ## 8. Contrato y documentación
 
-- Contrato consolidado: [`docs/openapi.yaml`](openapi.yaml) — 41 operaciones
-  sobre 36 rutas, con ejemplos, errores `problem+json` y esquemas de Purchase,
-  Payment, Catalog e Inventory.
+- Contrato consolidado: [`docs/openapi.yaml`](openapi.yaml) — 47 operaciones
+  sobre 42 rutas, con ejemplos, errores `problem+json` y esquemas de Purchase,
+  Payment, Catalog, Inventory, Ticket (acceso) y Audit.
 - OpenAPI en runtime: `/v3/api-docs` en los puertos internos de Catalog (8081),
-  Inventory (8082), Ticket (8083), Purchase (8084) y Payment (8085).
+  Inventory (8082), Ticket (8083), Purchase (8084), Payment (8085) y Audit (8086).
 - Colección de pruebas: `postman/ticketya.postman_collection.json`.
 - Evidencia de ejecución: [`docs/verification.md`](verification.md).
 
 ## 9. Ejecución local
 
 `docker compose up -d --build` levanta el Gateway en `http://localhost:8080`, los
-cinco servicios y las cinco bases. Los puertos `8081`–`8085` no se publican al
+seis servicios (Catalog, Inventory, Ticket, Purchase, Payment Mock y Audit) y
+sus seis bases: 13 contenedores. Los puertos `8081`–`8086` no se publican al
 host; el `docker-compose.yml` y `.env` documentan las variables de cada
 servicio. El detalle paso a paso está en el [README](../README.md).
+
+## 10. Trazabilidad y bitácora centralizada (E2-02)
+
+El PDF pide dos niveles de registro; cada uno tiene un mecanismo propio.
+
+**Registro de cada solicitud HTTP.** El Gateway (`AccessLogWebFilter`) y cada
+servicio (`RequestLoggingFilter`) escriben una línea en el logger
+`ticketya.http`:
+
+```
+http method=POST path=/api/orders status=201 durationMs=281 userId=4bd7…6c1 role=CLIENT correlationId=17e9…211
+```
+
+- En el Gateway el filtro se ejecuta antes de la seguridad, por lo que también
+  registra los `401` y `403` que no llegan a los servicios. El usuario y el rol
+  los copia del JWT ya validado un filtro dentro de la cadena de seguridad
+  (`AuthenticatedIdentityCaptureFilter`), antes de la autorización.
+- En los servicios, `userId` y `role` son la identidad derivada que propaga el
+  Gateway (`X-User-Id`/`X-User-Role`).
+- Todas las líneas de log de los servicios llevan el servicio y el
+  `X-Correlation-Id` en el patrón (MDC):
+  `INFO [purchase-service,17e9…211]`.
+- Los healthchecks (`/actuator/**`) se registran en DEBUG para no inundar el log.
+- `docker compose logs -f` reúne los logs de todos los contenedores en un solo
+  flujo.
+
+**Bitácora centralizada de operaciones críticas.** `audit-service` guarda en
+`ticketya_audit` un evento por operación crítica, con el mismo
+`X-Correlation-Id` que recorre la operación entre servicios:
+
+| Servicio | Operación (`operation`) | Resultados (`outcome`) |
+|---|---|---|
+| Purchase | `PURCHASE_ORDER`, `PURCHASE_RECONCILE` | `CONFIRMED`, `PAYMENT_PENDING`, `PAID_PENDING_TICKETS`, `REJECTED`, `COMPENSATED`, `FAILED`, `ERROR` |
+| Purchase | `REFUND_REQUEST`, `REFUND_DECISION`, `REFUND_EXECUTION` | `PENDING`, `FAILED`, `APPROVED`, `REJECTED`, `COMPLETED`, `PAUSED` |
+| Purchase | `EVENT_CANCELLATION` | `PROCESSING`, `COMPLETED`, `FAILED` |
+| Catalog | `EVENT_PUBLICATION`, `EVENT_SUSPENSION`, `EVENT_RESUMPTION`, `EVENT_CATALOG_CANCELLATION` | estado resultante del evento |
+| Ticket | `TICKETS_ISSUED`, `TICKET_REVOCATION` | `ISSUED`, `REPLAYED`, `REVOKED`, `REJECTED_USED` |
+| Ticket | `ACCESS_VALIDATION` | `ADMITTED`, `ALREADY_USED`, `REVOKED`, `WRONG_EVENT`, `UNKNOWN_TICKET` |
+
+Una cancelación de evento produce, con un único `X-Correlation-Id`, eventos de
+Purchase (`EVENT_CANCELLATION`, `REFUND_EXECUTION`), Catalog
+(`EVENT_CATALOG_CANCELLATION`) y Ticket (`TICKET_REVOCATION`).
+`GET /api/audit/traces/{correlationId}` los devuelve en orden cronológico.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant A as ADMIN
+    participant G as api-gateway
+    participant P as purchase-service
+    participant C as catalog-service
+    participant T as ticket-service
+    participant AU as audit-service
+    A->>G: POST /api/events/{id}/cancellation (X-Correlation-Id: cancel-1)
+    G->>P: misma ruta + X-Correlation-Id: cancel-1
+    P->>C: POST /api/management/events/{id}/cancel (cancel-1)
+    C-->>AU: async EVENT_CATALOG_CANCELLATION (cancel-1)
+    P->>T: POST /internal/tickets/{ticketId}/revoke (cancel-1)
+    T-->>AU: async TICKET_REVOCATION (cancel-1)
+    P-->>AU: async REFUND_EXECUTION / EVENT_CANCELLATION (cancel-1)
+    A->>G: GET /api/audit/traces/cancel-1
+    G->>AU: GET /api/audit/traces/cancel-1
+    AU-->>A: eventos de los tres servicios en orden
+```
+
+**Decisiones.**
+
+- *¿Por qué un servicio propio y no sólo logs?* Los logs de contenedor son
+  efímeros y no se pueden consultar por operación. Un servicio con base propia
+  permite filtrar por correlation id, operación, recurso o actor, y restringir
+  el acceso a ADMIN. Un stack de logs (ELK o Loki) es la alternativa
+  productiva; para el alcance didáctico agrega más contenedores que valor.
+- *¿Por qué fire-and-forget?* La auditoría no puede volverse un punto de falla
+  de la compra. El envío no bloquea la solicitud. Los reintentos son seguros
+  porque el `eventId` vuelve idempotente la ingesta, y si el envío finalmente
+  falla el evento queda en el log local. Así la consistencia de la bitácora es
+  eventual y no transaccional con el negocio: un evento puede perderse sólo si
+  el proceso productor termina con eventos en cola, y aun así queda la línea en
+  su log.
+- *¿Por qué PostgreSQL?* Se mantiene una tecnología conocida para el registro
+  append-only con `JSONB` en `details`. La base NoSQL del TP queda para
+  preferencias y recomendaciones (F10).
+
+## 11. Control de acceso con QR (E2-03)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as ACCESS_STAFF
+    participant G as api-gateway
+    participant T as ticket-service
+    participant DB as ticketya_ticket
+    S->>G: POST /api/access/events/{eventId}/validations {qrPayload, gate}
+    G->>G: JWT válido y rol ACCESS_STAFF (si no, 403)
+    G->>T: misma ruta + X-User-Id / X-User-Role
+    T->>T: verificar firma HMAC de v1.<ticketId>.<firma>
+    alt firma inválida
+        T->>DB: INSERT access_scans (UNKNOWN_TICKET)
+        T-->>S: 404 reason=UNKNOWN_TICKET
+    else firma válida
+        T->>DB: UPDATE tickets SET status='USED' WHERE id=? AND event_id=? AND qr_hash=? AND status='ISSUED'
+        alt 1 fila actualizada
+            T->>DB: INSERT access_scans (ADMITTED), misma transacción
+            T-->>S: 200 ADMITTED
+        else 0 filas
+            T->>DB: leer estado y registrar el intento rechazado
+            T-->>S: 409 ALREADY_USED / 409 REVOKED / 422 WRONG_EVENT / 404 UNKNOWN_TICKET
+        end
+    end
+```
+
+**Mecanismo contra el doble ingreso.** Es un `UPDATE` condicional sobre la
+fila del ticket. PostgreSQL serializa las escrituras sobre la misma fila: con
+varios escaneos simultáneos, incluso desde varias instancias de Ticket Service,
+el primero cambia `ISSUED → USED` y los demás reevalúan el `WHERE` tras su
+commit y no afectan filas. El índice único parcial de `access_scans` es una
+segunda barrera. `AccessControlContractTest` lanza 25 escaneos concurrentes del
+mismo QR y verifica un solo `200`, 24 `409` y un único registro `ADMITTED`.
+
+**Reglas.** Una entrada de otro evento no se consume (`422`). Una revocada por
+devolución o cancelación se rechaza (`409 REVOKED`). Una ya usada no puede
+revocarse: la revocación responde `409`, regla que ya existía en E1. La
+respuesta no expone datos del comprador.
+
+## 12. Reportes del organizador (E2-04)
+
+`GET /api/reports/events/{eventId}` en Purchase combina tres fuentes:
+
+1. **Catalog** (`GET /api/management/events/{id}` con la identidad del
+   solicitante): aplica el ownership existente (`ORGANIZER` sólo sus eventos,
+   `403` si es ajeno; `ADMIN` cualquiera) y aporta nombre, estado y precio
+   vigente por sector.
+2. **Purchase** (base propia): unidades de órdenes pagadas (`CONFIRMED` o
+   `PAID_PENDING_TICKETS`) e importe por sector, y devoluciones con reintegro
+   `COMPLETED`. Una entrada con solicitud del cliente y de cancelación cuenta
+   una sola vez (`DISTINCT ON (ticket_id)`).
+3. **Inventory** (disponibilidad pública): capacidad de cada sector.
+
+Fórmulas: `activeTickets = sold - refunded`, `occupancyPercent = active /
+capacity * 100` con 2 decimales y `netRevenue = gross - refunded`. Si Inventory
+no responde, el reporte se entrega igual (ventas y recaudación no dependen de
+ese servicio) con capacidad y ocupación nulas, `capacityAvailable: false` y una
+advertencia. Es una degradación controlada en lugar de un `503`. Si Catalog no
+responde, en cambio, responde `503`: sin Catalog no se puede autorizar.
+
+El reporte se calcula en cada consulta, sin cache ni tabla de agregados. El
+volumen por evento es acotado y así refleja al instante devoluciones y
+cancelaciones. Si hiciera falta, una vista materializada por evento es la
+evolución natural.
+

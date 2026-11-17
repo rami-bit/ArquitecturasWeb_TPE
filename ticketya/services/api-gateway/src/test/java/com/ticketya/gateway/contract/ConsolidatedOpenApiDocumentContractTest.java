@@ -122,6 +122,28 @@ class ConsolidatedOpenApiDocumentContractTest {
             new Operation("/internal/payments/{paymentId}/refunds", "post",
                     "refundPaymentPartial", PAYMENT));
 
+    private static final String AUDIT = "Audit";
+
+    /**
+     * Operaciones de Entrega 2 incorporadas por E2-02 (bitácora centralizada),
+     * E2-03 (control de acceso QR) y E2-04 (reportes del organizador).
+     */
+    private static final List<Operation> ENTREGA2_OPERATIONS = List.of(
+            new Operation("/api/access/events/{eventId}/validations", "post", "validateTicketAccess", TICKET),
+            new Operation("/api/access/events/{eventId}/scans", "get", "listAccessScans", TICKET),
+            new Operation("/api/reports/events/{eventId}", "get", "getOrganizerEventReport", PURCHASE),
+            new Operation("/api/audit/events", "get", "searchAuditEvents", AUDIT),
+            new Operation("/api/audit/traces/{correlationId}", "get", "getAuditTrace", AUDIT),
+            new Operation("/internal/audit-events", "post", "recordAuditEvent", AUDIT));
+
+    private static final Map<String, Set<Integer>> ENTREGA2_STATUS_CODES = Map.of(
+            "/api/access/events/{eventId}/validations:post", Set.of(200, 400, 401, 403, 404, 409, 422),
+            "/api/access/events/{eventId}/scans:get", Set.of(200, 400, 401, 403),
+            "/api/reports/events/{eventId}:get", Set.of(200, 401, 403, 404, 503),
+            "/api/audit/events:get", Set.of(200, 400, 401, 403),
+            "/api/audit/traces/{correlationId}:get", Set.of(200, 401, 403, 404),
+            "/internal/audit-events:post", Set.of(202, 400));
+
     private static final Map<String, Set<Integer>> MINIMUM_STATUS_CODES = new LinkedHashMap<>();
 
     static {
@@ -218,7 +240,7 @@ class ConsolidatedOpenApiDocumentContractTest {
      */
     private static final List<String> ENTREGA2_CAPABILITY_FRAGMENTS = List.of(
             "jwt", "auth", "login", "token", "queue", "preference", "recommendation",
-            "notification", "report", "access-use", "accessuse");
+            "notification");
 
     private static Map<String, Object> contract;
 
@@ -688,6 +710,46 @@ class ConsolidatedOpenApiDocumentContractTest {
                         .doesNotContain(fragment);
             }
         }
+    }
+
+    @Test
+    void contractDeclaresTheEntrega2OperationsWithStatusCodesAndSecurity() {
+        for (Operation operation : ENTREGA2_OPERATIONS) {
+            Map<String, Object> op = operation(operation);
+            assertThat(op.get("operationId"))
+                    .as("operationId de %s %s", operation.method(), operation.path())
+                    .isEqualTo(operation.operationId());
+            String key = operation.path() + ":" + operation.method();
+            Set<Integer> documented = responses(operation).keySet().stream()
+                    .filter(code -> code.matches("\\d{3}"))
+                    .map(Integer::parseInt)
+                    .collect(java.util.stream.Collectors.toSet());
+            assertThat(documented).as("codigos minimos de %s", key).containsAll(ENTREGA2_STATUS_CODES.get(key));
+            if (operation.path().startsWith("/internal/")) {
+                assertThat(op.get("security")).as("%s es interna: security []", key).isEqualTo(List.of());
+            } else {
+                assertThat(op.get("security"))
+                        .as("%s hereda el requisito BearerJWT global", key).isNull();
+                @SuppressWarnings("unchecked")
+                List<Object> security = (List<Object>) effectiveSecurity(op);
+                assertThat(security).containsExactly((Object) BEARER_REQUIREMENT);
+            }
+        }
+    }
+
+    @Test
+    void entrega2SchemasAreDeclared() {
+        assertThat(schemas().keySet()).contains(
+                "AccessValidationRequest", "AccessValidationResponse", "AccessProblem",
+                "AccessScanPage", "AccessScanView",
+                "OrganizerEventReport", "SectorReport", "ReportTotals",
+                "AuditEventRequest", "AuditIngestResponse", "AuditEventView", "AuditEventPage", "AuditTrace");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> scanView = (Map<String, Object>) schema("AccessScanView").get("properties");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> result = (Map<String, Object>) scanView.get("result");
+        assertThat((List<String>) result.get("enum"))
+                .containsExactlyInAnyOrder("ADMITTED", "ALREADY_USED", "REVOKED", "WRONG_EVENT", "UNKNOWN_TICKET");
     }
 
     @Test

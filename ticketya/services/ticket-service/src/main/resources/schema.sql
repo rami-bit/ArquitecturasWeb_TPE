@@ -43,3 +43,30 @@ CREATE TABLE IF NOT EXISTS tickets (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tickets_customer_event ON tickets (customer_id, event_id);
+
+-- E2-03 (US-F8): control de acceso. El primer escaneo válido marca la entrada
+-- como USED de forma atómica (UPDATE ... WHERE status = 'ISSUED'); los
+-- siguientes se rechazan. Columnas agregadas con IF NOT EXISTS para no romper
+-- volúmenes existentes.
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS used_at TIMESTAMPTZ;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS used_by UUID;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS used_gate VARCHAR(80);
+
+-- Registro de cada intento de ingreso (aceptado o rechazado) por evento.
+CREATE TABLE IF NOT EXISTS access_scans (
+    id UUID PRIMARY KEY,
+    event_id UUID NOT NULL,
+    ticket_id UUID,
+    staff_id UUID NOT NULL,
+    gate VARCHAR(80),
+    result VARCHAR(20) NOT NULL,
+    correlation_id VARCHAR(120),
+    scanned_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT ck_access_scan_result CHECK (
+        result IN ('ADMITTED', 'ALREADY_USED', 'REVOKED', 'WRONG_EVENT', 'UNKNOWN_TICKET'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_access_scans_event ON access_scans (event_id, scanned_at DESC);
+-- Segunda barrera contra el doble ingreso: a lo sumo un escaneo ADMITTED por entrada.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_access_scans_single_admission
+    ON access_scans (ticket_id) WHERE result = 'ADMITTED';

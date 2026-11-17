@@ -71,10 +71,10 @@ Este roadmap convierte F1-F12 del PDF en historias priorizadas. Para cerrar Entr
 | **P1 / pruebas** | **US-F7.3 - Cancelar evento con reintegros (implementado; E2E verificado).** ADMIN inicia el proceso; Catalog marca `CANCELLED`; Purchase revoca tickets, procesa reintegros y cierra inventario de forma idempotente. La colección ampliada pasó 42 requests y 72 aserciones, incluidos siete tickets vendidos (seis generales y uno numerado), rechazo previo, reintento y bloqueo de compra posterior. | Depende de US-F4.3/4.4 y de las primitivas de US-F7.2. Purchase orquesta; Catalog no orquesta reintegros. La notificacion a compradores se completa en US-F11 (E2). |
 | **P1 / cierre E1** | **US-E1-05 - Integrar y entregar el core (14/14 tareas OpenSpec, archivadas).** El reactor Java 21/Testcontainers pasó 260 pruebas sin fallos ni omisiones; 11 servicios Compose quedaron saludables; Postman pasó 42 requests y 72 aserciones; 12 compras simultáneas por Gateway dejaron una sola venta. `docs/verification.md` registra los comandos y la evidencia. | Depende de US-F4.1-F4.4 y US-F7.1-F7.3. Las pruebas adicionales de fallos downstream, pago incierto y reintento QR quedaron cubiertas por contratos de Purchase. |
 | **P2 / E2** | **US-F6 - Fila virtual.** Para evento de alta demanda, informar posicion y habilitar tandas ordenadas; el token de admision no garantiza disponibilidad de inventario. | Se puede especificar en paralelo con P0; la integracion depende del endpoint de compra de US-F4.3 e Inventory. |
-| **P2 / E2** | **US-F8 - Validar acceso QR.** Personal valida existencia, evento correcto y no usado; el primer escaneo marca uso atomico y los siguientes se rechazan. | Depende del contrato de tickets emitidos de US-F4.4. Puede implementarse en paralelo con devoluciones cuando se acuerden los estados de revocacion/uso. |
+| **E2-03 / implementado** | **US-F8 - Validar acceso QR (implementado; E2E verificado).** Personal valida existencia, evento correcto y no usado; el primer escaneo marca uso atomico y los siguientes se rechazan. 25 escaneos simultaneos: 1 ingreso. | Depende del contrato de tickets emitidos de US-F4.4. Puede implementarse en paralelo con devoluciones cuando se acuerden los estados de revocacion/uso. |
 | **P2 / E2** | **US-F10 - Preferencias y recomendaciones.** Guardar tipos, artistas y ciudad; sugerir eventos por preferencias e historial de compras. | Catalog ya existe; historial depende de US-F4.1-F4.4. Definir NoSQL y su justificacion en esta historia. |
 | **P2 / E2** | **US-F11 - Notificar al cliente.** Enviar confirmacion de compra, cancelacion/cambio y eventos de artistas favoritos en su ciudad. | Confirmacion depende de US-F4.3; cancelacion de US-F7.3; alertas personalizadas de US-F10. Se puede desarrollar el adaptador de notificaciones en paralelo una vez acordado el contrato de eventos. |
-| **P2 / E2** | **US-F12 - Reportes del organizador.** Mostrar vendidos/devueltos por sector, ocupacion y recaudacion por evento propio. | Depende de compras de US-F4 y devoluciones/cancelacion de US-F7; requiere filtrar por ownership del organizador. |
+| **E2-04 / implementado** | **US-F12 - Reportes del organizador (implementado; E2E verificado).** Mostrar vendidos/devueltos por sector, ocupacion y recaudacion por evento propio. | Depende de compras de US-F4 y devoluciones/cancelacion de US-F7; requiere filtrar por ownership del organizador. |
 
 ### Grafo de dependencias y trabajo paralelo
 
@@ -171,3 +171,41 @@ La expiración de la reserva es un **comportamiento funcional expreso** del PDF.
 ## Entrega del repositorio
 
 - [x] [x] Incluir especificaciones (si se utilizó OpenSpec u otra práctica similar), documentación de diseño, README, datos de prueba y colección de requests.
+
+## Entrega 2: Trazabilidad y bitácora centralizada (E2-02)
+
+- [x] [x] Registrar cada solicitud HTTP con endpoint, usuario, código de respuesta y tiempo de procesamiento (PDF-NF-TRACE; cambio archivado `add-request-tracing-and-audit-log`).
+  - [x] [x] Gateway: `AccessLogWebFilter` registra también los `401`/`403` que no llegan a los servicios, con el usuario del JWT.
+  - [x] [x] Servicios: `RequestLoggingFilter` en Catalog, Inventory, Ticket, Purchase, Payment Mock y Audit; el patrón de log incluye servicio y `X-Correlation-Id`.
+- [x] [x] Registrar compra, devolución, cancelación e ingreso al evento en un log centralizado con un identificador que permita seguir la operación entre servicios.
+  - [x] [x] `audit-service` + `audit-db` (PostgreSQL), ingesta interna idempotente y consulta `ADMIN` por filtros o por `X-Correlation-Id`.
+  - [x] [x] Productores Purchase, Catalog y Ticket con publicación asíncrona, timeouts, reintentos y respaldo en el log local (resiliencia ante la caída de Audit).
+
+Evidencia: `AuditServiceContractTest` (7), `AuditPublisherTest` (5 por productor), `RequestLoggingFilterTest` (2 por servicio), `GatewayEntrega2RoleAuthorizationTest` (4); Postman 44-47 siguen una compra y una cancelación a través de Purchase, Catalog y Ticket. Con Audit Service detenido, `postman/concurrent-purchases.py` sigue en PASS.
+
+## Entrega 2: Control de acceso con QR (E2-03, US-F8)
+
+- [x] [x] Validar en el ingreso que la entrada exista, corresponda al evento y no haya sido usada, y marcarla como utilizada (cambio archivado `validate-ticket-access`).
+- [x] [x] Impedir el doble ingreso aun con escaneos simultáneos en varias instancias (`UPDATE` condicional + índice único parcial).
+- [x] [x] Rechazar entradas revocadas, de otro evento y QR falsificados; registrar cada intento y consultarlo (`ACCESS_STAFF`/`ADMIN`).
+- [x] [x] Autorizar por rol en el Gateway y en el servicio (`ACCESS_STAFF` valida).
+
+Evidencia: `AccessControlContractTest` (6, incluye 25 escaneos concurrentes → 1 `ADMITTED`), `TicketQrVerificationTest` (2); Postman 32 y 37-42.
+
+## Entrega 2: Reportes del organizador (E2-04, US-F12)
+
+- [x] [x] Entradas vendidas y devueltas por sector, porcentaje de ocupación y recaudación de un evento propio (cambio archivado `add-organizer-event-reports`).
+- [x] [x] Ownership del organizador delegado en Catalog; `ADMIN` consulta cualquier evento; `CLIENT`/`ACCESS_STAFF` reciben `403`.
+- [x] [x] Degradación controlada si Inventory no responde.
+
+Evidencia: `OrganizerReportCalculatorTest` (4), `OrganizerReportIntegrationTest` (6); Postman 28-31 y 43.
+
+## Pendiente de Entrega 2
+
+- [ ] [ ] US-F6 Fila virtual (con Redis).
+- [ ] [ ] US-F10 Preferencias y recomendaciones (base NoSQL MongoDB, con justificación).
+- [ ] [ ] US-F11 Notificaciones (asíncronas).
+- [ ] [ ] Cache del catálogo y de las búsquedas (TTL, invalidación y justificación de lo no cacheado).
+- [ ] [ ] Circuit breaker y fallback hacia Payment y Notificaciones (hoy hay timeouts y reintentos idempotentes, pero no breaker).
+- [ ] [ ] Pruebas de integración entre microservicios reales (Testcontainers o Compose automatizado) y prueba de carga con informe.
+- [ ] [ ] Justificación de patrones (Gateway, Circuit Breaker, BFF, Saga, Service Discovery) y estrategias de consistencia en un documento único.

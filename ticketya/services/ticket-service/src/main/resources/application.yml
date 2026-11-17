@@ -30,3 +30,13 @@ management:
 springdoc:
   api-docs:
     path: /v3/api-docs
+
+# E2-02: cada línea de log incluye el servicio y el X-Correlation-Id de la solicitud (MDC).
+logging:
+  pattern:
+    level: "%5p [${spring.application.name:},%X{correlationId:-}]"
+
+# E2-02: bitácora centralizada. Vacío = sólo log local (p. ej. en pruebas).
+ticketya:
+  audit:
+    url: ${AUDIT_SERVICE_URL:}

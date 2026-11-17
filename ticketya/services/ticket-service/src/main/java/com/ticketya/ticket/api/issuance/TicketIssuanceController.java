@@ -2,6 +2,8 @@ package com.ticketya.ticket.api.issuance;
 
 import com.ticketya.ticket.api.error.Problem;
 import com.ticketya.ticket.application.TicketIssuanceService;
+import com.ticketya.ticket.infrastructure.audit.AuditEvent;
+import com.ticketya.ticket.infrastructure.audit.AuditPublisher;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -17,6 +19,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -25,9 +29,11 @@ import java.util.UUID;
         description = "Internal ticket issuance command consumed by Purchase Service")
 public class TicketIssuanceController {
     private final TicketIssuanceService service;
+    private final AuditPublisher audit;
 
-    public TicketIssuanceController(TicketIssuanceService service) {
+    public TicketIssuanceController(TicketIssuanceService service, AuditPublisher audit) {
         this.service = service;
+        this.audit = audit;
     }
 
     @PostMapping
@@ -57,6 +63,12 @@ public class TicketIssuanceController {
             @Valid @RequestBody TicketIssueRequest request) {
         TicketIssuanceService.IssueResult result =
                 service.issue(orderId, orderItemId, request);
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("orderId", orderId.toString());
+        details.put("eventId", request.eventId().toString());
+        details.put("ticketCount", result.response().tickets().size());
+        audit.publish(AuditEvent.of(null, "TICKETS_ISSUED", result.created() ? "ISSUED" : "REPLAYED",
+                request.customerId().toString(), "CLIENT", "ORDER_ITEM", orderItemId, details));
         return ResponseEntity
                 .status(result.created() ? HttpStatus.CREATED : HttpStatus.OK)
                 .body(result.response());

@@ -3,6 +3,9 @@ package com.ticketya.purchase.api.cancellation;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ticketya.purchase.api.refund.RefundDecisionController;
+import com.ticketya.purchase.infrastructure.audit.AuditEvent;
+import com.ticketya.purchase.infrastructure.audit.AuditPublisher;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -18,7 +21,9 @@ import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -35,10 +40,19 @@ public class EventCancellationController {
     private final ObjectMapper mapper;
     private final RestClient http = RestClient.builder().build();
     private final String catalogUrl;
+    private final AuditPublisher audit;
 
     public EventCancellationController(JdbcTemplate jdbc, RefundDecisionController refunds,
+            ObjectMapper mapper, String catalogUrl) {
+        this(jdbc, refunds, mapper, catalogUrl, AuditPublisher.localOnly("purchase-service", mapper));
+    }
+
+    @Autowired
+    public EventCancellationController(JdbcTemplate jdbc, RefundDecisionController refunds,
             ObjectMapper mapper,
-            @Value("${purchase.catalog.url:http://localhost:8081}") String catalogUrl) {
+            @Value("${purchase.catalog.url:http://localhost:8081}") String catalogUrl,
+            AuditPublisher audit) {
+        this.audit = audit;
         this.jdbc = jdbc;
         this.refunds = refunds;
         this.mapper = mapper;
@@ -53,7 +67,16 @@ public class EventCancellationController {
         requireAdmin(role);
         String trace = correlationId == null || correlationId.isBlank()
                 ? UUID.randomUUID().toString() : correlationId;
-        cancelInCatalog(eventId, adminId, trace);
+        try {
+            cancelInCatalog(eventId, adminId, trace);
+        } catch (ResponseStatusException failed) {
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("httpStatus", failed.getStatusCode().value());
+            details.put("detail", failed.getReason());
+            audit.publish(AuditEvent.of(trace, "EVENT_CANCELLATION", "FAILED", adminId.toString(), role,
+                    "EVENT", eventId, details));
+            throw failed;
+        }
         jdbc.update("INSERT INTO event_cancellations(event_id) VALUES (?) ON CONFLICT (event_id) DO NOTHING",
                 eventId);
         UUID cursor = jdbc.queryForObject(
@@ -78,6 +101,13 @@ public class EventCancellationController {
         UUID next = page.size() == PAGE_SIZE ? page.get(page.size() - 1).ticketId() : null;
         jdbc.update("UPDATE event_cancellations SET last_ticket_id=? WHERE event_id=?", next, eventId);
         CancellationView view = progress(eventId);
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("batchSize", page.size());
+        details.put("totalTickets", view.totalTickets());
+        details.put("completedTickets", view.completedTickets());
+        details.put("pendingTickets", view.pendingTickets());
+        audit.publish(AuditEvent.of(trace, "EVENT_CANCELLATION", view.status(), adminId.toString(), role,
+                "EVENT", eventId, details));
         return ResponseEntity.status("COMPLETED".equals(view.status()) ? HttpStatus.OK : HttpStatus.ACCEPTED)
                 .body(view);
     }

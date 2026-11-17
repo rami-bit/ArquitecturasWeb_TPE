@@ -7,6 +7,12 @@ info:
     Internal Ticket Service contract for QR ticket issuance after Purchase has
     confirmed payment and inventory. The route is not exposed by the API Gateway.
 
+    The access-control operations added by E2-03 (`POST
+    /api/access/events/{eventId}/validations` and `GET
+    /api/access/events/{eventId}/scans`, published by the Gateway for
+    ACCESS_STAFF/ADMIN) are documented in the consolidated contract
+    `docs/openapi.yaml`.
+
 servers:
   - url: http://ticket-service:8083
     description: Internal Docker Compose network only.

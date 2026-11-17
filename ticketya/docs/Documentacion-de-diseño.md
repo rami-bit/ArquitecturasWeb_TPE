@@ -140,13 +140,19 @@
 
 **Como** personal de acceso, **quiero** escanear y validar el QR de una entrada, **para** permitir el ingreso una sola vez al evento correspondiente.
 
-**Trazabilidad:** PDF-F8. **Estado:** **NO IMPLEMENTADO. NO PARTE DE ESTA TAREA.**
+**Trazabilidad:** PDF-F8, PDF-NF-SECURITY, PDF-NF-TRACE. **Estado:** **IMPLEMENTADO** (épica E2-03, cambio OpenSpec `validate-ticket-access`).
 
 **Criterios de aceptación**
 
 - **Dada** una entrada existente, **cuando** se escanea para el evento al que corresponde y todavía no fue utilizada, **entonces** el sistema la valida y la marca como utilizada.
 - **Dado** un QR inexistente, de otro evento o ya utilizado, **cuando** se intenta validarlo, **entonces** el sistema no autoriza el ingreso.
 - **Dado** el mismo QR escaneado nuevamente, **cuando** se intenta ingresar por segunda vez, **entonces** se rechaza el ingreso.
+- **Dado** un QR con la firma alterada, **cuando** se escanea, **entonces** se rechaza como `UNKNOWN_TICKET` sin modificar ninguna entrada.
+- **Dada** una entrada revocada por devolución o cancelación, **cuando** se escanea, **entonces** se rechaza como `REVOKED`.
+- **Dada** una entrada de otro evento, **cuando** se escanea, **entonces** se rechaza como `WRONG_EVENT` y la entrada no se consume.
+- **Dados** varios escaneos simultáneos del mismo QR (aun en distintas instancias), **cuando** se procesan, **entonces** exactamente uno ingresa y el resto recibe `ALREADY_USED`.
+- **Dado** un usuario sin rol `ACCESS_STAFF`, **cuando** intenta validar un QR, **entonces** recibe `403` y la entrada no cambia.
+- **Dado** un `ACCESS_STAFF` o `ADMIN`, **cuando** consulta los intentos de ingreso de un evento, **entonces** obtiene cada intento con su resultado y los totales por resultado.
 
 ### Feature F9 — Búsqueda y ordenamiento de eventos (Entrega 1)
 
@@ -197,12 +203,32 @@
 
 **Como** organizador, **quiero** consultar reportes de mis eventos, **para** conocer sus ventas y resultados.
 
-**Trazabilidad:** PDF-F12. **Estado:** **NO IMPLEMENTADO. NO PARTE DE ESTA TAREA.**
+**Trazabilidad:** PDF-F12, PDF-NF-SECURITY. **Estado:** **IMPLEMENTADO** (épica E2-04, cambio OpenSpec `add-organizer-event-reports`).
 
 **Criterios de aceptación**
 
 - **Dado** un evento del organizador, **cuando** consulta su reporte, **entonces** puede conocer las entradas vendidas y devueltas por sector.
 - **Dado** un evento con ventas, **cuando** consulta su reporte, **entonces** puede conocer el porcentaje de ocupación y la recaudación.
+- **Dado** un evento de otro organizador, **cuando** un `ORGANIZER` consulta su reporte, **entonces** recibe `403`; un `ADMIN` puede consultar cualquier evento.
+- **Dadas** órdenes rechazadas, compensadas o con pago pendiente, **cuando** se arma el reporte, **entonces** no cuentan como vendidas.
+- **Dada** una entrada devuelta por el cliente y luego alcanzada por la cancelación del evento, **cuando** se arma el reporte, **entonces** cuenta una sola vez como devuelta.
+- **Dado** que Inventory no responde, **cuando** se consulta el reporte, **entonces** se informan ventas y recaudación, y la capacidad y la ocupación quedan nulas con una advertencia.
+
+### Requisito no funcional — Trazabilidad y bitácora centralizada (Entrega 2)
+
+#### US-E2-06 — Seguir una operación crítica a través de los servicios
+
+**Como** administrador, **quiero** que cada solicitud HTTP y cada operación crítica queden registradas con un identificador común, **para** diagnosticar y auditar una compra, devolución, cancelación o ingreso de punta a punta.
+
+**Trazabilidad:** PDF-NF-TRACE, PDF-NF-RESILIENCE. **Estado:** **IMPLEMENTADO** (épica E2-02, cambio OpenSpec `add-request-tracing-and-audit-log`).
+
+**Criterios de aceptación**
+
+- **Dada** cualquier solicitud HTTP, **cuando** el Gateway o un servicio la atiende, **entonces** queda una línea de log con método, endpoint, usuario, rol, código de respuesta, duración y `X-Correlation-Id`, incluidos los `401`/`403` del Gateway.
+- **Dada** una compra, devolución, cancelación o validación de ingreso, **cuando** termina (con éxito o con error), **entonces** el servicio productor registra un evento en la bitácora centralizada con el mismo `X-Correlation-Id` de la solicitud.
+- **Dado** un `X-Correlation-Id`, **cuando** un `ADMIN` consulta su traza, **entonces** obtiene en orden cronológico los eventos de todos los servicios que participaron.
+- **Dado** que Audit Service no responde, **cuando** ocurre una operación crítica, **entonces** la operación de negocio no falla ni se demora: el evento se reintenta y, si sigue sin poder enviarse, queda en el log local.
+- **Dado** un rol distinto de `ADMIN`, **cuando** consulta la bitácora, **entonces** recibe `403`.
 
 ## 2. Contratos, arquitectura y documentación vigente
 
