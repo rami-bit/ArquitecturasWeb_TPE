@@ -66,6 +66,8 @@ El flujo de compra se expone a través del Gateway:
 
 Cada solicitud requiere `Authorization: Bearer <JWT>` cuyo `sub` es el UUID del cliente, y para crear una orden, `Idempotency-Key` (1 a 120 caracteres). Un token con rol `ADMIN` permite listar y consultar órdenes de cualquier cliente. El cuerpo **no incluye precios**: `eventId`, `items` y `payment`. Cada ítem informa exactamente uno de `seatIds` (sector numerado) o `quantity` (admisión general), usando los identificadores de Inventory que devuelve la consulta de disponibilidad. El límite de entradas por cliente y evento es seis y se cambia con `PURCHASE_TICKET_LIMIT`.
 
+Cuando el evento está marcado como de alta demanda, `POST /api/orders` exige además el encabezado `X-Admission-Token` con el token vigente que emite la fila virtual; su ausencia o un token ajeno, vencido o ya consumido responde `403`. El token se consume en el intento de compra y no reserva inventario.
+
 Ejemplo de compra:
 
 ```http
@@ -117,12 +119,17 @@ Docker Compose carga automáticamente el archivo `.env` de esta carpeta. Mantenl
 | `TICKET_POSTGRES_DB` | `ticketya_ticket` | Nombre de la base de datos de tickets |
 | `PURCHASE_POSTGRES_DB` | `ticketya_purchase` | Nombre de la base de datos de compras |
 | `PAYMENT_POSTGRES_DB` | `ticketya_payment` | Nombre de la base de datos de pagos simulados |
-| `POSTGRES_USER` | `ticketya` | Usuario de ambas bases PostgreSQL |
-| `POSTGRES_PASSWORD` | `ticketya` | Contraseña de ambas bases PostgreSQL |
+| `QUEUE_POSTGRES_DB` | `ticketya_queue` | Nombre de la base de datos de la fila virtual |
+| `POSTGRES_USER` | `ticketya` | Usuario de todas las bases PostgreSQL |
+| `POSTGRES_PASSWORD` | `ticketya` | Contraseña de todas las bases PostgreSQL |
 | `GATEWAY_PORT` | `8080` | Puerto publicado del API Gateway en el host |
 | `JWT_ISSUER_URI` | `https://identity.example.invalid/issuer` | Emisor externo esperado por el Gateway |
 | `JWT_JWK_SET_URI` | `https://identity.example.invalid/.well-known/jwks.json` | JWKS público del proveedor de identidad |
 | `PURCHASE_TICKET_LIMIT` | `6` | Máximo de entradas por cliente y evento |
+| `QUEUE_BATCH_SIZE` | `10` | Turnos admitidos por tanda de la fila virtual |
+| `QUEUE_BATCH_INTERVAL_SECONDS` | `15` | Duración de cada tanda de la fila virtual |
+| `QUEUE_ADMISSION_TTL_SECONDS` | `120` | Vigencia del token de admisión |
+| `QUEUE_ADMISSION_SECRET` | Clave local definida en `.env` | Clave HMAC estable que firma los tokens de admisión |
 | `TICKET_QR_SIGNING_SECRET` | Clave local definida en `.env` | Clave estable de al menos 32 bytes para firmar los QR |
 
 Ticket Service requiere `TICKET_QR_SIGNING_SECRET`; el `.env` incluye una clave local de desarrollo para arrancar el stack directamente. Conserva el mismo valor entre reinicios si quieres validar QR ya emitidos. Al cambiarlo, los QR existentes dejarán de validarse. No reutilices esta clave fuera del entorno didáctico local.
@@ -190,15 +197,26 @@ Los servicios internos reciben su configuración a través de variables de Compo
 | purchase-service | `INVENTORY_SERVICE_URL` | `http://inventory-service:8082` |
 | purchase-service | `PAYMENT_SERVICE_URL` | `http://payment-mock:8085` |
 | purchase-service | `TICKET_SERVICE_URL` | `http://ticket-service:8083` |
+| purchase-service | `QUEUE_SERVICE_URL` | `http://queue-service:8086` |
 | purchase-service | `PURCHASE_TICKET_LIMIT` | `6` |
 | payment-mock | `SERVER_PORT` | `8085` |
 | payment-mock | `DB_URL` | `jdbc:postgresql://payment-db:5432/ticketya_payment` |
 | payment-mock | `DB_USER` | `ticketya` |
 | payment-mock | `DB_PASSWORD` | `ticketya` |
+| queue-service | `SERVER_PORT` | `8086` |
+| queue-service | `DB_URL` | `jdbc:postgresql://queue-db:5432/ticketya_queue` |
+| queue-service | `DB_USER` | `ticketya` |
+| queue-service | `DB_PASSWORD` | `ticketya` |
+| queue-service | `CATALOG_SERVICE_URL` | `http://catalog-service:8081` |
+| queue-service | `QUEUE_BATCH_SIZE` | `10` (turnos admitidos por tanda) |
+| queue-service | `QUEUE_BATCH_INTERVAL_SECONDS` | `15` (duración de cada tanda) |
+| queue-service | `QUEUE_ADMISSION_TTL_SECONDS` | `120` (vigencia del token de admisión) |
+| queue-service | `QUEUE_ADMISSION_SECRET` | Obligatoria; clave HMAC estable del token de admisión |
 | api-gateway | `SERVER_PORT` | `8080` |
 | api-gateway | `CATALOG_SERVICE_URL` | `http://catalog-service:8081` |
 | api-gateway | `INVENTORY_SERVICE_URL` | `http://inventory-service:8082` |
 | api-gateway | `PURCHASE_SERVICE_URL` | `http://purchase-service:8084` |
+| api-gateway | `QUEUE_SERVICE_URL` | `http://queue-service:8086` |
 | api-gateway | `JWT_ISSUER_URI` | `https://identity.example.invalid/issuer` |
 | api-gateway | `JWT_JWK_SET_URI` | `https://identity.example.invalid/.well-known/jwks.json` |
 
@@ -218,6 +236,7 @@ mvn verify -pl services/catalog-service -am
 mvn verify -pl services/inventory-service -am
 mvn verify -pl services/ticket-service -am
 mvn verify -pl services/purchase-service -am
+mvn verify -pl services/queue-service -am
 mvn verify -pl services/payment-mock -am
 ```
 
@@ -239,7 +258,7 @@ La verificación del Ticket Service está registrada en
 Desde la carpeta `ticketya/`:
 
 ```bash
-# Construir todas las imágenes (Gateway, Catalog, Inventory, Ticket, Purchase y Payment Mock)
+# Construir todas las imágenes (Gateway, Catalog, Inventory, Ticket, Purchase, Queue y Payment Mock)
 docker compose build
 
 # Levantar el incremento completo (reconstruye imágenes y espera las comprobaciones de estado)
@@ -261,17 +280,18 @@ docker compose down
 docker compose down -v
 ```
 
-El Gateway expone el único puerto publicado (`${GATEWAY_PORT:-8080}:8080`). Catalog, Inventory, Ticket, Purchase, Payment Mock y sus bases no publican puertos al host; se comunican por nombres de servicio de la red de Compose.
+El Gateway expone el único puerto publicado (`${GATEWAY_PORT:-8080}:8080`). Catalog, Inventory, Ticket, Purchase, Queue, Payment Mock y sus bases no publican puertos al host; se comunican por nombres de servicio de la red de Compose.
 
 ## Salud de los servicios
 
 Cada servicio tiene una comprobación de estado basada en `wget` contra su endpoint de actuator:
 
-- `postgres` (Catálogo), `inventory-db`, `ticket-db`, `purchase-db` y `payment-db`: `pg_isready`
+- `postgres` (Catálogo), `inventory-db`, `ticket-db`, `purchase-db`, `queue-db` y `payment-db`: `pg_isready`
 - Catalog Service: `http://localhost:8081/actuator/health`
 - Inventory Service: `http://localhost:8082/actuator/health`
 - Ticket Service: `http://localhost:8083/actuator/health`
 - Purchase Service: `http://localhost:8084/actuator/health`
+- Queue Service: `http://localhost:8086/actuator/health`
 - Payment Mock: `http://localhost:8085/actuator/health`
 - API Gateway: `http://localhost:8080/actuator/health`
 
@@ -293,7 +313,7 @@ npx --yes newman run postman/ticketya.postman_collection.json \
 
 Exporta esas cinco variables con tokens vigentes del IdP. `organizerToken` debe tener `sub=userId` y rol `ORGANIZER`; `clientToken`, `sub=userId` y rol `CLIENT`; `numberedBuyerToken`, `sub=numberedBuyerId` y rol `CLIENT`; `adminToken`, `sub=adminUserId` y rol `ADMIN`; `accessStaffToken`, `sub=accessStaffUserId` y rol `ACCESS_STAFF`. Los tokens son datos sensibles: pásalos al proceso de Newman desde el entorno y no los guardes en archivos del repositorio.
 
-La colección es repetible: cada corrida genera un `runId` único para evitar colisiones. Cubre Catalog e Inventory, compras aprobadas de admisión general y asiento numerado con QR, reintento idempotente, consulta de tickets por su titular, pago rechazado con liberación del cupo y límite de seis entradas por cliente y evento. También prueba solicitud y resolución de devoluciones, cancelación con reintegros, suspensión y reanudación del evento. Todas las rutas públicas se recorren sin token y todas las operaciones protegidas por el Gateway. Inventory materializa el inventario de forma perezosa a partir del snapshot publicado de Catalog en la primera consulta.
+La colección es repetible: cada corrida genera un `runId` único para evitar colisiones. Cubre Catalog e Inventory, compras aprobadas de admisión general y asiento numerado con QR, reintento idempotente, consulta de tickets por su titular, pago rechazado con liberación del cupo y límite de seis entradas por cliente y evento. También prueba solicitud y resolución de devoluciones, cancelación con reintegros, suspensión y reanudación del evento, y el flujo de la fila virtual con compra usando el token de admisión. Todas las rutas públicas se recorren sin token y todas las operaciones protegidas por el Gateway. Inventory materializa el inventario de forma perezosa a partir del snapshot publicado de Catalog en la primera consulta.
 
 Para comprobar muchas compras completas simultáneas del mismo asiento con compradores y claves distintas, sobre un stack saludable ejecuta `python postman/concurrent-purchases.py`. La prueba crea sus propios datos, espera una compra confirmada y once conflictos, y comprueba que Inventory registra un solo asiento vendido.
 
@@ -334,6 +354,47 @@ docker compose exec -T inventory-service wget -qO- \
   http://localhost:8082/internal/reservations/by-order/<orderId>
 ```
 
+## Fila virtual de eventos de alta demanda
+
+Queue Service escucha en `queue-service:8086`, dentro de la red de Compose, y el Gateway publica su API en `/api/queue/**`. Un evento admite fila sólo cuando fue creado o editado como borrador con `highDemand: true`; la marca se puede cambiar únicamente en `DRAFT` y los eventos publicados sin ella siguen comprándose como siempre.
+
+| Método | Ruta pública (Gateway) | Propósito |
+|---|---|---|
+| `POST` | `/api/queue/events/{eventId}/entries` | Entrar a la fila; `201` la primera vez y `200` con el mismo turno si el cliente ya tenía uno activo |
+| `GET` | `/api/queue/events/{eventId}/entries/me` | Consultar posición, estado y, si está admitido, el token de admisión |
+| `DELETE` | `/api/queue/events/{eventId}/entries/me` | Abandonar el turno activo (`204`) |
+
+La fila asigna posiciones con un contador por evento bajo bloqueo de PostgreSQL, nunca reutiliza posiciones y abre tandas por tiempo (`QUEUE_BATCH_SIZE` turnos cada `QUEUE_BATCH_INTERVAL_SECONDS`). El turno pasa de `WAITING` a `ADMITTED` y desde ahí a `CONSUMED`, `EXPIRED` o `LEFT`. El token de admisión es opaco, está firmado con `QUEUE_ADMISSION_SECRET`, ligado al evento y al comprador, vence a los `QUEUE_ADMISSION_TTL_SECONDS` y no se persiste: se recalcula desde el turno.
+
+Compra con admisión, sólo para eventos de alta demanda:
+
+```bash
+# 1. Entrar a la fila
+curl -X POST -H "Authorization: Bearer $CLIENT_TOKEN" \
+  http://localhost:8080/api/queue/events/<eventId>/entries
+
+# 2. Sondear hasta quedar ADMITTED y guardar admissionToken
+curl -H "Authorization: Bearer $CLIENT_TOKEN" \
+  http://localhost:8080/api/queue/events/<eventId>/entries/me
+
+# 3. Comprar con el token de admisión
+curl -X POST -H "Authorization: Bearer $CLIENT_TOKEN" \
+  -H "Idempotency-Key: queue-demo-1" \
+  -H "X-Admission-Token: <admissionToken>" \
+  -H "Content-Type: application/json" \
+  -d '{"eventId":"<eventId>","items":[{"sectorId":"<sectorId>","quantity":1}],"payment":{"method":"CARD","token":"tok_approved"}}' \
+  http://localhost:8080/api/orders
+```
+
+Purchase valida y consume el token llamando al contrato interno `POST /internal/admissions/validate` (`200` con `admissionId`, `403` si el token es ajeno, venció o ya se usó, `404` si no hay turno, `503` si la fila no responde) **antes** de reservar y cobrar. Si falta el token en un evento de alta demanda la compra responde `403`; si la fila cerró, `409`. El token habilita el intento pero no reserva ni garantiza inventario: Inventory sigue siendo la única autoridad de stock. Una caída de la fila no bloquea la cancelación del evento, porque el cierre de la fila es reactivo al estado del catálogo.
+
+Smoke test interno, sin publicar puertos:
+
+```bash
+docker compose exec -T queue-service wget -qO- http://localhost:8086/v3/api-docs
+docker compose exec -T queue-service wget -qO- http://localhost:8086/actuator/health
+```
+
 ## Pasarela de pagos simulada (interna)
 
 Payment Mock escucha en `payment-mock:8085`, dentro de la red de Compose. Purchase la invoca durante la saga y nunca se publica por el Gateway:
@@ -370,13 +431,14 @@ El contrato versionado está en `services/ticket-service/docs/ticket-openapi.yam
 
 ## Validar OpenAPI (interno, vía contenedor)
 
-OpenAPI y Swagger UI están expuestos en Catalog Service (puerto interno 8081), Inventory Service (8082), Ticket Service (8083), Purchase Service (8084) y Payment Mock (8085); no se publican por el Gateway. Valida desde dentro de cada contenedor:
+OpenAPI y Swagger UI están expuestos en Catalog Service (puerto interno 8081), Inventory Service (8082), Ticket Service (8083), Purchase Service (8084), Queue Service (8086) y Payment Mock (8085); no se publican por el Gateway. Valida desde dentro de cada contenedor:
 
 ```bash
 docker compose exec -T catalog-service wget -qO- http://localhost:8081/v3/api-docs
 docker compose exec -T inventory-service wget -qO- http://localhost:8082/v3/api-docs
 docker compose exec -T ticket-service wget -qO- http://localhost:8083/v3/api-docs
 docker compose exec -T purchase-service wget -qO- http://localhost:8084/v3/api-docs
+docker compose exec -T queue-service wget -qO- http://localhost:8086/v3/api-docs
 docker compose exec -T payment-mock wget -qO- http://localhost:8085/v3/api-docs
 ```
 
@@ -391,9 +453,9 @@ Desde una copia limpia del proyecto (sin rutas personales ni configuración del 
 3. Confirma que `JAVA_HOME` apunta a JDK 19 o superior y que `mvn -v` reporta esa versión.
 4. Ejecuta `mvn verify` desde la raíz de `ticketya/`.
 5. Ejecuta `docker compose -p ticketya_e1_verification up --build -d --wait`. Ese nombre crea volúmenes separados de los de otros proyectos Compose.
-6. Comprueba que `docker compose -p ticketya_e1_verification ps` muestre los 11 servicios saludables.
+6. Comprueba que `docker compose -p ticketya_e1_verification ps` muestre los 12 servicios saludables.
 7. Ejecuta la colección con `npx --yes newman run postman/ticketya.postman_collection.json --env-var baseUrl=http://localhost:8080`.
-8. Valida OpenAPI con `docker compose -p ticketya_e1_verification exec -T catalog-service wget -qO- http://localhost:8081/v3/api-docs` y el mismo comando para Inventory, Ticket, Purchase y Payment Mock en sus puertos internos respectivos.
+8. Valida OpenAPI con `docker compose -p ticketya_e1_verification exec -T catalog-service wget -qO- http://localhost:8081/v3/api-docs` y el mismo comando para Inventory, Ticket, Purchase, Queue y Payment Mock en sus puertos internos respectivos.
 9. Ejecuta `docker compose -p ticketya_e1_verification down` al terminar; los volúmenes quedan conservados.
 
 Ningún paso requiere rutas absolutas de la máquina del autor ni secretos versionados.
@@ -424,6 +486,8 @@ ticketya/
 |   |   +-- pom.xml, Dockerfile, docs/, src/
 |   +-- purchase-service/
 |   |   +-- pom.xml, Dockerfile, src/
+|   +-- queue-service/
+|   |   +-- pom.xml, Dockerfile, src/
 |   +-- payment-mock/
 |       +-- pom.xml, Dockerfile, src/
 +-- openspec/
@@ -439,4 +503,4 @@ docker compose -p ticketya_e1_verification down -v
 docker compose -p ticketya_e1_verification up --build -d --wait
 ```
 
-Esto elimina sólo los cinco volúmenes PostgreSQL del proyecto `ticketya_e1_verification` y los recrea vacíos. Los esquemas se inicializan automáticamente con el `schema.sql` de cada servicio al arrancar Catalog, Inventory, Ticket, Purchase y Payment Mock.
+Esto elimina sólo los seis volúmenes PostgreSQL del proyecto `ticketya_e1_verification` y los recrea vacíos. Los esquemas se inicializan automáticamente con el `schema.sql` de cada servicio al arrancar Catalog, Inventory, Ticket, Purchase, Queue y Payment Mock.
