@@ -81,6 +81,10 @@ CREATE TABLE IF NOT EXISTS event_sector_offerings (
     CONSTRAINT uk_event_offering UNIQUE (event_id, venue_sector_id)
 );
 
+-- The high-demand mark is editable only while the event is a draft. It is read live
+-- from `events` because the draft guard makes it immutable once the event is published.
+ALTER TABLE events ADD COLUMN IF NOT EXISTS high_demand BOOLEAN NOT NULL DEFAULT FALSE;
+
 -- Immutable, normalized publication copy. The unique event_id makes publish idempotent.
 CREATE TABLE IF NOT EXISTS event_snapshots (
     id UUID PRIMARY KEY,

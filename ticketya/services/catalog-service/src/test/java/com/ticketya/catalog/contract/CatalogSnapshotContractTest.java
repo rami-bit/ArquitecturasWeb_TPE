@@ -132,6 +132,9 @@ class CatalogSnapshotContractTest {
         assertThat(snapshotUuid).isNotNull();
         assertThat(snapshot.path("name").asText()).isEqualTo("Evento de contrato");
         assertThat(snapshot.path("eventType").asText()).isEqualTo("CONCERT");
+        assertThat(snapshot.path("highDemand").asBoolean())
+                .as("el snapshot interno expone la marca de alta demanda")
+                .isFalse();
 
         JsonNode venue = snapshot.path("venue");
         assertThat(venue.path("name").asText()).isEqualTo("Estadio de contrato");
@@ -169,6 +172,19 @@ class CatalogSnapshotContractTest {
         assertThat(general.path("capacity").asInt()).isEqualTo(3);
         assertThat(general.path("seats").isArray()).isTrue();
         assertThat(general.path("seats")).isEmpty();
+    }
+
+    @Test
+    void publishedHighDemandEventExposesTheMarkInTheSnapshot() throws Exception {
+        jdbc.update("update events set high_demand=true where id=?", publishedEventId);
+
+        String body = performSnapshotGet(publishedEventId)
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(JSON.readTree(body).path("highDemand").asBoolean())
+                .as("la marca se lee en vivo de events y se publica en el snapshot")
+                .isTrue();
     }
 
     @Test

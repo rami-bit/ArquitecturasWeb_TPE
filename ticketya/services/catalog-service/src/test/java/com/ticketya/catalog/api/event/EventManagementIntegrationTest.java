@@ -129,6 +129,32 @@ class EventManagementIntegrationTest {
   mvc.perform(post("/api/management/events/"+event+"/cancel").header("X-User-Id",UUID.randomUUID()).header("X-User-Role","ADMIN")).andExpect(status().isServiceUnavailable());
   assertThat(jdbc.queryForObject("select status from events where id=?",String.class,event)).isEqualTo("PUBLISHED");
  }
+ @Test void highDemandDefaultsToFalseAndIsEditableOnlyWhileDraft() throws Exception {
+  Venue v=new Venue("Arena","Av 1","BA",BigDecimal.ZERO,BigDecimal.ZERO);var sector=v.addGeneralAdmissionSector("Campo",100);venues.saveAndFlush(v);
+  String base="{\"name\":\"Show\",\"description\":\"Live show\",\"eventType\":\"MUSIC\",\"startsAt\":\"2030-01-01T20:00:00-03:00\",\"venueId\":\"%s\",\"participants\":[\"Band\"]}".formatted(v.getId());
+  String updateBase="{\"name\":\"Show\",\"description\":\"Live show\",\"eventType\":\"MUSIC\",\"startsAt\":\"2030-01-01T20:00:00-03:00\",\"venueId\":\"%s\"}".formatted(v.getId());
+  String high=updateBase.replace("}",",\"highDemand\":true}");
+  String highCreate=base.replace("}",",\"highDemand\":true}");
+  String low=updateBase.replace("}",",\"highDemand\":false}");
+
+  String created=mvc.perform(post("/api/management/events").header("X-User-Id",organizer).header("X-User-Role","ORGANIZER").contentType(MediaType.APPLICATION_JSON).content(base)).andExpect(status().isCreated()).andExpect(jsonPath("$.highDemand").value(false)).andReturn().getResponse().getContentAsString();
+  UUID event=UUID.fromString(com.fasterxml.jackson.databind.json.JsonMapper.builder().build().readTree(created).get("id").asText());
+  assertThat(jdbc.queryForObject("select high_demand from events where id=?",Boolean.class,event)).isFalse();
+
+  String createdHigh=mvc.perform(post("/api/management/events").header("X-User-Id",organizer).header("X-User-Role","ORGANIZER").contentType(MediaType.APPLICATION_JSON).content(highCreate)).andExpect(status().isCreated()).andExpect(jsonPath("$.highDemand").value(true)).andReturn().getResponse().getContentAsString();
+  UUID highEvent=UUID.fromString(com.fasterxml.jackson.databind.json.JsonMapper.builder().build().readTree(createdHigh).get("id").asText());
+  assertThat(jdbc.queryForObject("select high_demand from events where id=?",Boolean.class,highEvent)).isTrue();
+
+  mvc.perform(put("/api/management/events/"+highEvent).header("X-User-Id",organizer).header("X-User-Role","ORGANIZER").contentType(MediaType.APPLICATION_JSON).content(low)).andExpect(status().isOk()).andExpect(jsonPath("$.highDemand").value(false));
+  assertThat(jdbc.queryForObject("select high_demand from events where id=?",Boolean.class,highEvent)).isFalse();
+
+  mvc.perform(put("/api/management/events/"+highEvent).header("X-User-Id",organizer).header("X-User-Role","ORGANIZER").contentType(MediaType.APPLICATION_JSON).content(high)).andExpect(status().isOk()).andExpect(jsonPath("$.highDemand").value(true));
+  mvc.perform(put("/api/management/events/"+highEvent+"/offerings").header("X-User-Id",organizer).header("X-User-Role","ORGANIZER").contentType(MediaType.APPLICATION_JSON).content("{\"offerings\":[{\"sectorId\":\"%s\",\"price\":25.50}]}".formatted(sector.getId()))).andExpect(status().isOk());
+  mvc.perform(post("/api/management/events/"+highEvent+"/publish").header("X-User-Id",organizer).header("X-User-Role","ORGANIZER")).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("PUBLISHED"));
+
+  mvc.perform(put("/api/management/events/"+highEvent).header("X-User-Id",organizer).header("X-User-Role","ORGANIZER").contentType(MediaType.APPLICATION_JSON).content(low)).andExpect(status().isConflict());
+  assertThat(jdbc.queryForObject("select high_demand from events where id=?",Boolean.class,highEvent)).isTrue();
+ }
  private UUID createDraft(UUID venueId,String startsAt,String participants) throws Exception {
   String body="{\"name\":\"Show\",\"description\":\"Live show\",\"eventType\":\"MUSIC\",\"startsAt\":\"%s\",\"venueId\":\"%s\",\"participants\":%s}".formatted(startsAt,venueId,participants);
   String response=mvc.perform(post("/api/management/events").header("X-User-Id",organizer).header("X-User-Role","ORGANIZER").contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();

@@ -7,13 +7,13 @@ import java.math.BigDecimal; import java.util.*;
 public class EventManagementService {
  private final EventRepository events; private final VenueRepository venues; private final VenueSectorRepository sectors; private final InventoryCancellationClient inventory;
  public EventManagementService(EventRepository e,VenueRepository v,VenueSectorRepository s,InventoryCancellationClient i){events=e;venues=v;sectors=s;inventory=i;}
- public Event create(String user,String role,String name,String description,String type,java.time.OffsetDateTime startsAt,UUID organizer,UUID venueId,List<String> participants,Map<UUID,BigDecimal> offerings){
+ public Event create(String user,String role,String name,String description,String type,java.time.OffsetDateTime startsAt,UUID organizer,UUID venueId,List<String> participants,Map<UUID,BigDecimal> offerings,Boolean highDemand){
   UUID actor=identity(user,role); UUID owner;
   if("ADMIN".equals(role)){if(organizer==null)throw bad("ADMIN must provide organizerId");owner=organizer;}else if("ORGANIZER".equals(role)){owner=actor;if(organizer!=null&&!organizer.equals(actor))throw forbidden();}else throw forbidden();
-  Venue v=venue(venueId); Event e=new Event(name,description,type,startsAt,owner,v); if(participants!=null)e.replaceParticipants(participants); if(offerings!=null){validateOfferings(v,offerings);e.replaceOfferings(offerings);} return events.save(e);
+  Venue v=venue(venueId); Event e=new Event(name,description,type,startsAt,owner,v); e.setHighDemand(Boolean.TRUE.equals(highDemand)); if(participants!=null)e.replaceParticipants(participants); if(offerings!=null){validateOfferings(v,offerings);e.replaceOfferings(offerings);} return events.save(e);
  }
- public Event update(String user,String role,UUID id,String name,String description,String type,java.time.OffsetDateTime startsAt,UUID venueId,List<String> participants){
-  Event e=authorized(user,role,id); draft(e); Venue v=venue(venueId); e.update(name,description,type,startsAt);if(!e.getVenue().getId().equals(v.getId()))e.clearOfferings();e.setVenue(v);if(participants!=null)e.replaceParticipants(participants);return e;
+ public Event update(String user,String role,UUID id,String name,String description,String type,java.time.OffsetDateTime startsAt,UUID venueId,List<String> participants,Boolean highDemand){
+  Event e=authorized(user,role,id); draft(e); Venue v=venue(venueId); e.update(name,description,type,startsAt);if(!e.getVenue().getId().equals(v.getId()))e.clearOfferings();e.setVenue(v);if(participants!=null)e.replaceParticipants(participants);if(highDemand!=null)e.setHighDemand(highDemand);return e;
  }
  public Event offerings(String user,String role,UUID id,Map<UUID,BigDecimal> prices){Event e=authorized(user,role,id);draft(e);validateOfferings(e.getVenue(),prices);e.replaceOfferings(prices);return e;}
  public Event publish(String user,String role,UUID id){

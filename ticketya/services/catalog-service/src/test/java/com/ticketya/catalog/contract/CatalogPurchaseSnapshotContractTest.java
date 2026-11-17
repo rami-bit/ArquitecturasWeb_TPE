@@ -165,6 +165,9 @@ class CatalogPurchaseSnapshotContractTest {
         assertThat(snapshot.path("description").asText())
                 .isEqualTo("Snapshot para la suite de contrato");
         assertThat(snapshot.path("eventType").asText()).isEqualTo("CONCERT");
+        assertThat(snapshot.path("highDemand").asBoolean())
+                .as("el snapshot de compra expone la marca de alta demanda")
+                .isFalse();
 
         JsonNode venue = snapshot.path("venue");
         assertThat(venue.path("name").asText()).isEqualTo("Estadio de contrato");
@@ -239,6 +242,23 @@ class CatalogPurchaseSnapshotContractTest {
                 .as("el purchase-snapshot es idéntico al snapshot de inventario "
                         + "salvo por el precio de cada sector")
                 .isEqualTo(inventory);
+    }
+
+    @Test
+    void highDemandMarkIsIdenticalInBothSnapshotContracts() throws Exception {
+        jdbc.update("update events set high_demand=true where id=?", publishedEventId);
+
+        JsonNode purchase = JSON.readTree(
+                performPurchaseSnapshotGet(publishedEventId, "trace-purchase-high-demand")
+                        .andExpect(status().isOk())
+                        .andReturn().getResponse().getContentAsString());
+        JsonNode inventory = JSON.readTree(
+                performSnapshotGet(publishedEventId, "trace-inventory-high-demand")
+                        .andExpect(status().isOk())
+                        .andReturn().getResponse().getContentAsString());
+
+        assertThat(purchase.path("highDemand").asBoolean()).isTrue();
+        assertThat(inventory.path("highDemand").asBoolean()).isTrue();
     }
 
     // ------------------------------------------------------------------------ 404

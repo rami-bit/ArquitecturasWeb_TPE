@@ -20,6 +20,7 @@ public record CatalogPurchaseSnapshot(
         String description,
         String eventType,
         OffsetDateTime startsAt,
+        boolean highDemand,
         SnapshotVenue venue,
         List<PurchaseSnapshotSector> sectors) {
 }

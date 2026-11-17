@@ -11,6 +11,7 @@ public record CatalogEventSnapshot(
         String description,
         String eventType,
         OffsetDateTime startsAt,
+        boolean highDemand,
         SnapshotVenue venue,
         List<SnapshotSector> sectors) {
 }

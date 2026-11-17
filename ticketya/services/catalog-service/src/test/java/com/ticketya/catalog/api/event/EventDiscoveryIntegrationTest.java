@@ -67,11 +67,41 @@ class EventDiscoveryIntegrationTest {
         assertThat(api).contains("/api/events", "organizerId", "participant", "relevance", "totalElements");
     }
 
+    @Test void exposesHighDemandFlagInSearchResultsAndDetails() throws Exception {
+        seed("20000000-0000-0000-0000-000000000005", "High Demand Alpha", "MUSIC", "High demand show",
+                "2030-06-12T20:00:00-03:00", "Buenos Aires", "Band Alpha", 40.00, "PUBLISHED", true);
+        UUID highDemandId = UUID.fromString("20000000-0000-0000-0000-000000000005");
+
+        mvc.perform(get("/api/events/{id}", highDemandId))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.highDemand").value(true));
+        mvc.perform(get("/api/events/{id}", "20000000-0000-0000-0000-000000000001"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.highDemand").value(false));
+
+        String body = mvc.perform(get("/api/events").param("size", "10"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        com.fasterxml.jackson.databind.JsonNode items =
+                com.fasterxml.jackson.databind.json.JsonMapper.builder().build().readTree(body).path("items");
+        boolean found = false;
+        for (com.fasterxml.jackson.databind.JsonNode item : items) {
+            if (highDemandId.toString().equals(item.path("id").asText())) {
+                assertThat(item.path("highDemand").asBoolean()).isTrue();
+                found = true;
+            } else {
+                assertThat(item.path("highDemand").asBoolean()).isFalse();
+            }
+        }
+        assertThat(found).isTrue();
+    }
+
     private void seed(String id, String name, String type, String description, String startsAt, String city, String participant, double price, String status) {
+        seed(id, name, type, description, startsAt, city, participant, price, status, false);
+    }
+
+    private void seed(String id, String name, String type, String description, String startsAt, String city, String participant, double price, String status, boolean highDemand) {
         UUID event = UUID.fromString(id), snapshot = UUID.randomUUID(), sector = UUID.randomUUID();
         UUID venue = UUID.randomUUID();
         jdbc.update("insert into venues(id,name,address,city,latitude,longitude) values(?,?,?,?,?,?)", venue, "Venue", "Street 1", city, BigDecimal.ZERO, BigDecimal.ZERO);
-        jdbc.update("insert into events(id,name,description,event_type,starts_at,organizer_id,venue_id,status) values(?,?,?,?,?,?,?,?)", event, name, description, type, OffsetDateTime.parse(startsAt), organizer, venue, status);
+        jdbc.update("insert into events(id,name,description,event_type,starts_at,organizer_id,venue_id,status,high_demand) values(?,?,?,?,?,?,?,?,?)", event, name, description, type, OffsetDateTime.parse(startsAt), organizer, venue, status, highDemand);
         jdbc.update("insert into event_snapshots(id,event_id,name,description,event_type,starts_at,venue_name,venue_address,venue_city,venue_latitude,venue_longitude) values(?,?,?,?,?,?,?,?,?,?,?)", snapshot, event, name, description, type, OffsetDateTime.parse(startsAt), "Venue", "Street 1", city, BigDecimal.ZERO, BigDecimal.ZERO);
         jdbc.update("insert into snapshot_participants(id,snapshot_id,name) values(?,?,?)", UUID.randomUUID(), snapshot, participant);
         jdbc.update("insert into snapshot_sectors(id,snapshot_id,source_sector_id,name,sector_type,capacity,price) values(?,?,?,?,?,?,?)", sector, snapshot, UUID.randomUUID(), "General", "GENERAL_ADMISSION", 100, BigDecimal.valueOf(price));
