@@ -13,6 +13,7 @@ import com.ticketya.purchase.domain.model.OrderUnit;
 import com.ticketya.purchase.infrastructure.client.CatalogClient;
 import com.ticketya.purchase.infrastructure.client.InventoryClient;
 import com.ticketya.purchase.infrastructure.client.PaymentClient;
+import com.ticketya.purchase.infrastructure.client.QueueClient;
 import com.ticketya.purchase.infrastructure.client.ServiceException;
 import com.ticketya.purchase.infrastructure.client.TicketClient;
 import com.ticketya.purchase.infrastructure.persistence.JdbcPurchaseRepository;
@@ -39,9 +40,10 @@ import java.util.HexFormat;
 
 /**
  * Orquestador de la saga de compra síncrona y persistida.
- * Secuencia: snapshot de Catalog → validación y precio de ítems → límite atómico
- * por cliente/evento → reserva en Inventory → cobro en Payment → confirmación de
- * inventario → emisión idempotente de tickets por ítem.
+ * Secuencia: snapshot de Catalog → admisión de la fila virtual (sólo en eventos de
+ * alta demanda) → validación y precio de ítems → límite atómico por cliente/evento
+ * → reserva en Inventory → cobro en Payment → confirmación de inventario →
+ * emisión idempotente de tickets por ítem.
  */
 @Service
 public class PurchaseService {
@@ -49,6 +51,7 @@ public class PurchaseService {
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
     private final CatalogClient catalog;
+    private final QueueClient queue;
     private final InventoryClient inventory;
     private final PaymentClient payment;
     private final TicketClient ticket;
@@ -56,7 +59,7 @@ public class PurchaseService {
     private final int ticketLimit;
     private final int holdTtl;
 
-    public PurchaseService(JdbcTemplate jdbc, ObjectMapper mapper, CatalogClient catalog,
+    public PurchaseService(JdbcTemplate jdbc, ObjectMapper mapper, CatalogClient catalog, QueueClient queue,
                            InventoryClient inventory, PaymentClient payment, TicketClient ticket,
                            JdbcPurchaseRepository repository,
                            @Value("${purchase.ticket-limit:6}") int ticketLimit,
@@ -64,6 +67,7 @@ public class PurchaseService {
         this.jdbc = jdbc;
         this.mapper = mapper;
         this.catalog = catalog;
+        this.queue = queue;
         this.inventory = inventory;
         this.payment = payment;
         this.ticket = ticket;
@@ -75,7 +79,7 @@ public class PurchaseService {
     // ======================================================================== POST /api/orders
 
     public ResponseEntity<JsonNode> createOrder(UUID customerId, String role, String idempotencyKey,
-                                                String correlationId, String rawBody) {
+                                                String admissionToken, String correlationId, String rawBody) {
         JsonNode body = parseBody(rawBody);
         UUID eventId = requiredUuid(body, "eventId", "eventId");
 
@@ -112,6 +116,29 @@ public class PurchaseService {
             }
             throw new ApiProblemException(HttpStatus.SERVICE_UNAVAILABLE, "Service unavailable",
                     "Catalog no disponible: " + e.getMessage());
+        }
+
+        // Admisión de la fila virtual: sólo en eventos de alta demanda. El token se consume
+        // en el intento de compra y no reserva ni garantiza inventario.
+        if (snapshot.path("highDemand").asBoolean(false)) {
+            if (admissionToken == null || admissionToken.isBlank()) {
+                throw ApiProblemException.forbidden(
+                        "El evento es de alta demanda y requiere el encabezado X-Admission-Token");
+            }
+            try {
+                queue.validateAdmission(eventId, customerId, admissionToken.trim(), idempotencyKey, correlationId);
+            } catch (ServiceException e) {
+                if (e.status() != null && (e.status().value() == 403 || e.status().value() == 404)) {
+                    throw ApiProblemException.forbidden(
+                            "Token de admisión inválido, vencido, ajeno o ya utilizado");
+                }
+                if (e.status() != null && e.status().value() == 409) {
+                    throw ApiProblemException.conflict(
+                            "La fila del evento no admite compras en este momento");
+                }
+                throw new ApiProblemException(HttpStatus.SERVICE_UNAVAILABLE, "Service unavailable",
+                        "Queue no disponible: " + e.getMessage());
+            }
         }
 
         JsonNode availability;

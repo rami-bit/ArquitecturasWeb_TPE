@@ -63,6 +63,7 @@ abstract class PurchaseContractTestBase {
     protected static final String USER_HEADER = "X-User-Id";
     protected static final String ROLE_HEADER = "X-User-Role";
     protected static final String IDEMPOTENCY_HEADER = "Idempotency-Key";
+    protected static final String ADMISSION_HEADER = "X-Admission-Token";
 
     /** UUID reservado: el stub de Catalog responde 404 problem+json (evento no comprable). */
     protected static final UUID NOT_PURCHASABLE_EVENT =
@@ -84,6 +85,14 @@ abstract class PurchaseContractTestBase {
     protected static final UUID PAYMENT_DROPPED_RESPONSE_EVENT =
             UUID.fromString("00000000-0000-4000-8000-000000000499");
 
+    /**
+     * UUID reservado: el stub de Catalog devuelve el snapshot de compra con
+     * {@code highDemand: true}, de modo que Purchase exige el encabezado
+     * {@code X-Admission-Token} y valida el token contra el stub de Queue.
+     */
+    protected static final UUID HIGH_DEMAND_EVENT =
+            UUID.fromString("00000000-0000-4000-8000-000000000403");
+
     protected static final ObjectMapper JSON = new ObjectMapper();
 
     protected static final PostgreSQLContainer<?> POSTGRES =
@@ -98,6 +107,7 @@ abstract class PurchaseContractTestBase {
     protected static final List<RecordedRequest> INVENTORY_REQUESTS = new CopyOnWriteArrayList<>();
     protected static final List<RecordedRequest> PAYMENT_REQUESTS = new CopyOnWriteArrayList<>();
     protected static final List<RecordedRequest> TICKET_REQUESTS = new CopyOnWriteArrayList<>();
+    protected static final List<RecordedRequest> QUEUE_REQUESTS = new CopyOnWriteArrayList<>();
 
     // ------------------------------------------------- fallas inyectables y ganchos de stub
 
@@ -106,6 +116,7 @@ abstract class PurchaseContractTestBase {
     private static volatile boolean failInventoryReserve;
     private static volatile boolean failPaymentCharge;
     private static volatile boolean dropPaymentChargeResponse;
+    private static volatile Integer failQueueAdmissionStatus;
 
     /** El stub de Catalog responde 503 en el próximo snapshot de compra. */
     protected static void failCatalogSnapshot() {
@@ -136,6 +147,19 @@ abstract class PurchaseContractTestBase {
         dropPaymentChargeResponse = true;
     }
 
+    /**
+     * El stub de Queue responde el código indicado (403, 404, 409 o 503) en la
+     * próxima validación de admisión y luego vuelve a su comportamiento sano: el
+     * fallo es de un solo uso, de modo que un reintento posterior se valida con éxito.
+     */
+    protected static void failQueueAdmission(int status) {
+        if (status != 403 && status != 404 && status != 409 && status != 503) {
+            throw new IllegalArgumentException(
+                    "fallo de admisión soportado: 403, 404, 409 o 503; recibido: " + status);
+        }
+        failQueueAdmissionStatus = status;
+    }
+
     /** Desactiva todas las fallas inyectadas. */
     protected static void clearInjectedFaults() {
         failCatalogSnapshot = false;
@@ -143,6 +167,7 @@ abstract class PurchaseContractTestBase {
         failInventoryReserve = false;
         failPaymentCharge = false;
         dropPaymentChargeResponse = false;
+        failQueueAdmissionStatus = null;
     }
 
     /** Fuerza el estado de un pago del stub para simular su evolución posterior. */
@@ -164,6 +189,8 @@ abstract class PurchaseContractTestBase {
             startStub("purchase-contract-payment-stub", PurchaseContractTestBase::handlePayment);
     private static final HttpServer TICKET_STUB =
             startStub("purchase-contract-ticket-stub", PurchaseContractTestBase::handleTicket);
+    private static final HttpServer QUEUE_STUB =
+            startStub("purchase-contract-queue-stub", PurchaseContractTestBase::handleQueue);
 
     private static volatile boolean postgresStarted;
 
@@ -194,6 +221,8 @@ abstract class PurchaseContractTestBase {
                 () -> "http://localhost:" + PAYMENT_STUB.getAddress().getPort());
         registry.add("TICKET_SERVICE_URL",
                 () -> "http://localhost:" + TICKET_STUB.getAddress().getPort());
+        registry.add("purchase.queue.url",
+                () -> "http://localhost:" + QUEUE_STUB.getAddress().getPort());
         // El puerto real lo entrega @LocalServerPort; SERVER_PORT=0 evita fijar 8084.
         registry.add("SERVER_PORT", () -> "0");
         registry.add("server.port", () -> "0");
@@ -205,6 +234,7 @@ abstract class PurchaseContractTestBase {
         INVENTORY_REQUESTS.clear();
         PAYMENT_REQUESTS.clear();
         TICKET_REQUESTS.clear();
+        QUEUE_REQUESTS.clear();
         clearInjectedFaults();
         TICKET_FLAKY_FAILED.clear();
     }
@@ -309,8 +339,12 @@ abstract class PurchaseContractTestBase {
     }
 
     protected static JsonNode parseBody(ResponseEntity<String> response) {
+        return parseJson(response.getBody());
+    }
+
+    protected static JsonNode parseJson(String body) {
         try {
-            return JSON.readTree(response.getBody());
+            return JSON.readTree(body);
         } catch (IOException exception) {
             throw new UncheckedIOException(exception);
         }
@@ -338,6 +372,24 @@ abstract class PurchaseContractTestBase {
                         && request.path().startsWith("/internal/orders/")
                         && request.path().endsWith("/tickets"))
                 .count();
+    }
+
+    /** Copia de las solicitudes recibidas por el stub de Queue. */
+    protected static List<RecordedRequest> queueRequests() {
+        return List.copyOf(QUEUE_REQUESTS);
+    }
+
+    /** Validaciones de admisión: `POST /internal/admissions/validate`. */
+    protected static List<RecordedRequest> validateAdmissionCalls() {
+        return QUEUE_REQUESTS.stream()
+                .filter(request -> "POST".equals(request.method())
+                        && "/internal/admissions/validate".equals(request.path()))
+                .collect(Collectors.toList());
+    }
+
+    /** Cantidad de validaciones de admisión recibidas por el stub de Queue. */
+    protected static long validateAdmissionCallCount() {
+        return countPosts(QUEUE_REQUESTS, "/internal/admissions/validate");
     }
 
     // ------------------------------------------------------------------ stub genérico
@@ -435,7 +487,9 @@ abstract class PurchaseContractTestBase {
 
     /**
      * Snapshot de compra determinístico: Platea numerada (2 asientos, 15000.00)
-     * y Campo de admisión general (500 cupos, 5000.00), con precios.
+     * y Campo de admisión general (500 cupos, 5000.00), con precios. Sólo para
+     * {@link #HIGH_DEMAND_EVENT} el snapshot informa {@code highDemand: true};
+     * los demás eventos conservan el snapshot sin ese campo.
      */
     private static String purchaseSnapshotFor(UUID eventId) {
         UUID snapshotId = derive(eventId, "snapshot");
@@ -478,9 +532,11 @@ abstract class PurchaseContractTestBase {
                       "price": 5000.00,
                       "seats": []
                     }
-                  ]
+                  ]%s
                 }
-                """.formatted(eventId, snapshotId, plateaSector, seatOne, seatTwo, campoSector);
+                """.formatted(eventId, snapshotId, plateaSector, seatOne, seatTwo, campoSector,
+                        HIGH_DEMAND_EVENT.equals(eventId)
+                                ? ",\n                  \"highDemand\": true" : "");
     }
 
     // ---------------------------------------------------------- stub de Inventory
@@ -1075,6 +1131,45 @@ abstract class PurchaseContractTestBase {
                     .formatted(orderId, orderItemId, tickets);
             TICKET_RESPONSES.put(path, response);
             respond(exchange, 201, MediaType.APPLICATION_JSON_VALUE, response);
+        }
+    }
+
+    // -------------------------------------------------------------- stub de Queue
+
+    private static void handleQueue(HttpExchange exchange) throws IOException {
+        try (exchange) {
+            String method = exchange.getRequestMethod();
+            String path = exchange.getRequestURI().getRawPath();
+            String correlationId = exchange.getRequestHeaders().getFirst(CORRELATION_HEADER);
+            String body = readBody(exchange);
+            QUEUE_REQUESTS.add(new RecordedRequest(method, path, body));
+
+            if (!"POST".equals(method) || !path.equals("/internal/admissions/validate")) {
+                respond(exchange, 404, MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                        problem(404, "Not found", path, correlationId));
+                return;
+            }
+
+            // Fallo inyectable de un solo uso: la próxima validación responde el
+            // código forzado y las siguientes vuelven al comportamiento sano.
+            Integer failure = failQueueAdmissionStatus;
+            if (failure != null) {
+                failQueueAdmissionStatus = null;
+                String detail = switch (failure) {
+                    case 403 -> "Admission token rejected";
+                    case 404 -> "No queue entry for this event and client";
+                    case 409 -> "Queue no longer admits purchases";
+                    default -> "Queue is temporarily unavailable";
+                };
+                respond(exchange, failure, MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                        problem(failure, detail, path, correlationId));
+                return;
+            }
+
+            respond(exchange, 200, MediaType.APPLICATION_JSON_VALUE, """
+                    {"admitted":true,"admissionId":"%s","expiresAt":"%s"}"""
+                    .formatted(UUID.randomUUID(),
+                            OffsetDateTime.now(ZoneOffset.UTC).plusSeconds(120)));
         }
     }
 

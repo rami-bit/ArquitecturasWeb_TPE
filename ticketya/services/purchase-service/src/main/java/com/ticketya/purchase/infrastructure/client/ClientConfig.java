@@ -41,4 +41,11 @@ public class ClientConfig {
             ObjectMapper mapper) {
         return new TicketClient(baseUrl, mapper);
     }
+
+    @Bean
+    public QueueClient queueClient(
+            @Value("${purchase.queue.url:http://localhost:8086}") String baseUrl,
+            ObjectMapper mapper) {
+        return new QueueClient(baseUrl, mapper);
+    }
 }

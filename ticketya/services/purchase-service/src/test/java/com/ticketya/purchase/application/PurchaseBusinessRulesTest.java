@@ -6,6 +6,7 @@ import com.ticketya.purchase.api.error.ApiProblemException;
 import com.ticketya.purchase.infrastructure.client.CatalogClient;
 import com.ticketya.purchase.infrastructure.client.InventoryClient;
 import com.ticketya.purchase.infrastructure.client.PaymentClient;
+import com.ticketya.purchase.infrastructure.client.QueueClient;
 import com.ticketya.purchase.infrastructure.client.TicketClient;
 import com.ticketya.purchase.infrastructure.persistence.JdbcPurchaseRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,7 +40,7 @@ class PurchaseBusinessRulesTest {
         inventory = mock(InventoryClient.class);
         payment = mock(PaymentClient.class);
         repository = mock(JdbcPurchaseRepository.class);
-        service = new PurchaseService(mock(JdbcTemplate.class), mapper, catalog, inventory, payment,
+        service = new PurchaseService(mock(JdbcTemplate.class), mapper, catalog, mock(QueueClient.class), inventory, payment,
                 mock(TicketClient.class), repository, 6, 600);
     }
 
@@ -54,7 +55,7 @@ class PurchaseBusinessRulesTest {
                         .formatted(inventorySectorId, sourceSectorId)));
         UUID seatId = UUID.randomUUID();
         ApiProblemException error = assertThrows(ApiProblemException.class, () -> service.createOrder(
-                UUID.randomUUID(), "CUSTOMER", "key", "corr",
+                UUID.randomUUID(), "CUSTOMER", "key", null, "corr",
                 ("{\"eventId\":\"%s\",\"items\":[{\"sectorId\":\"%s\","
                         + "\"seatIds\":[\"%s\"]}],\"payment\":{\"method\":\"CARD\","
                         + "\"token\":\"tok_approved\"}}")
@@ -78,7 +79,7 @@ class PurchaseBusinessRulesTest {
                         + "\"sourceSectorId\":\"%s\",\"seats\":[]}]}" )
                         .formatted(inventorySectorId, sourceSectorId)));
         ApiProblemException error = assertThrows(ApiProblemException.class, () -> service.createOrder(
-                UUID.randomUUID(), "CUSTOMER", "key", "corr",
+                UUID.randomUUID(), "CUSTOMER", "key", null, "corr",
                 ("{\"eventId\":\"%s\",\"items\":[{\"sectorId\":\"%s\","
                         + "\"quantity\":2}],\"payment\":{\"method\":\"CARD\","
                         + "\"token\":\"tok_approved\"}}")
