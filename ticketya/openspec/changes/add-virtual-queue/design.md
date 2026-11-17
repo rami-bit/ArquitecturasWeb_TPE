@@ -105,7 +105,7 @@ El token es **opaco y derivado**: la fila lo calcula como `base64url(HMAC-SHA256
 
 ### D11 — El cierre de la fila es reactivo, no un aviso proactivo
 
-La fila consulta el snapshot interno de Catalog al entrar y al admitir; un evento que ya no está publicado se responde como inexistente (`404`) y la fila deja de admitir turnos (`409` al entrar).
+La fila consulta el snapshot interno de Catalog al entrar (sólo si el cliente no tiene turno activo) y al consultar la posición; un evento que ya no está publicado se responde como inexistente (`404` al entrar) o con la cola cerrada (`409` al consultar), y la fila deja de admitir turnos.
 
 *Alternativas descartadas:* aviso proactivo desde Catalog, junto a `InventoryCancellationClient` (una caída de la fila haría rollback de la cancelación de un evento, porque `EventManagementService.cancel()` es transaccional), y aviso desde Purchase (agrega un `503` posible al flujo de cancelación). *Seguridad:* la fila es UX; la autoridad es el snapshot y Purchase sigue rechazando la compra de un evento que no está en venta.
 
@@ -141,7 +141,8 @@ Los errores usan `application/problem+json` con `type`, `title`, `status`, `deta
 ```sql
 CREATE TABLE IF NOT EXISTS queue_counters (
     event_id UUID PRIMARY KEY,
-    next_position BIGINT NOT NULL DEFAULT 1
+    next_position BIGINT NOT NULL DEFAULT 1,
+    opened_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS queue_entries (
@@ -155,18 +156,22 @@ CREATE TABLE IF NOT EXISTS queue_entries (
     admission_expires_at TIMESTAMP WITH TIME ZONE,
     consumed_at TIMESTAMP WITH TIME ZONE,
     idempotency_key VARCHAR(120),
-    CONSTRAINT uk_queue_entry_client UNIQUE (event_id, client_id),
     CONSTRAINT uk_queue_entry_position UNIQUE (event_id, position),
     CONSTRAINT ck_queue_entry_status CHECK (status IN ('WAITING','ADMITTED','CONSUMED','EXPIRED','LEFT'))
 );
+-- Un cliente sólo puede tener un turno ACTIVO por evento; los turnos cerrados
+-- (LEFT, EXPIRED, CONSUMED) se conservan para auditoría y no bloquean la reentrada.
+CREATE UNIQUE INDEX IF NOT EXISTS uk_queue_entry_active_client
+    ON queue_entries (event_id, client_id)
+    WHERE status IN ('WAITING','ADMITTED');
 CREATE INDEX IF NOT EXISTS ix_queue_entries_event_status_position ON queue_entries (event_id, status, position);
 ```
 
-Estados: `WAITING → ADMITTED → CONSUMED | EXPIRED | LEFT`. `LEFT` y `EXPIRED` conservan la fila para auditoría y liberan la unicidad del cliente mediante una clave parcial sobre los estados activos.
+Estados: `WAITING → ADMITTED → CONSUMED | EXPIRED | LEFT`. `LEFT`, `EXPIRED` y `CONSUMED` conservan la fila para auditoría y la reentrada crea un turno nuevo con una posición posterior, porque la unicidad del cliente es parcial sobre los estados activos. `queue_counters.opened_at` marca la apertura de la fila del evento y es el origen del cálculo de tandas.
 
 ### D17 — La fila conoce la marca de alta demanda preguntando a Catalog
 
-Al entrar, la fila consulta `GET /internal/events/{eventId}/snapshot` (el mismo patrón que `CatalogSnapshotClient` en Inventory) y guarda el resultado en el turno; al admitir vuelve a validar. Un evento no publicado se responde `404`.
+Al entrar, la fila consulta `GET /internal/events/{eventId}/snapshot` (el mismo patrón que `CatalogSnapshotClient` en Inventory) sólo cuando el cliente no tiene un turno activo, y al consultar la posición vuelve a validar que el evento siga publicado. La marca no se persiste en el turno: se lee en vivo. La validación interna opera sobre el turno ya admitido y no vuelve a consultar Catalog. Un evento no publicado se responde `404`.
 
 *Alternativas descartadas:* que el cliente declare el evento de alta demanda (no es una autoridad) y que Purchase le avise (Purchase no es dueño del atributo). *Consecuencia:* la fila tiene una dependencia de Catalog y responde `503` si no la puede alcanzar, igual que Purchase con sus otros servicios.
 
