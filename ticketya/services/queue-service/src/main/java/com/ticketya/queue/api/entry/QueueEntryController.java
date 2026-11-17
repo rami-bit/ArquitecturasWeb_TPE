@@ -40,7 +40,7 @@ public class QueueEntryController {
 
     @PostMapping("/{eventId}/entries")
     @Operation(
-            operationId = "joinQueue",
+            operationId = "joinEventQueue",
             summary = "Join the virtual queue of an event (idempotent per client)",
             responses = {
                     @ApiResponse(responseCode = "201", description = "A new entry was allocated",
@@ -68,7 +68,7 @@ public class QueueEntryController {
 
     @GetMapping("/{eventId}/entries/me")
     @Operation(
-            operationId = "pollQueueEntry",
+            operationId = "getMyQueueEntry",
             summary = "Poll the caller's own queue entry with promotion and expiry applied",
             responses = {
                     @ApiResponse(responseCode = "200", description = "Current entry state",
@@ -90,7 +90,7 @@ public class QueueEntryController {
 
     @DeleteMapping("/{eventId}/entries/me")
     @Operation(
-            operationId = "leaveQueue",
+            operationId = "leaveEventQueue",
             summary = "Abandon the caller's active queue entry",
             responses = {
                     @ApiResponse(responseCode = "204", description = "The entry is closed as LEFT"),
