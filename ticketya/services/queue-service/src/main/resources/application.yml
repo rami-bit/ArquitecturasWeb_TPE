@@ -1,0 +1,34 @@
+server:
+  port: ${SERVER_PORT:8086}
+
+spring:
+  application:
+    name: queue-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/ticketya_queue}
+    username: ${DB_USER:ticketya}
+    password: ${DB_PASSWORD:ticketya}
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+
+queue:
+  batch-size: ${QUEUE_BATCH_SIZE:10}
+  batch-interval-seconds: ${QUEUE_BATCH_INTERVAL_SECONDS:15}
+  admission-ttl-seconds: ${QUEUE_ADMISSION_TTL_SECONDS:120}
+  admission-secret: ${QUEUE_ADMISSION_SECRET:local-development-admission-secret}
+  catalog:
+    base-url: ${CATALOG_SERVICE_URL:http://localhost:8081}
+    connect-timeout-ms: ${CATALOG_CONNECT_TIMEOUT_MS:2000}
+    read-timeout-ms: ${CATALOG_READ_TIMEOUT_MS:5000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs

@@ -16,6 +16,7 @@
         <module>services/ticket-service</module>
         <module>services/payment-mock</module>
         <module>services/purchase-service</module>
+        <module>services/queue-service</module>
     </modules>
 
     <properties>
