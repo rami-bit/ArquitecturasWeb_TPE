@@ -155,6 +155,16 @@ Evidencia: el `README.md` documenta requisitos, variables de entorno, build, Com
 
 Evidencia: el Gateway valida firma, expiración, `sub` UUID y un único rol permitido (`GatewayJwtSecurityIntegrationTest`, 5 pruebas con 13 variantes de token inválido). `docs/openapi.yaml` declara el esquema HTTP `BearerJWT` con `security: []` explícito en las operaciones públicas (`ConsolidatedOpenApiDocumentContractTest`, 16 pruebas). Verificación completa, con IdP de prueba local y Compose aislado, en [`docs/verification.md`](docs/verification.md) y en `NEXT.md`.
 
+## Entrega 2: Fila virtual y alta demanda (E2-02)
+
+- [x] [x] Marcar los eventos de alta demanda desde el borrador (`events.high_demand NOT NULL DEFAULT FALSE`) y publicar la marca en snapshots y consultas públicas, sin exponer disponibilidad en la fila (PDF-F6; cambio `add-virtual-queue`).
+- [x] [x] Implementar `queue-service` con posiciones monótonas por evento bajo bloqueo, tandas en orden de llegada, estados `WAITING → ADMITTED → CONSUMED | EXPIRED | LEFT` y token HMAC de un solo uso con TTL corto.
+- [x] [x] Exigir `X-Admission-Token` en `POST /api/orders` sólo para eventos de alta demanda, después del chequeo de idempotencia y antes de reservar o cobrar, con `403`/`503` según el caso.
+- [x] [x] Documentar `/api/queue/**`, `/internal/admissions/validate` y el encabezado de admisión en `docs/openapi.yaml`, y rutear la fila por el Gateway con JWT y `401` sin token.
+- [x] [x] Agregar `queue-db` y `queue-service` al Compose con variables propias, healthcheck y documentación de arranque en el README.
+
+Evidencia: reactor **330 pruebas, 0 fallos, 0 errores, 0 omitidos**; Compose aislado **13/13 healthy**; Newman vía Gateway **65 requests, 110 aserciones, 0 fallos** con 17 casos E2-02; `postman/concurrent-purchases.py` sin regresiones. El detalle está en [`docs/verification.md`](docs/verification.md) y en `NEXT.md`. El `400` heredado de la request `09` no se reproduce y no requirió cambiar reglas de negocio.
+
 ## Pruebas
 
 - [x] [x] Agregar pruebas unitarias de lógica de negocio para compra (PDF, Tareas — Entrega 1; `complete-e1-core-delivery` 3.2; `PurchaseBusinessRulesTest`, 2 pruebas; spec principal `purchase-orders`).

@@ -1,5 +1,28 @@
 # Progreso del proyecto
 
+## Entrega 2 - Épica E2-02: Fila virtual (`add-virtual-queue`)
+
+**Estado:** épica **cerrada** el 2026-11-17. El cambio quedó archivado como
+`openspec/changes/archive/2026-11-17-add-virtual-queue/` (35/35 tareas) y sus
+capacidades (`virtual-queue` nueva; `event-management`, `event-discovery`,
+`purchase-orders` y `api-gateway` modificadas) sincronizadas en `openspec/specs/`.
+
+- [x] Catálogo: `high_demand` con `NOT NULL DEFAULT FALSE`, editable sólo en `DRAFT` y publicado en snapshots/consultas públicas (`HighDemandPostgresIntegrationTest` con PostgreSQL real).
+- [x] Fila: posiciones con `pg_advisory_xact_lock`, entrada idempotente, consulta sin disponibilidad, abandono con reingreso al final, tandas en orden y cierre reactivo por expiración.
+- [x] Token de admisión HMAC ligado a evento y comprador, de un solo uso y con TTL corto; validación atómica en `/internal/admissions/validate`.
+- [x] Gateway: `/api/queue/**` antes del comodín, JWT obligatorio y `401` en `problem+json`; contrato OpenAPI con 39 paths y `X-Admission-Token` en la compra.
+- [x] Purchase: exige admisión sólo si el snapshot marca alta demanda, tras idempotencia y antes de reservar/cobrar; 7 casos de contrato (válido, ausente, ajeno, vencido, reutilizado, no-high-demand y replay).
+- [x] `mvn -o verify`: **330 tests, 0 fallos, 0 errores, 0 omitidos** (Gateway 51, Catalog 54, Inventory 73, Ticket 17, Payment 24, Purchase 64, Queue 47). XML revisados: ninguno con `skipped > 0`.
+- [x] Compose aislado `ticketya_e2_02_verification` con IdP local: **13/13 servicios healthy**; `COMPOSE_EXIT=0`.
+- [x] Newman por Gateway: **65 requests, 110 aserciones, 0 fallos**; 48 requests de Entrega 1 + 17 de E2-02 (flujo de fila y rechazos ausente/ajeno/vencido/reutilizado/replay).
+- [x] `postman/concurrent-purchases.py`: **12 compras, 1 `CONFIRMED`, 11 `409`, 1 asiento `SOLD`**; sin regresión frente a E2-01.
+- [x] `openspec validate add-virtual-queue --strict` (EXIT=0), `openspec validate --specs` (12 válidas) y `git diff --check` sin errores.
+
+**Sobre el HTTP 400 heredado:** la request `09` de la colección respondió `201 Created` en el stack de verificación; la colección y el script de concurrencia no cambiaron desde `c26a1f4`, por lo que no era una regresión de esta épica. No se aplicó la opción B (cambio separado) porque no hubo cambio de semántica ni de contrato.
+
+**Workspace preservado:** se conservaron los ajustes preexistentes en `.opencode/agents/*`, `opencode.jsonc`, los cuatro `*-free.md` y `../TP2/.factorypath`; se borró `postman_dump.txt`. El worktree de línea base se retiró sin borrar volúmenes ajenos.
+
+
 ## Entrega 2 — épica E2-01: JWT y roles (`add-jwt-and-role-security`)
 
 **Estado:** épica **cerrada** el 2026-11-16. El cambio quedó archivado como `openspec/changes/archive/2026-11-16-add-jwt-and-role-security/` (10/10 tareas) y sus capacidades (`jwt-role-security` nueva; `api-gateway` y `purchase-orders` modificadas) sincronizadas en `openspec/specs/`.

@@ -1,5 +1,67 @@
 # Verificación de Entrega 1
 
+
+## Verificación de la épica E2-02 - Fila virtual (2026-11-17)
+
+Estado: **cerrada**. El cambio `add-virtual-queue` quedó archivado como
+`openspec/changes/archive/2026-11-17-add-virtual-queue/` (35/35 tareas) y sus
+capacidades sincronizadas en `openspec/specs/`.
+
+Entorno: Windows, Docker Desktop 29.7.2, JDK 19 (el `pom.xml` fija
+`maven.compiler.release=19`), Maven 3.9.15, Testcontainers con PostgreSQL 16.4
+real, IdP de prueba local `tools/local-test-idp/LocalTestIdp.java` y Newman
+6.2.3 mediante `npx --yes newman`.
+
+| Verificación | Comando / entorno | Resultado |
+|---|---|---|
+| Reactor completo | `mvn -o verify` desde la raíz | **BUILD SUCCESS**. Gateway **51**, Catalog **54**, Inventory **73**, Ticket **17**, Payment Mock **24**, Purchase **64**, Queue **47** = **330 pruebas, 0 fallos, 0 errores, 0 omitidos**. XML Surefire recientes revisados clase por clase; ninguno con `skipped > 0`. |
+| Marco de alta demanda | `HighDemandPostgresIntegrationTest` (Testcontainers, PostgreSQL real) | `high_demand` existe con `NOT NULL DEFAULT FALSE`; los `INSERT` crudos siguen siendo válidos y el campo sólo se puede activar en `DRAFT`. |
+| Unidad de la fila | `BatchCalculatorTest`, `AdmissionWindowTest`, `AdmissionTokenCodecTest` | Tandas en orden por posición, vigencia del token y código HMAC del token de admisión. |
+| Integración de la fila | `QueueJoinFlowIntegrationTest`, `QueuePromotionIntegrationTest`, `QueueAdmissionExpiryIntegrationTest`, `QueueValidateIntegrationTest`, `QueueCatalogFailureIntegrationTest` | PostgreSQL real (`queue-db`): idempotencia de entrada, unicidad de posición, orden de llegada, reingreso al final tras abandono, expiración, token ajeno/reutilizado y caída del proveedor de snapshot. |
+| Admisión en la compra | `PurchaseAdmissionContractTest` (7 casos) | Compra con token válido, sin token, de otro cliente, vencido, reutilizado con otra `Idempotency-Key`, evento sin alta demanda sin cambios y replay idempotente que no consume de nuevo el token; `503` si la fila no responde. |
+| Contrato OpenAPI | `ConsolidatedOpenApiDocumentContractTest`, `CatalogPurchaseSnapshotDocumentContractTest`, `PurchaseOpenApiDocumentContractTest` | 39 paths; `highDemand` en los esquemas públicos y en los dos snapshots, `X-Admission-Token` declarado en `POST /api/orders`, paths `/api/queue/**` y `/internal/admissions/validate` documentados. |
+| Ruteo del Gateway | `GatewayDefaultRouteTest`, `GatewayRoutingIntegrationTest`, `GatewayJwtSecurityIntegrationTest` | `/api/queue/**` precede al comodín `/api/**`; las operaciones de la fila exigen JWT (sin token → `401` en `application/problem+json`) y el Gateway no reenvía el Bearer. |
+| Compose aislado | `$env:JWT_ISSUER_URI='http://host.docker.internal:19998'; $env:JWT_JWK_SET_URI='http://host.docker.internal:19998/.well-known/jwks.json'; $env:QUEUE_BATCH_INTERVAL_SECONDS='2'; docker compose -p ticketya_e2_02_verification up --build -d --wait` | **13/13 servicios healthy**, incluidos `queue-db` y `queue-service`. `COMPOSE_EXIT=0`. El intervalo de tandas se acortó sólo en el entorno de verificación; el valor por defecto sigue siendo 15 s. |
+| Colección Postman vía Gateway | `npx --yes newman run postman/ticketya.postman_collection.json --env-var baseUrl=http://localhost:8080 ... --delay-request 2000` | **65 requests, 110 aserciones, 0 fallos**. Los 48 requests de Entrega 1 siguen en verde y los 17 nuevos (`E2-02-01` … `E2-02-17`) cubren el flujo de fila y los rechazos por admisión ausente, ajena, vencida, reutilizada y por replay idempotente. `NEWMAN_EXIT=0`. |
+| Compras simultáneas por Gateway | `$env:BASE_URL='http://localhost:8080'; $env:IDP_TOKEN_URL='http://localhost:19998/token'; python postman/concurrent-purchases.py` | **PASS**: 12 compras, 1 `CONFIRMED`, 11 `409`, 1 asiento `SOLD`; evento `0fb59ae0-1206-4ee2-83ef-9de1e532af8a`. `CONC_EXIT=0`. |
+| OpenSpec y diff | `openspec validate add-virtual-queue --strict`, `openspec validate --specs`, `git diff --check` | `Change 'add-virtual-queue' is valid` (EXIT=0); 12 specs válidas, 0 fallidos; diff sin errores de whitespace. |
+
+### Investigación del HTTP 400 del primer `POST /api/orders`
+
+El estado heredado de `AGENTS.md` registraba un `400` en la request `09` de la
+colección. Antes de tocar código se verificó:
+
+1. La request `09` cumple `docs/openapi.yaml`: `eventId`, un ítem con
+   `sectorId` de Inventory y `quantity`, y `payment.method=CARD`. La cadena
+   `01 → 04 → 05 → 08` exporta los IDs correctos.
+2. El worktree aislado en `c26a1f4` confirmó que ni la colección ni
+   `concurrent-purchases.py` cambiaron desde la línea base, de modo que no
+   era una regresión de la admisión de esta épica.
+3. El análisis estático señaló `PurchaseService.priceItems` como único punto
+   del camino feliz capaz de devolver `400` según datos de runtime.
+4. **No se reproduce**: en el stack `ticketya_e2_02_verification` la request
+   `09` respondió `201 Created` y la colección completa pasó 48/48 antes de
+   agregar el flujo de fila. No se modificó ninguna regla de negocio ni se
+   cambió el contrato; la opción B (cambio OpenSpec separado) no fue necesaria.
+
+### Nota sobre el caso de token vencido en Postman
+
+La request `E2-02-17` construye un token con marca de tiempo pasada usando el
+secreto de desarrollo de `QUEUE_ADMISSION_SECRET`. Es una firma HMAC válida
+pero fuera de vigencia y ejerce la misma respuesta `403` que un token expirado,
+sin depender del TTL configurado en el servidor. La expiración real por TTL
+está cubierta con PostgreSQL real en `AdmissionWindowTest` y
+`QueueAdmissionExpiryIntegrationTest`.
+
+### Preservación del workspace
+
+Se conservaron sin cambios los ajustes preexistentes en `.opencode/agents/*`,
+`opencode.jsonc`, los cuatro `*-free.md` y `../TP2/.factorypath`. Se eliminó
+`postman_dump.txt` según lo acordado. El worktree de línea base se creó en
+`C:\Users\ramir\AppData\Local\Temp\opencode\ticketya-baseline` y se retiró
+sin borrar volúmenes ajenos.
+
+
 ## Verificación de la épica E2-01 - JWT y roles (2026-11-16)
 
 Estado: **cerrada**. El cambio `add-jwt-and-role-security` quedó archivado como `openspec/changes/archive/2026-11-16-add-jwt-and-role-security/` (10/10 tareas) y sus capacidades sincronizadas en `openspec/specs/`.
