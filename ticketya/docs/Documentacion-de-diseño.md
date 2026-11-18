@@ -99,12 +99,20 @@
 
 **Como** cliente, **quiero** conocer mi posición en la fila de un evento de alta demanda, **para** saber cuándo puedo iniciar la compra.
 
-**Trazabilidad:** PDF-F6. **Estado:** **NO IMPLEMENTADO. NO PARTE DE ESTA TAREA.**
+**Trazabilidad:** PDF-F6. **Estado:** implementado en E2 (`add-virtual-queue`).
 
 **Criterios de aceptación**
 
-- **Dado** un evento marcado como de alta demanda cuya venta se abre, **cuando** un cliente ingresa a la fila virtual, **entonces** el sistema le informa su posición.
-- **Dado** que hay clientes esperando, **cuando** el sistema habilita el acceso a compra, **entonces** los habilita en orden y por tandas.
+- **Dado** un evento publicado y marcado como de alta demanda, **cuando** un cliente ingresa a la fila virtual, **entonces** recibe un turno con su posición, calculada por un contador por evento que nunca repite un número.
+- **Dado** un cliente que ya tiene un turno activo en la fila, **cuando** vuelve a ingresar, **entonces** obtiene el mismo turno y la misma posición, sin consumir un lugar adicional.
+- **Dado** que hay clientes esperando, **cuando** el sistema habilita el acceso a compra, **entonces** los habilita en orden de llegada y por tandas de tamaño fijo, sin admitir a nadie con una posición posterior mientras haya turnos anteriores en espera.
+- **Dado** un turno admitido, **cuando** el cliente consulta su posición, **entonces** el sistema le entrega un token de admisión de vigencia corta, ligado al evento y al comprador, y de un solo uso.
+- **Dado** un token vencido, ajeno, de otro evento o ya consumido, **cuando** se intenta comprar un evento de alta demanda, **entonces** la compra se rechaza sin reservar stock ni cobrar.
+- **Dado** un cliente con un turno admitido, **cuando** inicia la compra dentro de la vigencia del token y hay disponibilidad, **entonces** la orden se crea y el token queda consumido; un reintento con la misma `Idempotency-Key` no consume un segundo token.
+- **Dado** un cliente que abandona la fila o cuyo turno venció, **cuando** vuelve a ingresar, **entonces** recibe una posición nueva al final de la fila.
+- **Dado** un evento publicado sin la marca de alta demanda, **cuando** un cliente intenta ingresar a la fila, **entonces** el sistema responde que el evento no tiene fila y la compra sigue sin token de admisión.
+- **Dado** un evento cancelado o despublicado, **cuando** un cliente consulta su turno, **entonces** la fila se cierra y no admite nuevas compras.
+- La fila **no** informa la disponibilidad de entradas ni reserva inventario: Inventory sigue siendo la única autoridad de stock, y una caída de la fila no bloquea la cancelación del evento.
 
 ### Feature F7 — Devoluciones y cancelación de eventos (Entrega 1)
 

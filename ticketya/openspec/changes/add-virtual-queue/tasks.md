@@ -11,8 +11,8 @@
 
 ## 2. Servicio de fila virtual
 
-- [ ] 2.1 Crear el módulo Maven `services/queue-service` con su `pom.xml`, su entrada en el `pom.xml` raíz, su `Dockerfile` y su `application.yml` con las propiedades `queue.batch-size`, `queue.batch-interval-seconds`, `queue.admission-ttl-seconds` y `queue.catalog-base-url`
-- [ ] 2.2 Crear el esquema propio `queue_db` (`queue_counters`, `queue_entries`) en el bootstrap idempotente del servicio, con `UNIQUE (event_id, client_id)`, `UNIQUE (event_id, position)` y el chequeo de estados
+- [ ] 2.1 Crear el módulo Maven `services/queue-service` con su `pom.xml`, su entrada en el `pom.xml` raíz, su `Dockerfile` y su `application.yml` con las propiedades `queue.batch-size`, `queue.batch-interval-seconds`, `queue.admission-ttl-seconds`, `queue.admission-secret` y `queue.catalog.base-url`
+- [ ] 2.2 Crear el esquema propio `queue_db` (`queue_counters`, `queue_entries`) en el bootstrap idempotente del servicio, con el índice único parcial `(event_id, client_id) WHERE status IN ('WAITING','ADMITTED')`, `UNIQUE (event_id, position)` y el chequeo de estados
 - [ ] 2.3 Implementar el repositorio JDBC con la asignación de posición bajo `pg_advisory_xact_lock` por evento y `SELECT … FOR UPDATE` sobre el contador, reutilizando el patrón vigente de `acquireLimit` y `lockEvent`
 - [ ] 2.4 Implementar el cliente del snapshot interno de Catalog para conocer la marca de alta demanda y distinguir evento no publicado (`404`) de evento publicado
 - [ ] 2.5 Implementar la entrada a la fila: turno idempotente por cliente y evento, posición asignada al final y errores `401`, `403`, `404` y `409` con `application/problem+json`

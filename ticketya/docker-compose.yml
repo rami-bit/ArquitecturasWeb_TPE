@@ -167,6 +167,50 @@ services:
     networks:
       - ticketya
 
+  queue-db:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_DB: ${QUEUE_POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - queue-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - ticketya
+
+  queue-service:
+    build:
+      context: .
+      dockerfile: services/queue-service/Dockerfile
+    environment:
+      SERVER_PORT: ${QUEUE_SERVER_PORT}
+      DB_URL: ${QUEUE_DB_URL}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      CATALOG_SERVICE_URL: ${QUEUE_CATALOG_SERVICE_URL}
+      QUEUE_BATCH_SIZE: ${QUEUE_BATCH_SIZE}
+      QUEUE_BATCH_INTERVAL_SECONDS: ${QUEUE_BATCH_INTERVAL_SECONDS}
+      QUEUE_ADMISSION_TTL_SECONDS: ${QUEUE_ADMISSION_TTL_SECONDS}
+      QUEUE_ADMISSION_SECRET: ${QUEUE_ADMISSION_SECRET}
+    depends_on:
+      queue-db:
+        condition: service_healthy
+      catalog-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${QUEUE_SERVER_PORT}/actuator/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 15s
+    networks:
+      - ticketya
+
   purchase-service:
     build:
       context: .
@@ -180,6 +224,7 @@ services:
       INVENTORY_SERVICE_URL: ${PURCHASE_INVENTORY_SERVICE_URL}
       PAYMENT_SERVICE_URL: ${PURCHASE_PAYMENT_SERVICE_URL}
       TICKET_SERVICE_URL: ${PURCHASE_TICKET_SERVICE_URL}
+      QUEUE_SERVICE_URL: ${PURCHASE_QUEUE_SERVICE_URL}
       PURCHASE_TICKET_LIMIT: ${PURCHASE_TICKET_LIMIT}
     depends_on:
       purchase-db:
@@ -191,6 +236,8 @@ services:
       payment-mock:
         condition: service_healthy
       ticket-service:
+        condition: service_healthy
+      queue-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${PURCHASE_SERVER_PORT}/actuator/health"]
@@ -209,6 +256,7 @@ services:
       CATALOG_SERVICE_URL: ${GATEWAY_CATALOG_SERVICE_URL}
       INVENTORY_SERVICE_URL: ${GATEWAY_INVENTORY_SERVICE_URL}
       PURCHASE_SERVICE_URL: ${GATEWAY_PURCHASE_SERVICE_URL}
+      QUEUE_SERVICE_URL: ${GATEWAY_QUEUE_SERVICE_URL}
       JWT_ISSUER_URI: ${JWT_ISSUER_URI}
       JWT_JWK_SET_URI: ${JWT_JWK_SET_URI}
     depends_on:
@@ -217,6 +265,8 @@ services:
       inventory-service:
         condition: service_healthy
       purchase-service:
+        condition: service_healthy
+      queue-service:
         condition: service_healthy
     ports:
       - "${GATEWAY_PORT}:${GATEWAY_SERVER_PORT}"
@@ -238,3 +288,4 @@ volumes:
   ticket-postgres-data:
   purchase-postgres-data:
   payment-postgres-data:
+  queue-postgres-data:

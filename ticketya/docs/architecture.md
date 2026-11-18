@@ -1,21 +1,25 @@
 # Arquitectura y diseño — TicketYa
 
-Documento de arquitectura de la Entrega 1. Resume los microservicios, sus
+Documento de arquitectura de TicketYa. Resume los microservicios, sus
 responsabilidades y su API, la comunicación entre ellos, el mecanismo contra la
-doble venta y los modelos de datos. El contrato HTTP versionado está en
+doble venta y los modelos de datos. Incluye el núcleo de la Entrega 1 y las
+épicas de Entrega 2 ya implementadas: seguridad JWT (`add-jwt-and-role-security`)
+y fila virtual (`add-virtual-queue`). El contrato HTTP versionado está en
 [`docs/openapi.yaml`](openapi.yaml) y las decisiones de detalle en
-[`openspec/changes/archive/2026-11-15-establish-purchase-and-ticketing/design.md`](../openspec/changes/archive/2026-11-15-establish-purchase-and-ticketing/design.md).
+[`openspec/changes/archive/2026-11-15-establish-purchase-and-ticketing/design.md`](../openspec/changes/archive/2026-11-15-establish-purchase-and-ticketing/design.md)
+y [`openspec/changes/add-virtual-queue/design.md`](../openspec/changes/add-virtual-queue/design.md).
 
 ## 1. Microservicios y responsabilidades
 
 | Servicio | Puerto | Base de datos | API pública (vía Gateway) | API interna |
 |---|---|---|---|---|
-| `api-gateway` | 8080 | — | Punto de entrada único. Valida el JWT (Bearer) y enruta `/api/inventory/**`, `/api/orders/**`, `/api/refunds/**` y `/api/events/*/cancellation`; el resto de `/api/**` va a Catalog. | — |
+| `api-gateway` | 8080 | — | Punto de entrada único. Valida el JWT (Bearer) y enruta `/api/inventory/**`, `/api/queue/**`, `/api/orders/**`, `/api/refunds/**` y `/api/events/*/cancellation`; el resto de `/api/**` va a Catalog. | — |
 | `catalog-service` | 8081 | `ticketya_catalog` | Eventos: `GET /api/events`, `GET /api/events/{id}`; venues: `POST/GET /api/venues`, `PUT /api/venues/{id}`; gestión: `POST/GET /api/management/events`, `GET/PUT /api/management/events/{id}`, `PUT /api/management/events/{id}/offerings`, `POST /api/management/events/{id}/publish`, `/api/management/events/{id}/suspend`, `/api/management/events/{id}/cancel`, `/api/management/events/{id}/resume`. | `GET /internal/events/{eventId}/snapshot`, `GET /internal/events/{eventId}/purchase-snapshot` |
 | `inventory-service` | 8082 | `ticketya_inventory` | `GET /api/inventory/events/{eventId}/availability` | `POST/GET /internal/reservations/**`, confirmar/liberar reserva, `POST /internal/reservations/{reservationId}/sold-units/release`, `PUT /internal/events/{eventId}/hold-ttl` y `PUT /internal/events/{eventId}/cancellation` |
 | `ticket-service` | 8083 | `ticketya_ticket` | — (las entradas se leen desde la orden) | `POST /internal/orders/{orderId}/items/{orderItemId}/tickets` (emisión), `POST /internal/tickets/{ticketId}/revoke` |
 | `purchase-service` | 8084 | `ticketya_purchase` | `POST/GET /api/orders`, `GET /api/orders/{orderId}`, `POST /api/orders/{orderId}/reconcile`; `POST /api/refunds/tickets/{ticketId}`, `GET /api/refunds/{refundId}`, `POST /api/refunds/{refundId}/decision`; `POST/GET /api/events/{eventId}/cancellation` | — |
 | `payment-mock` | 8085 | `ticketya_payment` | — | `POST /internal/payments`, `GET /internal/payments/{paymentId}`, `GET /internal/payments/by-order/{orderId}`, `POST /internal/payments/{paymentId}/refund` (total), `POST /internal/payments/{paymentId}/refunds` (parcial) |
+| `queue-service` | 8086 | `ticketya_queue` | `POST /api/queue/events/{eventId}/entries`, `GET/DELETE /api/queue/events/{eventId}/entries/me` | `POST /internal/admissions/validate` |
 
 Las rutas de cancelación tienen propósitos distintos. Catalog expone
 `POST /api/management/events/{id}/cancel`: cambia el estado a `CANCELLED` y
@@ -56,6 +60,11 @@ Responsabilidades:
   cancelaciones de eventos.
 - **Payment Mock** simula la pasarela: dueño del pago y del reintegro, sin datos
   del comprador ni referencias a `purchase_db`; registra reintegros parciales.
+- **Queue** es dueño de la fila virtual de los eventos marcados como de alta
+  demanda: asigna posiciones por evento, abre tandas por tiempo y emite el token
+  de admisión de un solo uso. No conoce precios ni stock y nunca informa la
+  disponibilidad de entradas; sólo lee del snapshot de Catalog si el evento está
+  publicado y si tiene la marca `highDemand`.
 
 ## 2. Diagrama de módulos
 
@@ -66,8 +75,11 @@ flowchart LR
     GW -->|/api/** excepto rutas dedicadas| CAT[catalog-service :8081]
     GW -->|/api/inventory| INV[inventory-service :8082]
     GW -->|/api/orders, /api/refunds, cancelación de evento| PUR[purchase-service :8084]
+    GW -->|/api/queue| QUE[queue-service :8086]
 
     PUR -->|snapshot / fecha / cancelación lógica (F7)| CAT
+    PUR -->|validar y consumir admisión (F6)| QUE
+    QUE -->|snapshot publicado: highDemand| CAT
     CAT -->|bloquear ventas de evento cancelado| INV
     PUR -->|reservar / confirmar / liberar unidad vendida (F7)| INV
     PUR -->|cobrar / reintegrar total o parcialmente (F7)| PAY[payment-mock :8085]
@@ -78,6 +90,7 @@ flowchart LR
     TKT --- DB3[(ticketya_ticket)]
     PUR --- DB4[(ticketya_purchase)]
     PAY --- DB5[(ticketya_payment)]
+    QUE --- DB6[(ticketya_queue)]
 ```
 
 Cada servicio es un proyecto Spring Boot independiente, con su propio `pom.xml`,
@@ -99,6 +112,11 @@ para construir todo junto.
 - Los comandos que modifican estado son idempotentes por clave de negocio:
   reserva por `orderId`, pago por `orderId`, emisión por `(orderId, orderItemId)`
   y orden por `(customerId, idempotencyKey)`.
+- La admisión de la fila virtual viaja como un token opaco en el encabezado
+  `X-Admission-Token`. No es un encabezado de identidad: el Gateway sólo descarta
+  `X-User-Id`, `X-User-Role` y `Authorization`, por lo que el token llega intacto
+  a Purchase. El token se valida y consume en Queue; Purchase nunca lo interpreta
+  ni lo persiste.
 
 ## 4. Secuencia de compra de una entrada numerada
 
@@ -214,6 +232,52 @@ sequenceDiagram
 La misma secuencia de revocación, reintegro y liberación se usa tras aprobar una
 devolución individual. E1 emite y revoca el QR; no implementa su validación en el
 acceso.
+
+### Fila virtual y admisión en la compra (F6)
+
+Un evento se marca como de alta demanda en Catalog con `highDemand`, sólo
+mientras está en `DRAFT`; la marca se lee en vivo desde `events` en el snapshot
+de compra y en el de inventario, sin tocar `event_snapshots`. Ni la fila ni el
+token reservan stock: la compra sigue dependiendo de Inventory.
+
+```mermaid
+sequenceDiagram
+    actor C as Cliente
+    participant G as Gateway
+    participant Q as Queue
+    participant CAT as Catalog
+    participant P as Purchase
+    participant I as Inventory
+
+    C->>G: POST /api/queue/events/{eventId}/entries
+    G->>Q: entrar a la fila
+    Q->>CAT: GET /internal/events/{eventId}/snapshot
+    CAT-->>Q: publicado + highDemand
+    Q-->>C: 201 turno WAITING con posición
+    loop sondeo
+        C->>G: GET .../entries/me
+        G->>Q: consultar turno
+        Q->>Q: abrir tanda y vencer admisiones
+        Q-->>C: WAITING o ADMITTED con admissionToken
+    end
+    C->>G: POST /api/orders (X-Admission-Token)
+    G->>P: crear orden
+    P->>P: idempotencia por Idempotency-Key
+    P->>CAT: GET /internal/events/{eventId}/purchase-snapshot
+    CAT-->>P: precios + highDemand
+    P->>Q: POST /internal/admissions/validate
+    Q-->>P: 200 admitted (turno CONSUMED)
+    P->>I: disponibilidad, reserva, confirmación
+    P-->>C: 201 orden confirmada
+```
+
+El orden importa: la admisión se evalúa **después** del chequeo de idempotencia
+y **antes** de consultar disponibilidad o reservar. Un reintento con la misma
+`Idempotency-Key` devuelve la orden existente sin consumir un segundo token. Si
+el token falta, es ajeno, venció o ya se usó, Purchase responde `403`; si la fila
+cerró, `409`. El cierre de la fila es reactivo: Queue consulta el snapshot de
+Catalog, de modo que un evento cancelado o despublicado deja de admitir turnos
+sin que una caída de la fila bloquee la cancelación del evento.
 
 ## 5. Doble venta
 
@@ -583,6 +647,44 @@ queda en `refunds`, con clave de idempotencia única y FK local a `payments`.
 El token de simulación se persiste para detectar reintentos con contenido
 distinto, pero nunca se expone en la respuesta.
 
+### Queue
+
+```mermaid
+erDiagram
+    queue_counters ||--o{ queue_entries : allocates
+
+    queue_counters {
+        uuid event_id PK
+        bigint next_position
+        timestamptz opened_at
+    }
+    queue_entries {
+        uuid id PK
+        uuid event_id
+        uuid client_id
+        bigint position
+        varchar status
+        timestamptz joined_at
+        timestamptz admitted_at
+        timestamptz admission_expires_at
+        timestamptz consumed_at
+        varchar idempotency_key
+    }
+```
+
+`queue_counters` guarda el próximo número de posición y la apertura de la fila
+del evento; `opened_at` es el origen del cálculo de tandas. `queue_entries`
+guarda el turno: `UNIQUE (event_id, position)` impide repetir una posición y un
+índice único parcial sobre `(event_id, client_id) WHERE status IN ('WAITING','ADMITTED')`
+permite que un cliente tenga un solo turno activo y vuelva a entrar al final
+después de `LEFT`, `EXPIRED` o `CONSUMED`. Estados:
+`WAITING → ADMITTED → CONSUMED | EXPIRED | LEFT`. La posición se asigna dentro
+de una transacción con `pg_advisory_xact_lock` por evento y `SELECT … FOR UPDATE`
+sobre el contador, así que varias instancias nunca entregan el mismo número. La
+base no guarda precios, stock ni el token de admisión: el token se recalcula con
+HMAC-SHA256 desde el turno y una clave del servicio, y `idempotency_key` deja
+trazabilidad de qué orden consumió el turno.
+
 ## 7. Entidades solapadas entre bases
 
 | Entidad | Dueño | Copias / referencias | Propósito y regla |
@@ -595,20 +697,21 @@ distinto, pero nunca se expone en la respuesta.
 | `payment` | Payment (`payments`, `refunds`) | Purchase (`purchase_orders.payment_id`, `purchase_orders.payment_status`) | Purchase guarda el identificador y estado del pago. `payments.order_id` y `refunds.payment_id` no crean FK entre bases. |
 | `ticket` | Ticket (`tickets`, hash QR y estado) | Purchase (`order_tickets.ticket_id`, `qr_payload`, `qr_png_base64`; `refund_requests.ticket_id`) | Ticket es dueño del ticket y su revocación. Purchase conserva la copia del payload/PNG que devuelve al titular al consultar su orden; no hay FK hacia `ticket_db`. |
 | `reservation` | Inventory (`reservations`) | Purchase (`purchase_orders.reservation_id`) | Referencia UUID entre bases; Purchase no consulta tablas de Inventory. |
+| `queue entry` | Queue (`queue_entries`, `queue_counters`) | Purchase (no la copia: sólo envía `eventId`, `clientId` y el token a validar) | Queue es dueño del turno, la posición y el consumo del token. Ni Catalog ni Purchase almacenan turnos; `queue_entries.idempotency_key` referencia la `Idempotency-Key` de la orden sólo como traza. |
 
 ## 8. Contrato y documentación
 
-- Contrato consolidado: [`docs/openapi.yaml`](openapi.yaml) — 41 operaciones
-  sobre 36 rutas, con ejemplos, errores `problem+json` y esquemas de Purchase,
-  Payment, Catalog e Inventory.
+- Contrato consolidado: [`docs/openapi.yaml`](openapi.yaml) — 45 operaciones
+  sobre 39 rutas, con ejemplos, errores `problem+json` y esquemas de Purchase,
+  Payment, Catalog, Inventory y Queue.
 - OpenAPI en runtime: `/v3/api-docs` en los puertos internos de Catalog (8081),
-  Inventory (8082), Ticket (8083), Purchase (8084) y Payment (8085).
+  Inventory (8082), Ticket (8083), Purchase (8084), Queue (8086) y Payment (8085).
 - Colección de pruebas: `postman/ticketya.postman_collection.json`.
 - Evidencia de ejecución: [`docs/verification.md`](verification.md).
 
 ## 9. Ejecución local
 
 `docker compose up -d --build` levanta el Gateway en `http://localhost:8080`, los
-cinco servicios y las cinco bases. Los puertos `8081`–`8085` no se publican al
+seis servicios y las seis bases. Los puertos `8081`–`8086` no se publican al
 host; el `docker-compose.yml` y `.env` documentan las variables de cada
 servicio. El detalle paso a paso está en el [README](../README.md).
