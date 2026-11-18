@@ -15,6 +15,10 @@ spring:
       # Route order matters: the inventory prefix must win over the catalog catch-all.
       # Internal commands (/internal/**) are intentionally not routed.
       routes:
+        - id: queue-service
+          uri: ${QUEUE_SERVICE_URL:http://localhost:8086}
+          predicates:
+            - Path=/api/queue/**
         - id: inventory-service
           uri: ${INVENTORY_SERVICE_URL:http://localhost:8082}
           predicates:

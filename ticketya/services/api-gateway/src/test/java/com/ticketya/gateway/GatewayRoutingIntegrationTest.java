@@ -44,7 +44,9 @@ class GatewayRoutingIntegrationTest {
     private static final JwksTestServer JWKS_SERVER = JwksTestServer.start(IDP);
     private static final String IDP_ISSUER = JWKS_SERVER.issuerUrl();
     private static final List<RecordedRequest> RECORDED = new CopyOnWriteArrayList<>();
-    private static final HttpServer CATALOG_STUB = startStub();
+    private static final List<RecordedRequest> QUEUE_RECORDED = new CopyOnWriteArrayList<>();
+    private static final HttpServer CATALOG_STUB = startStub(RECORDED, "catalog-stub");
+    private static final HttpServer QUEUE_STUB = startStub(QUEUE_RECORDED, "queue-stub");
 
     @LocalServerPort
     private int gatewayPort;
@@ -57,6 +59,7 @@ class GatewayRoutingIntegrationTest {
     @BeforeEach
     void setUp() {
         RECORDED.clear();
+        QUEUE_RECORDED.clear();
         client = WebTestClient.bindToServer()
                 .baseUrl("http://localhost:" + gatewayPort)
                 .build();
@@ -65,12 +68,14 @@ class GatewayRoutingIntegrationTest {
     @AfterAll
     static void stopStubs() {
         CATALOG_STUB.stop(0);
+        QUEUE_STUB.stop(0);
         JWKS_SERVER.close();
     }
 
     @DynamicPropertySource
     static void gatewayProperties(DynamicPropertyRegistry registry) {
         registry.add("CATALOG_SERVICE_URL", () -> "http://localhost:" + CATALOG_STUB.getAddress().getPort());
+        registry.add("QUEUE_SERVICE_URL", () -> "http://localhost:" + QUEUE_STUB.getAddress().getPort());
         registry.add("spring.security.oauth2.resourceserver.jwt.issuer-uri", () -> IDP_ISSUER);
         registry.add("spring.security.oauth2.resourceserver.jwt.jwk-set-uri",
                 () -> IDP_ISSUER + "/.well-known/jwks.json");
@@ -164,10 +169,55 @@ class GatewayRoutingIntegrationTest {
                 });
 
         assertThat(routes)
+                .filteredOn(route -> "queue-service".equals(route.getId()))
+                .singleElement()
+                .satisfies(route -> assertThat(route.getUri().getPort())
+                        .isEqualTo(QUEUE_STUB.getAddress().getPort()));
+
+        assertThat(routes)
                 .filteredOn(route -> "inventory-service".equals(route.getId()))
                 .singleElement()
                 .satisfies(route -> assertThat(route.getUri().toString())
                         .isEqualTo("http://localhost:8082"));
+    }
+
+    @Test
+    void routesQueueRequestsToQueueServiceInsteadOfTheCatalogCatchAll() {
+        String sub = UUID.randomUUID().toString();
+        String eventId = UUID.randomUUID().toString();
+
+        client.post().uri("/api/queue/events/" + eventId + "/entries")
+                .header("Authorization", "Bearer " + IDP.bearerToken(IDP_ISSUER, sub, "CLIENT"))
+                .header("X-Admission-Token", "admission-token-1")
+                .header(CORRELATION_HEADER, "queue-trace")
+                .exchange()
+                .expectStatus().isOk();
+
+        assertThat(RECORDED)
+                .as("la ruta /api/queue/** no debe caer en el catch-all de Catalog")
+                .isEmpty();
+        assertThat(QUEUE_RECORDED).singleElement().satisfies(request -> {
+            assertThat(request.method()).isEqualTo("POST");
+            assertThat(request.path()).isEqualTo("/api/queue/events/" + eventId + "/entries");
+            assertThat(request.correlationId()).isEqualTo("queue-trace");
+            assertThat(request.userId()).as("X-User-Id derivado del sub del JWT").isEqualTo(sub);
+            assertThat(request.userRole()).isEqualTo("CLIENT");
+            assertThat(request.authorization()).as("el Bearer no se reenvía al servicio").isNull();
+            assertThat(request.admissionToken())
+                    .as("X-Admission-Token no es un encabezado de identidad: se propaga tal cual")
+                    .isEqualTo("admission-token-1");
+        });
+    }
+
+    @Test
+    void queueRouteRequiresJwtAndDoesNotReachTheService() {
+        client.get().uri("/api/queue/events/" + UUID.randomUUID() + "/entries/me")
+                .exchange()
+                .expectStatus().isUnauthorized();
+
+        assertThat(QUEUE_RECORDED)
+                .as("el rechazo 401 no llega a queue-service")
+                .isEmpty();
     }
 
     @Test
@@ -259,12 +309,12 @@ class GatewayRoutingIntegrationTest {
                 .satisfies(request -> assertThat(request.correlationId()).isEqualTo(correlationId));
     }
 
-    private static HttpServer startStub() {
+    private static HttpServer startStub(List<RecordedRequest> sink, String threadName) {
         try {
             HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
-            server.createContext("/", GatewayRoutingIntegrationTest::handle);
+            server.createContext("/", exchange -> handle(exchange, sink));
             server.setExecutor(Executors.newCachedThreadPool(runnable -> {
-                Thread thread = new Thread(runnable, "catalog-stub");
+                Thread thread = new Thread(runnable, threadName);
                 thread.setDaemon(true);
                 return thread;
             }));
@@ -275,13 +325,13 @@ class GatewayRoutingIntegrationTest {
         }
     }
 
-    private static void handle(HttpExchange exchange) throws IOException {
+    private static void handle(HttpExchange exchange, List<RecordedRequest> sink) throws IOException {
         try (exchange) {
             String path = exchange.getRequestURI().getRawPath();
             String query = exchange.getRequestURI().getRawQuery();
             String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             String correlationId = exchange.getRequestHeaders().getFirst(CORRELATION_HEADER);
-            RECORDED.add(new RecordedRequest(
+            sink.add(new RecordedRequest(
                     exchange.getRequestMethod(),
                     path,
                     query,
@@ -289,6 +339,7 @@ class GatewayRoutingIntegrationTest {
                     exchange.getRequestHeaders().getFirst("X-User-Id"),
                     exchange.getRequestHeaders().getFirst("X-User-Role"),
                     exchange.getRequestHeaders().getFirst("Authorization"),
+                    exchange.getRequestHeaders().getFirst("X-Admission-Token"),
                     body));
 
             String contentType = MediaType.APPLICATION_JSON_VALUE;
@@ -322,6 +373,7 @@ class GatewayRoutingIntegrationTest {
             String userId,
             String userRole,
             String authorization,
+            String admissionToken,
             String body) {
     }
 }

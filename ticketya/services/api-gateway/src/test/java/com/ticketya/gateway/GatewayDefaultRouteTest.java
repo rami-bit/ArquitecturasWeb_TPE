@@ -21,6 +21,12 @@ class GatewayDefaultRouteTest {
         assertThat(routes).isNotNull();
 
         assertThat(routes)
+                .filteredOn(route -> "queue-service".equals(route.getId()))
+                .singleElement()
+                .satisfies(route -> assertThat(route.getUri().toString())
+                        .isEqualTo("http://localhost:8086"));
+
+        assertThat(routes)
                 .filteredOn(route -> "catalog-service".equals(route.getId()))
                 .singleElement()
                 .satisfies(route -> assertThat(route.getUri().toString())

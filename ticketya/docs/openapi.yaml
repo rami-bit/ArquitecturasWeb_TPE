@@ -2,17 +2,21 @@ openapi: 3.0.3
 
 info:
   title: TicketYa API - Consolidated contracts
-  version: '0.4.0'
+  version: '0.5.0'
   description: |
     Contrato versionado consolidado de TicketYa. Incluye el core de la Entrega 1
-    (Catalog, Inventory, Purchase, Ticket y Payment Mock) y la seguridad JWT de
-    la épica E2-01 (`add-jwt-and-role-security`): autenticación Bearer con JWT
-    firmado por un proveedor externo, claims `sub` (UUID) y `roles` (un único
-    valor entre `CLIENT`, `ORGANIZER`, `ADMIN` y `ACCESS_STAFF`), validación en
-    el Gateway y propagación de identidad derivada a los servicios.
+    (Catalog, Inventory, Purchase, Ticket y Payment Mock), la seguridad JWT de
+    la épica E2-01 (`add-jwt-and-role-security`) y la fila virtual de la épica
+    E2-02 (`add-virtual-queue`).
 
-    No declara funcionalidades de Entrega 2 aún no implementadas (fila virtual,
-    acceso QR por `ACCESS_STAFF`, preferencias de cliente, etc.).
+    Seguridad: autenticación Bearer con JWT firmado por un proveedor externo,
+    claims `sub` (UUID) y `roles` (un único valor entre `CLIENT`, `ORGANIZER`,
+    `ADMIN` y `ACCESS_STAFF`), validación en el Gateway y propagación de
+    identidad derivada a los servicios.
+
+    No declara funcionalidades de Entrega 2 aún no implementadas (acceso QR por
+    `ACCESS_STAFF`, preferencias de cliente, recomendaciones, notificaciones ni
+    reportes).
 
     Superficie pública a través del API Gateway (`http://localhost:8080`):
     - **Catalog público:** `GET /api/events`, `GET /api/events/{id}`.
@@ -27,11 +31,15 @@ info:
       `GET /api/refunds/{refundId}`, `POST /api/refunds/{refundId}/decision`.
     - **Cancelación masiva de evento:** `POST /api/events/{eventId}/cancellation`,
       `GET /api/events/{eventId}/cancellation`.
+    - **Fila virtual:** `POST /api/queue/events/{eventId}/entries`,
+      `GET /api/queue/events/{eventId}/entries/me` y
+      `DELETE /api/queue/events/{eventId}/entries/me`.
 
     Rutas internas (`/internal/**`), sólo en la red de servicios:
     - Inventory: reservas, configuración TTL, cancelación de inventario y
       liberación de unidades vendidas para devoluciones.
     - Catalog: snapshot sin precios y snapshot de compra con precios.
+    - Queue: validación y consumo del token de admisión.
     - Ticket: emisión y revocación de entradas QR.
     - Payment Mock: cobro, consulta, reintegro total y reintegro parcial.
 
@@ -74,6 +82,16 @@ info:
     - `POST /api/orders` exige `Idempotency-Key` (1..120 caracteres). La misma
       clave con el mismo contenido devuelve la orden existente; con otro
       contenido responde `409` sin modificarla.
+    - **Alta demanda y admisión:** un evento publicado puede estar marcado como
+      de alta demanda (`highDemand: true`). En ese caso `POST /api/orders` exige
+      el encabezado `X-Admission-Token` con un token de admisión vigente, del
+      evento y del comprador, emitido por la fila virtual. El token habilita el
+      intento de compra pero **no reserva ni garantiza inventario**: Inventory
+      sigue siendo la única autoridad de stock. El token es de un solo uso y se
+      consume al intentar la compra; un reintento con la misma
+      `Idempotency-Key` no consume un segundo token y reutilizarlo con otra
+      clave responde `403`. En los eventos sin la marca la compra no cambia y no
+      se exige el encabezado.
     - Estados de orden (`OrderStatus`): `CONFIRMED`, `REJECTED`,
       `PAYMENT_PENDING`, `PAID_PENDING_TICKETS` y `COMPENSATED`. `CONFIRMED`,
       `REJECTED` y `COMPENSATED` son terminales; `PAYMENT_PENDING` y
@@ -91,8 +109,9 @@ servers:
       públicas y de gestión de Catalog (`/api/venues/**`,
       `/api/management/events/**`, `/api/events/**`), la disponibilidad de
       Inventory (`/api/inventory/**`), órdenes de Purchase (`/api/orders/**`),
-      devoluciones (`/api/refunds/**`) y cancelación masiva
-      (`/api/events/{eventId}/cancellation`). Las rutas `/internal/**` no se
+      devoluciones (`/api/refunds/**`), cancelación masiva
+      (`/api/events/{eventId}/cancellation`) y la fila virtual
+      (`/api/queue/**`). Las rutas `/internal/**` no se
       enrutan por el Gateway.
   - url: http://purchase-service:8084
     description: |
@@ -192,6 +211,18 @@ tags:
       Devoluciones individuales de tickets y cancelación masiva de eventos con
       reintegros por lotes. Requieren Bearer JWT; la decisión y la
       cancelación masiva exigen `ADMIN`.
+  - name: Virtual queue
+    description: |
+      Fila virtual de los eventos de alta demanda, publicada por el API Gateway
+      en `http://localhost:8080`. Requiere Bearer JWT con rol `CLIENT` o `ADMIN`;
+      cada cliente sólo ve su propio turno. La entrada es idempotente: repetir el
+      alta devuelve el mismo turno y la misma posición. La fila nunca informa la
+      disponibilidad de entradas ni reserva inventario.
+  - name: Virtual queue (internal)
+    description: |
+      Contrato interno de validación y consumo del token de admisión, consumido
+      por Purchase Service antes de reservar y cobrar. Sólo accesible dentro de
+      la red de servicios; el Gateway no publica esta ruta.
 
 paths:
 
@@ -2043,8 +2074,9 @@ paths:
       summary: Crear una orden de compra y ejecutar la saga
       description: |
         Crea una orden para un evento publicado y ejecuta la saga síncrona:
-        snapshot de compra de Catalog, reserva en Inventory, cobro en Payment
-        Mock, confirmación de inventario y emisión idempotente de tickets.
+        snapshot de compra de Catalog, admisión de la fila virtual (sólo en
+        eventos de alta demanda), reserva en Inventory, cobro en Payment Mock,
+        confirmación de inventario y emisión idempotente de tickets.
 
         Reglas del request:
         - El `sub` del JWT determina el comprador. El rol (`CLIENT` o `ADMIN`)
@@ -2053,6 +2085,10 @@ paths:
           del mismo comprador con el mismo contenido devuelve la orden existente
           sin reservar, cobrar ni emitir de nuevo; con otro contenido responde
           `409` y conserva la orden original.
+        - Si el snapshot de compra informa `highDemand: true`, `X-Admission-Token`
+          es obligatorio y se valida y consume antes de reservar o cobrar. Sin
+          el encabezado, o con un token ajeno, vencido o ya utilizado, responde
+          `403` sin efectos. En el resto de los eventos el encabezado se ignora.
         - `items[].sectorId` es el identificador de **Inventory** descubierto en
           la disponibilidad pública.
         - Cada ítem informa **exactamente uno** de `seatIds` (sector `NUMBERED`)
@@ -2065,6 +2101,7 @@ paths:
         se valida de forma atómica antes de reservar.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/AdmissionToken'
         - $ref: '#/components/parameters/CorrelationId'
       requestBody:
         required: true
@@ -2173,8 +2210,11 @@ paths:
                   $ref: '#/components/examples/ProblemOrderBadRequest'
         '403':
           description: |
-            Rol insuficiente: el token es válido pero el rol no basta para
-            esta operación, o el ownership no coincide con el `sub`. No se crea la orden.
+            Rol insuficiente o admisión rechazada. El token es válido pero el rol
+            no basta para esta operación, el ownership no coincide con el `sub`,
+            o el evento es de alta demanda y falta `X-Admission-Token` o el token
+            es ajeno, está vencido o ya fue utilizado. No se crea la orden ni se
+            reserva, cobra o emite.
           headers:
             X-Correlation-Id:
               $ref: '#/components/headers/CorrelationId'
@@ -2203,8 +2243,10 @@ paths:
         '409':
           description: |
             Conflicto sin cambios parciales: falta de disponibilidad en Inventory,
-            límite de entradas del cliente y evento excedido, o `Idempotency-Key`
-            reutilizada con contenido distinto. También se usa cuando el pago fue
+            límite de entradas del cliente y evento excedido, `Idempotency-Key`
+            reutilizada con contenido distinto, o la fila del evento dejó de
+            admitir compras (`highDemand` con la cola cerrada). También se usa
+            cuando el pago fue
             aprobado pero la reserva ya no puede confirmarse y la orden queda
             `COMPENSATED` tras reintegrar el pago y liberar el inventario.
           headers:
@@ -2219,8 +2261,8 @@ paths:
                   $ref: '#/components/examples/ProblemOrderConflict'
         '503':
           description: |
-            Fallo explícito de una dependencia (Catalog, Inventory, Payment Mock
-            o la consulta de Payment durante una reconciliación). Purchase no
+            Fallo explícito de una dependencia (Catalog, Queue, Inventory, Payment
+            Mock o la consulta de Payment durante una reconciliación). Purchase no
             deja una orden confirmada parcialmente y libera o conserva reservas
             y límites según el estado persistido. Una respuesta de cobro perdida
             o incierta se devuelve como `202 PAYMENT_PENDING`; un fallo transitorio
@@ -2458,6 +2500,260 @@ paths:
               examples:
                 conflict:
                   $ref: '#/components/examples/ProblemOrderConflict'
+
+  /api/queue/events/{eventId}/entries:
+    post:
+      tags:
+        - Virtual queue
+      operationId: joinEventQueue
+      summary: Entrar a la fila virtual de un evento de alta demanda
+      description: |
+        Da de alta al cliente autenticado en la fila del evento y devuelve su
+        turno. La operación es idempotente: si el cliente ya tiene un turno
+        activo (`WAITING` o `ADMITTED`) en ese evento devuelve el mismo turno y
+        la misma posición, sin consumir un lugar adicional. La posición se
+        asigna con un contador por evento bajo bloqueo en PostgreSQL, de modo que
+        varias instancias del servicio nunca entregan la misma posición.
+
+        El servicio consulta el snapshot interno de Catalog para validar que el
+        evento esté publicado y marcado como de alta demanda. La fila no informa
+        disponibilidad de entradas ni reserva inventario.
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '201':
+          description: Turno creado con su posición en la fila.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QueueEntry' }
+              examples:
+                waiting:
+                  $ref: '#/components/examples/QueueEntryWaiting'
+        '200':
+          description: |
+            El cliente ya tenía un turno activo en esa fila. Se devuelve el turno
+            existente con su posición y estado actuales.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QueueEntry' }
+              examples:
+                waiting:
+                  $ref: '#/components/examples/QueueEntryWaiting'
+                admitted:
+                  $ref: '#/components/examples/QueueEntryAdmitted'
+        '401':
+          description: |
+            Token Bearer ausente, inválido o vencido. El Gateway rechaza la
+            solicitud antes de invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403':
+          description: |
+            Identidad ausente o rol distinto de `CLIENT` y `ADMIN`. No se crea
+            ningún turno.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: |
+            Evento inexistente, en borrador, suspendido o cancelado según el
+            snapshot de Catalog. No se revelan datos del evento ni se crea turno.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: |
+            El evento está publicado pero no está marcado como de alta demanda
+            (`event-not-queued`) o su fila dejó de admitir turnos. No se crea
+            ningún turno.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: |
+            Catalog no responde al validar el evento. No se crea ningún turno y
+            la solicitud puede repetirse sin duplicar la posición.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /api/queue/events/{eventId}/entries/me:
+    get:
+      tags:
+        - Virtual queue
+      operationId: getMyQueueEntry
+      summary: Consultar la posición y el estado del turno propio
+      description: |
+        Devuelve el turno del cliente autenticado en la fila del evento. Antes de
+        responder, el servicio abre la tanda vigente (admitiendo a los primeros
+        clientes en orden de llegada) y cierra los turnos cuya admisión venció.
+        Cuando el turno está `ADMITTED` se devuelve el token de admisión con su
+        vencimiento; el token se recalcula desde el turno, así que el cliente
+        puede recuperarlo en cualquier consulta.
+
+        Es la operación de sondeo (polling) prevista por la versión simplificada
+        de la fila: no hay push ni WebSocket.
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Turno propio con su posición, estado y, si corresponde, el token de admisión.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QueueEntry' }
+              examples:
+                waiting:
+                  $ref: '#/components/examples/QueueEntryWaiting'
+                admitted:
+                  $ref: '#/components/examples/QueueEntryAdmitted'
+        '401':
+          description: Token Bearer ausente, inválido o vencido.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403':
+          description: Identidad ausente o rol distinto de `CLIENT` y `ADMIN`.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: El cliente no tiene un turno activo en la fila de ese evento.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: La fila del evento dejó de admitir turnos.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    delete:
+      tags:
+        - Virtual queue
+      operationId: leaveEventQueue
+      summary: Abandonar el turno propio en la fila
+      description: |
+        Cierra el turno activo del cliente en estado `LEFT`. La posición de un
+        turno cerrado nunca se reutiliza; si el cliente vuelve a entrar recibe
+        una posición nueva al final de la fila. Cualquier token de admisión
+        emitido para ese turno queda invalidado.
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '204':
+          description: Turno abandonado. Sin cuerpo.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+        '401':
+          description: Token Bearer ausente, inválido o vencido.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403':
+          description: Identidad ausente o rol distinto de `CLIENT` y `ADMIN`.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: El cliente no tiene un turno activo en la fila de ese evento.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /internal/admissions/validate:
+    post:
+      tags:
+        - Virtual queue (internal)
+      operationId: validateAdmission
+      summary: Validar y consumir un token de admisión
+      description: |
+        Comando interno consumido por Purchase Service antes de reservar y cobrar
+        una orden de un evento de alta demanda. Valida que el token corresponda al
+        evento y al comprador, que esté vigente y que el turno siga `ADMITTED`, y
+        en la misma transacción marca el turno como `CONSUMED` con la
+        `Idempotency-Key` de la orden. Es la única forma de consumir un token: el
+        uso único no puede garantizarse desde Purchase. No se publica por el
+        Gateway.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdmissionValidationRequest' }
+            examples:
+              validate:
+                $ref: '#/components/examples/AdmissionValidationRequest'
+      responses:
+        '200':
+          description: |
+            Token válido, vigente y del turno indicado: queda consumido y la
+            compra puede continuar.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdmissionValidationResponse' }
+              examples:
+                admitted:
+                  $ref: '#/components/examples/AdmissionValidated'
+        '403':
+          description: |
+            Token ajeno, de otro evento, vencido, de un turno que no está
+            `ADMITTED` o ya consumido. La compra no debe continuar.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: El cliente no tiene turno en la fila de ese evento.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: La fila no puede responder. Purchase responde `503` y no reserva ni cobra.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /internal/payments:
     post:
@@ -3040,6 +3336,22 @@ components:
         maxLength: 120
         example: order-key-2026-11-07-0001
 
+    AdmissionToken:
+      name: X-Admission-Token
+      in: header
+      required: false
+      description: |
+        Token de admisión de la fila virtual. Es obligatorio **sólo** cuando el
+        evento es de alta demanda (`highDemand: true`); en los demás eventos se
+        ignora. Es opaco, está ligado al evento y al comprador, tiene vigencia
+        corta y es de un solo uso. Habilitar el intento de compra no reserva ni
+        garantiza inventario. El Gateway lo reenvía tal cual: no es un encabezado
+        de identidad.
+      schema:
+        type: string
+        minLength: 1
+        example: 8wJk2s0aQm1c9XZr3bT4uY6vN0pL5hS7dF1gH2jK3mQ
+
     PaymentId:
       name: paymentId
       in: path
@@ -3102,6 +3414,102 @@ components:
         example: trace-inventory-1
 
   schemas:
+    QueueEntry:
+      type: object
+      description: |
+        Turno del cliente en la fila virtual de un evento de alta demanda. Nunca
+        informa la disponibilidad de entradas ni la cantidad de lugares libres.
+      additionalProperties: false
+      required:
+        - entryId
+        - eventId
+        - position
+        - peopleAhead
+        - batchSize
+        - batchNumber
+        - status
+        - admissionToken
+        - admissionExpiresAt
+      properties:
+        entryId:
+          type: string
+          format: uuid
+          description: Identificador del turno.
+        eventId:
+          type: string
+          format: uuid
+          description: Evento de la fila.
+        position:
+          type: integer
+          format: int64
+          minimum: 1
+          description: |
+            Posición del turno en la fila. Las posiciones no se reutilizan cuando
+            un turno se cierra.
+        peopleAhead:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Cantidad de turnos activos que preceden a este.
+        batchSize:
+          type: integer
+          minimum: 1
+          description: Tamaño de la tanda vigente.
+        batchNumber:
+          type: integer
+          minimum: 0
+          description: |
+            Número de tandas transcurridas desde la apertura de la fila,
+            calculado a partir del intervalo configurado.
+        status:
+          type: string
+          enum: [WAITING, ADMITTED, CONSUMED, EXPIRED, LEFT]
+          description: |
+            Estado del turno: `WAITING` espera su tanda, `ADMITTED` puede comprar
+            dentro de la vigencia de su token, y `CONSUMED`, `EXPIRED` y `LEFT`
+            son estados cerrados.
+        admissionToken:
+          type: string
+          nullable: true
+          description: |
+            Token de admisión de un solo uso. Sólo se informa con estado
+            `ADMITTED`; en los demás casos es `null`.
+        admissionExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            Vencimiento del token de admisión. Sólo se informa con estado
+            `ADMITTED`; en los demás casos es `null`.
+
+    AdmissionValidationRequest:
+      type: object
+      additionalProperties: false
+      required: [eventId, clientId, token]
+      properties:
+        eventId: { type: string, format: uuid, description: Evento de la fila. }
+        clientId: { type: string, format: uuid, description: Comprador que presenta el token. }
+        token: { type: string, minLength: 1, description: Token de admisión a validar y consumir. }
+        idempotencyKey:
+          type: string
+          maxLength: 120
+          description: |
+            `Idempotency-Key` de la orden que consume el token. Queda registrada
+            en el turno para trazabilidad del consumo.
+        correlationId: { type: string, description: Correlation ID de la operación de compra. }
+
+    AdmissionValidationResponse:
+      type: object
+      additionalProperties: false
+      required: [admitted, admissionId, expiresAt]
+      properties:
+        admitted: { type: boolean, description: Siempre `true` en una respuesta `200`. }
+        admissionId: { type: string, format: uuid, description: Identificador del turno consumido. }
+        expiresAt:
+          type: string
+          format: date-time
+          description: Vencimiento que tenía el token al consumirse.
+
     CancellationProgress:
       type: object
       required: [eventId, status, totalTickets, completedTickets, pendingTickets]
@@ -3505,6 +3913,7 @@ components:
         - description
         - eventType
         - startsAt
+        - highDemand
         - venue
         - sectors
       properties:
@@ -3531,6 +3940,13 @@ components:
           type: string
           format: date-time
           description: Fecha y hora de inicio del evento.
+        highDemand:
+          type: boolean
+          description: |
+            Marca vigente de alta demanda del evento. Se lee en vivo desde el
+            evento publicado y es idéntica en los dos contratos internos de
+            snapshot; sólo cambia mientras el evento es un borrador, así que
+            nunca diverge de la publicación.
         venue:
           $ref: '#/components/schemas/SnapshotVenue'
         sectors:
@@ -3665,6 +4081,7 @@ components:
         - description
         - eventType
         - startsAt
+        - highDemand
         - venue
         - sectors
       properties:
@@ -3691,6 +4108,11 @@ components:
           type: string
           format: date-time
           description: Fecha y hora de inicio del evento.
+        highDemand:
+          type: boolean
+          description: |
+            Marca vigente de alta demanda del evento. Purchase exige el token de
+            admisión de la fila virtual cuando es `true`.
         venue:
           $ref: '#/components/schemas/SnapshotVenue'
         sectors:
@@ -4408,6 +4830,14 @@ components:
         startsAt: { type: string, format: date-time }
         venueId: { type: string, format: uuid }
         organizerId: { type: string, format: uuid, nullable: true, description: Requerido cuando ADMIN crea. }
+        highDemand:
+          type: boolean
+          default: false
+          description: |
+            Marca el evento como de alta demanda. Sólo puede cambiarse mientras el
+            evento está en `DRAFT`; en `PUBLISHED` se rechaza con `409`. Al crear
+            sin informarla vale `false`. Los eventos marcados exigen un token de
+            admisión de la fila virtual para comprar.
         participants:
           type: array
           items: { type: string }
@@ -4440,7 +4870,7 @@ components:
 
     EventResponse:
       type: object
-      required: [id, name, description, eventType, startsAt, organizerId, venueId, status, participants, offerings]
+      required: [id, name, description, eventType, startsAt, organizerId, venueId, status, participants, offerings, highDemand]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -4449,6 +4879,11 @@ components:
         startsAt: { type: string, format: date-time }
         organizerId: { type: string, format: uuid }
         venueId: { type: string, format: uuid }
+        highDemand:
+          type: boolean
+          description: |
+            Marca vigente de alta demanda del evento. Gobierna si la compra exige
+            token de admisión de la fila virtual.
         status:
           type: string
           description: |
@@ -4485,18 +4920,23 @@ components:
 
     SearchItem:
       type: object
-      required: [id, name, eventType, startsAt, city]
+      required: [id, name, eventType, startsAt, highDemand, city]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
         eventType: { type: string }
         startsAt: { type: string, format: date-time }
+        highDemand:
+          type: boolean
+          description: |
+            Indica si el evento está marcado como de alta demanda; en tal caso el
+            cliente debe entrar a la fila virtual antes de comprar.
         city: { type: string }
         minimumPrice: { type: number, format: double, nullable: true }
 
     EventDetail:
       type: object
-      required: [id, organizerId, name, description, eventType, startsAt, venueName, venueAddress, city, latitude, longitude, participants, sectors]
+      required: [id, organizerId, name, description, eventType, startsAt, highDemand, venueName, venueAddress, city, latitude, longitude, participants, sectors]
       properties:
         id: { type: string, format: uuid }
         organizerId: { type: string, format: uuid }
@@ -4504,6 +4944,11 @@ components:
         description: { type: string }
         eventType: { type: string }
         startsAt: { type: string, format: date-time }
+        highDemand:
+          type: boolean
+          description: |
+            Indica si el evento está marcado como de alta demanda; en tal caso el
+            cliente debe entrar a la fila virtual antes de comprar.
         venueName: { type: string }
         venueAddress: { type: string }
         city: { type: string }
@@ -4712,6 +5157,44 @@ components:
           $ref: '#/components/schemas/OrderStatus'
 
   examples:
+    QueueEntryWaiting:
+      summary: Turno en espera dentro de la fila
+      value:
+        entryId: 3f6f1c2a-8e6b-4a1d-9a2c-5d7e8f9a0b1c
+        eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+        position: 42
+        peopleAhead: 41
+        batchSize: 10
+        batchNumber: 4
+        status: WAITING
+        admissionToken: null
+        admissionExpiresAt: null
+    QueueEntryAdmitted:
+      summary: Turno admitido con token vigente
+      value:
+        entryId: 3f6f1c2a-8e6b-4a1d-9a2c-5d7e8f9a0b1c
+        eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+        position: 42
+        peopleAhead: 0
+        batchSize: 10
+        batchNumber: 5
+        status: ADMITTED
+        admissionToken: 8wJk2s0aQm1c9XZr3bT4uY6vN0pL5hS7dF1gH2jK3mQ
+        admissionExpiresAt: '2026-11-07T18:02:00Z'
+    AdmissionValidationRequest:
+      summary: Consumo del token de admisión al crear la orden
+      value:
+        eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+        clientId: 4b1c2d3e-5f60-4a71-8b92-c3d4e5f60718
+        token: 8wJk2s0aQm1c9XZr3bT4uY6vN0pL5hS7dF1gH2jK3mQ
+        idempotencyKey: order-key-2026-11-07-0001
+        correlationId: trace-purchase-1
+    AdmissionValidated:
+      summary: Admisión aceptada y consumida
+      value:
+        admitted: true
+        admissionId: 3f6f1c2a-8e6b-4a1d-9a2c-5d7e8f9a0b1c
+        expiresAt: '2026-11-07T18:02:00Z'
     Availability:
       summary: Evento con un sector numerado y uno de admisión general
       value:

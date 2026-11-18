@@ -50,6 +50,7 @@ class ConsolidatedOpenApiDocumentContractTest {
     private static final String PURCHASE = "Purchase";
     private static final String TICKET = "Ticket";
     private static final String PAYMENT = "Payment";
+    private static final String QUEUE = "Queue";
 
     private static final List<Operation> ENTREGA1_OPERATIONS = List.of(
             // ---------------------------------------------------------------- Catalog
@@ -120,7 +121,16 @@ class ConsolidatedOpenApiDocumentContractTest {
             new Operation("/internal/payments/{paymentId}/refund", "post",
                     "refundPayment", PAYMENT),
             new Operation("/internal/payments/{paymentId}/refunds", "post",
-                    "refundPaymentPartial", PAYMENT));
+                    "refundPaymentPartial", PAYMENT),
+            // ----------------------------------------------------------------- Queue
+            new Operation("/api/queue/events/{eventId}/entries", "post",
+                    "joinEventQueue", QUEUE),
+            new Operation("/api/queue/events/{eventId}/entries/me", "get",
+                    "getMyQueueEntry", QUEUE),
+            new Operation("/api/queue/events/{eventId}/entries/me", "delete",
+                    "leaveEventQueue", QUEUE),
+            new Operation("/internal/admissions/validate", "post",
+                    "validateAdmission", QUEUE));
 
     private static final Map<String, Set<Integer>> MINIMUM_STATUS_CODES = new LinkedHashMap<>();
 
@@ -195,6 +205,14 @@ class ConsolidatedOpenApiDocumentContractTest {
                 Set.of(200, 404, 409));
         MINIMUM_STATUS_CODES.put("/internal/payments/{paymentId}/refunds:post",
                 Set.of(201, 200, 400, 404, 409));
+        MINIMUM_STATUS_CODES.put("/api/queue/events/{eventId}/entries:post",
+                Set.of(201, 200, 401, 403, 404, 409, 503));
+        MINIMUM_STATUS_CODES.put("/api/queue/events/{eventId}/entries/me:get",
+                Set.of(200, 401, 403, 404, 409));
+        MINIMUM_STATUS_CODES.put("/api/queue/events/{eventId}/entries/me:delete",
+                Set.of(204, 401, 403, 404));
+        MINIMUM_STATUS_CODES.put("/internal/admissions/validate:post",
+                Set.of(200, 403, 404, 503));
     }
 
     /**
@@ -210,14 +228,12 @@ class ConsolidatedOpenApiDocumentContractTest {
     private static final Map<String, List<String>> BEARER_REQUIREMENT = Map.of("BearerJWT", List.of());
 
     /**
-     * Fragmentos de capacidades fuera del alcance del contrato: aunque
-     * {@code add-jwt-and-role-security} declara el esquema BearerJWT, la
-     * superficie sigue sin paths ni schemas de login, tokens, cola virtual,
-     * preferencias, recomendaciones, notificaciones, reportes o control de
-     * acceso QR.
+     * Fragmentos de capacidades fuera del alcance del contrato. La fila virtual
+     * (`queue`) se excluyó al implementar `add-virtual-queue`; el resto sigue
+     * fuera de la superficie declarada.
      */
     private static final List<String> ENTREGA2_CAPABILITY_FRAGMENTS = List.of(
-            "jwt", "auth", "login", "token", "queue", "preference", "recommendation",
+            "jwt", "auth", "login", "token", "preference", "recommendation",
             "notification", "report", "access-use", "accessuse");
 
     private static Map<String, Object> contract;
