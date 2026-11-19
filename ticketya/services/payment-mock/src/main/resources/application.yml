@@ -19,3 +19,8 @@ spring:
 springdoc:
   api-docs:
     path: /v3/api-docs
+
+# E2-02: cada línea de log incluye el servicio y el X-Correlation-Id de la solicitud (MDC).
+logging:
+  pattern:
+    level: "%5p [${spring.application.name:},%X{correlationId:-}]"

@@ -6,17 +6,22 @@ info:
   description: |
     Contrato versionado consolidado de TicketYa. Incluye el core de la Entrega 1
     (Catalog, Inventory, Purchase, Ticket y Payment Mock), la seguridad JWT de
-    la épica E2-01 (`add-jwt-and-role-security`) y la fila virtual de la épica
-    E2-02 (`add-virtual-queue`).
+    la épica E2-01 (`add-jwt-and-role-security`) y las épicas de Entrega 2:
+    - **E2-02 (`add-request-tracing-and-audit-log`):** registro de acceso HTTP
+      por solicitud y bitácora centralizada de operaciones críticas
+      (Audit Service), consultable por `ADMIN` en `/api/audit/**`.
+    - **E2-03 (`validate-ticket-access`):** control de acceso con QR por
+      `ACCESS_STAFF` en `/api/access/**` (Ticket Service).
+    - **E2-04 (`add-organizer-event-reports`):** reportes de ventas, devoluciones,
+      ocupación y recaudación por sector en `/api/reports/**` (Purchase Service).
 
     Seguridad: autenticación Bearer con JWT firmado por un proveedor externo,
     claims `sub` (UUID) y `roles` (un único valor entre `CLIENT`, `ORGANIZER`,
     `ADMIN` y `ACCESS_STAFF`), validación en el Gateway y propagación de
     identidad derivada a los servicios.
 
-    No declara funcionalidades de Entrega 2 aún no implementadas (acceso QR por
-    `ACCESS_STAFF`, preferencias de cliente, recomendaciones, notificaciones ni
-    reportes).
+    No declara funcionalidades aún no implementadas (preferencias de cliente,
+    recomendaciones, notificaciones).
 
     Superficie pública a través del API Gateway (`http://localhost:8080`):
     - **Catalog público:** `GET /api/events`, `GET /api/events/{id}`.

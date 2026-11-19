@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "TicketYa - Entrega 1 + E2-01 E2E via Gateway",
-    "description": "Flujo E2E por Gateway con JWT de un IdP externo: catalogo, disponibilidad, compra, devoluciones y cancelacion. Configure los tokens del IdP en las variables de la coleccion antes de ejecutar; cada corrida genera IDs de datos nuevos.",
+    "name": "TicketYa - Entrega 1 + E2-01..E2-04 E2E via Gateway",
+    "description": "Flujo E2E por Gateway con JWT de un IdP externo: catalogo, disponibilidad, compra, devoluciones y cancelacion. Configure los tokens del IdP en las variables de la coleccion antes de ejecutar; cada corrida genera IDs de datos nuevos. Desde E2-02/E2-03/E2-04 (pasos 28-47) cubre ademas reportes del organizador, control de acceso QR (ingreso, reingreso, otro evento, revocada, adulterada) y la bitacora centralizada por X-Correlation-Id.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -120,43 +120,27 @@
       "description": "ID del evento de prueba cuyo ownership pertenece a foreignOrganizerId."
     },
     {
-      "key": "highDemandEventId",
+      "key": "numberedQrPayload",
       "value": ""
     },
     {
-      "key": "highDemandInventorySectorId",
+      "key": "numberedTicketId",
       "value": ""
     },
     {
-      "key": "admissionToken",
+      "key": "accessEventId",
       "value": ""
     },
     {
-      "key": "queueEntryId",
+      "key": "accessInventoryGeneralId",
       "value": ""
     },
     {
-      "key": "queuePosition",
+      "key": "accessQrPayload",
       "value": ""
     },
     {
-      "key": "queueBuyerEntryId",
-      "value": ""
-    },
-    {
-      "key": "queueBuyerPosition",
-      "value": ""
-    },
-    {
-      "key": "clientUserId",
-      "value": "e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b"
-    },
-    {
-      "key": "queueAdmissionSecret",
-      "value": "ticketya-local-development-admission-secret-2026"
-    },
-    {
-      "key": "staleAdmissionToken",
+      "key": "accessTicketId",
       "value": ""
     }
   ],
@@ -1038,7 +1022,8 @@
               "pm.test('La compra numerada responde 201', () => pm.response.to.have.status(201));",
               "const json = pm.response.json();",
               "pm.test('La orden numerada queda confirmada para el asiento elegido', () => { pm.expect(json.status).to.eql('CONFIRMED'); pm.expect(json.customerId).to.eql(pm.variables.get('numberedBuyerId')); pm.expect(json.items).to.have.length(1); pm.expect(json.items[0].sectorType).to.eql('NUMBERED'); pm.expect(json.items[0].sectorId).to.eql(pm.variables.get('inventorySectorNumeradoId')); pm.expect(json.items[0].units).to.have.length(1); pm.expect(json.items[0].units[0].seatId).to.eql(pm.variables.get('inventorySeatId')); });",
-              "pm.test('La compra numerada emite un ticket con QR', () => { pm.expect(json.items[0].tickets).to.have.length(1); pm.expect(json.items[0].tickets[0].status).to.eql('ISSUED'); pm.expect(json.items[0].tickets[0].qrPayload).to.be.a('string').and.not.empty; pm.expect(json.items[0].tickets[0].qrPngBase64).to.be.a('string').and.not.empty; });"
+              "pm.test('La compra numerada emite un ticket con QR', () => { pm.expect(json.items[0].tickets).to.have.length(1); pm.expect(json.items[0].tickets[0].status).to.eql('ISSUED'); pm.expect(json.items[0].tickets[0].qrPayload).to.be.a('string').and.not.empty; pm.expect(json.items[0].tickets[0].qrPngBase64).to.be.a('string').and.not.empty; });",
+              "pm.collectionVariables.set('numberedQrPayload', json.items[0].tickets[0].qrPayload); pm.collectionVariables.set('numberedTicketId', json.items[0].tickets[0].ticketId);"
             ]
           }
         }
@@ -2335,6 +2320,11 @@
             "key": "Authorization",
             "value": "Bearer {{adminToken}}",
             "type": "text"
+          },
+          {
+            "key": "X-Correlation-Id",
+            "value": "cancel-{{runId}}",
+            "type": "text"
           }
         ],
         "url": {
@@ -2525,7 +2515,215 @@
       ]
     },
     {
-      "name": "E2-02-01 - Crear evento de alta demanda (ORGANIZER)",
+      "name": "28 - Reporte del evento cancelado (ORGANIZER)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{organizerToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/reports/events/{{eventId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "reports",
+            "events",
+            "{{eventId}}"
+          ]
+        },
+        "description": "US-F12: vendidas y devueltas por sector, ocupación y recaudación."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('El organizador dueño obtiene el reporte', () => pm.response.to.have.status(200));",
+              "const r = pm.response.json();",
+              "pm.test('Siete vendidas y siete reintegradas tras la cancelación', () => { pm.expect(r.eventId).to.eql(pm.variables.get('eventId')); pm.expect(r.eventStatus).to.eql('CANCELLED'); pm.expect(r.totals.soldTickets).to.eql(7); pm.expect(r.totals.refundedTickets).to.eql(7); pm.expect(r.totals.activeTickets).to.eql(0); });",
+              "pm.test('Recaudación bruta 325 y neta 0', () => { pm.expect(Number(r.totals.grossRevenue)).to.eql(325); pm.expect(Number(r.totals.refundedAmount)).to.eql(325); pm.expect(Number(r.totals.netRevenue)).to.eql(0); });",
+              "pm.test('Detalle por sector con ocupación', () => { pm.expect(r.capacityAvailable).to.eql(true); const general = r.sectors.find(s => s.sectorType === 'GENERAL_ADMISSION'); const numerado = r.sectors.find(s => s.sectorType === 'NUMBERED'); pm.expect(general.soldTickets).to.eql(6); pm.expect(numerado.soldTickets).to.eql(1); pm.expect(Number(general.occupancyPercent)).to.eql(0); pm.expect(general.capacity).to.eql(500); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "29 - Cliente no puede ver reportes",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/reports/events/{{eventId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "reports",
+            "events",
+            "{{eventId}}"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('CLIENT recibe 403 del Gateway', () => pm.response.to.have.status(403));",
+              "pm.test('Error problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "30 - ACCESS_STAFF no puede ver reportes",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessStaffToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/reports/events/{{eventId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "reports",
+            "events",
+            "{{eventId}}"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('ACCESS_STAFF recibe 403', () => pm.response.to.have.status(403));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "31 - ADMIN consulta el reporte de cualquier evento",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/reports/events/{{eventId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "reports",
+            "events",
+            "{{eventId}}"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('ADMIN obtiene el reporte', () => pm.response.to.have.status(200));",
+              "pm.test('Mismos totales', () => pm.expect(pm.response.json().totals.soldTickets).to.eql(7));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "32 - Entrada revocada por la cancelación no ingresa",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessStaffToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/access/events/{{eventId}}/validations",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "access",
+            "events",
+            "{{eventId}}",
+            "validations"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"qrPayload\": \"{{numberedQrPayload}}\",\n  \"gate\": \"Puerta 1\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Entrada revocada responde 409', () => pm.response.to.have.status(409));",
+              "pm.test('Motivo REVOKED', () => pm.expect(pm.response.json().reason).to.eql('REVOKED'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "33 - Crear evento para control de acceso (ORGANIZER)",
       "request": {
         "method": "POST",
         "header": [
@@ -2553,63 +2751,7 @@
         },
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"name\": \"Fila virtual {{runId}}\",\n  \"description\": \"Evento de alta demanda para la epica E2-02\",\n  \"eventType\": \"MUSIC\",\n  \"startsAt\": \"2030-07-01T20:00:00-03:00\",\n  \"venueId\": \"{{venueId}}\",\n  \"participants\": [\n    \"Artista fila {{runId}}\"\n  ],\n  \"offerings\": [],\n  \"highDemand\": true\n}",
-          "options": {
-            "raw": {
-              "language": "json"
-            }
-          }
-        },
-        "description": "Crea el evento de alta demanda usado por el flujo de fila."
-      },
-      "response": [],
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('Status es 201', () => pm.response.to.have.status(201));",
-              "const json = pm.response.json();",
-              "pm.test('highDemand queda activo', () => pm.expect(json.highDemand).to.eql(true));",
-              "pm.collectionVariables.set('highDemandEventId', json.id);"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "E2-02-02 - Configurar ofertas del evento de alta demanda",
-      "request": {
-        "method": "PUT",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{organizerToken}}",
-            "type": "text"
-          },
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          }
-        ],
-        "url": {
-          "raw": "{{baseUrl}}/api/management/events/{{highDemandEventId}}/offerings",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "api",
-            "management",
-            "events",
-            "{{highDemandEventId}}",
-            "offerings"
-          ]
-        },
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"offerings\": [\n    {\n      \"sectorId\": \"{{sectorGeneralId}}\",\n      \"price\": \"50.00\"\n    }\n  ]\n}",
+          "raw": "{\n  \"name\": \"Festival acceso {{runId}}\",\n  \"description\": \"Evento para validar QR en el ingreso\",\n  \"eventType\": \"MUSIC\",\n  \"startsAt\": \"2030-07-01T20:00:00-03:00\",\n  \"venueId\": \"{{venueId}}\",\n  \"participants\": [\n    \"Banda {{runId}}\"\n  ],\n  \"offerings\": [\n    {\n      \"sectorId\": \"{{sectorGeneralId}}\",\n      \"price\": \"80.00\"\n    }\n  ]\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -2624,14 +2766,15 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('Status es 200', () => pm.response.to.have.status(200));"
+              "pm.test('Borrador creado', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('accessEventId', pm.response.json().id);"
             ]
           }
         }
       ]
     },
     {
-      "name": "E2-02-03 - Publicar evento de alta demanda",
+      "name": "34 - Publicar evento de acceso (ORGANIZER)",
       "request": {
         "method": "POST",
         "header": [
@@ -2639,15 +2782,10 @@
             "key": "Authorization",
             "value": "Bearer {{organizerToken}}",
             "type": "text"
-          },
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
           }
         ],
         "url": {
-          "raw": "{{baseUrl}}/api/management/events/{{highDemandEventId}}/publish",
+          "raw": "{{baseUrl}}/api/management/events/{{accessEventId}}/publish",
           "host": [
             "{{baseUrl}}"
           ],
@@ -2655,7 +2793,7 @@
             "api",
             "management",
             "events",
-            "{{highDemandEventId}}",
+            "{{accessEventId}}",
             "publish"
           ]
         }
@@ -2667,20 +2805,19 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('Status es 200', () => pm.response.to.have.status(200));",
-              "pm.test('Queda publicado', () => pm.expect(pm.response.json().status).to.eql('PUBLISHED'));"
+              "pm.test('Evento publicado', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().status).to.eql('PUBLISHED'); });"
             ]
           }
         }
       ]
     },
     {
-      "name": "E2-02-04 - Disponibilidad del evento de alta demanda",
+      "name": "35 - Disponibilidad del evento de acceso",
       "request": {
         "method": "GET",
         "header": [],
         "url": {
-          "raw": "{{baseUrl}}/api/inventory/events/{{highDemandEventId}}/availability",
+          "raw": "{{baseUrl}}/api/inventory/events/{{accessEventId}}/availability",
           "host": [
             "{{baseUrl}}"
           ],
@@ -2688,7 +2825,7 @@
             "api",
             "inventory",
             "events",
-            "{{highDemandEventId}}",
+            "{{accessEventId}}",
             "availability"
           ]
         }
@@ -2700,17 +2837,79 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('Status es 200', () => pm.response.to.have.status(200));",
+              "pm.test('Disponibilidad 200', () => pm.response.to.have.status(200));",
               "const general = pm.response.json().sectors.find(s => s.type === 'GENERAL_ADMISSION');",
-              "pm.test('Hay sector general', () => pm.expect(general).to.not.be.undefined);",
-              "pm.collectionVariables.set('highDemandInventorySectorId', general.sectorId);"
+              "pm.test('Sector general disponible', () => pm.expect(general.available).to.be.above(0));",
+              "pm.collectionVariables.set('accessInventoryGeneralId', general.sectorId);"
             ]
           }
         }
       ]
     },
     {
-      "name": "E2-02-05 - Cliente entra a la fila",
+      "name": "36 - Compra para el control de acceso (cliente)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{numberedBuyerToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "access-purchase-{{runId}}",
+            "type": "text"
+          },
+          {
+            "key": "X-Correlation-Id",
+            "value": "purchase-access-{{runId}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "orders"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"eventId\": \"{{accessEventId}}\",\n  \"items\": [\n    {\n      \"sectorId\": \"{{accessInventoryGeneralId}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"payment\": {\n    \"method\": \"WALLET\",\n    \"token\": \"tok_approved\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Compra confirmada', () => { pm.response.to.have.status(201); pm.expect(pm.response.json().status).to.eql('CONFIRMED'); });",
+              "const t = pm.response.json().items[0].tickets[0];",
+              "pm.collectionVariables.set('accessQrPayload', t.qrPayload);",
+              "pm.collectionVariables.set('accessTicketId', t.ticketId);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "37 - Cliente no puede validar entradas",
       "request": {
         "method": "POST",
         "header": [
@@ -2726,17 +2925,26 @@
           }
         ],
         "url": {
-          "raw": "{{baseUrl}}/api/queue/events/{{highDemandEventId}}/entries",
+          "raw": "{{baseUrl}}/api/access/events/{{accessEventId}}/validations",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "queue",
+            "access",
             "events",
-            "{{highDemandEventId}}",
-            "entries"
+            "{{accessEventId}}",
+            "validations"
           ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"qrPayload\": \"{{accessQrPayload}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
         }
       },
       "response": [],
@@ -2746,24 +2954,20 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('Entrada creada (201)', () => pm.response.to.have.status(201));",
-              "const json = pm.response.json();",
-              "pm.test('Turno WAITING con posicion', () => { pm.expect(json.status).to.eql('WAITING'); pm.expect(json.position).to.be.at.least(1); });",
-              "pm.collectionVariables.set('queueEntryId', json.entryId);",
-              "pm.collectionVariables.set('queuePosition', json.position);"
+              "pm.test('CLIENT recibe 403 sin consumir la entrada', () => pm.response.to.have.status(403));"
             ]
           }
         }
       ]
     },
     {
-      "name": "E2-02-06 - Reingreso idempotente conserva el turno",
+      "name": "38 - QR de otro evento se rechaza (WRONG_EVENT)",
       "request": {
         "method": "POST",
         "header": [
           {
             "key": "Authorization",
-            "value": "Bearer {{clientToken}}",
+            "value": "Bearer {{accessStaffToken}}",
             "type": "text"
           },
           {
@@ -2773,17 +2977,26 @@
           }
         ],
         "url": {
-          "raw": "{{baseUrl}}/api/queue/events/{{highDemandEventId}}/entries",
+          "raw": "{{baseUrl}}/api/access/events/{{eventId}}/validations",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "queue",
+            "access",
             "events",
-            "{{highDemandEventId}}",
-            "entries"
+            "{{eventId}}",
+            "validations"
           ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"qrPayload\": \"{{accessQrPayload}}\",\n  \"gate\": \"Puerta 2\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
         }
       },
       "response": [],
@@ -2793,42 +3006,201 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('Reingreso responde 200', () => pm.response.to.have.status(200));",
-              "const json = pm.response.json();",
-              "pm.test('Mismo turno y posicion', () => { pm.expect(json.entryId).to.eql(pm.collectionVariables.get('queueEntryId')); pm.expect(json.position).to.eql(Number(pm.collectionVariables.get('queuePosition'))); });"
+              "pm.test('Otro evento responde 422', () => pm.response.to.have.status(422));",
+              "pm.test('Motivo WRONG_EVENT', () => pm.expect(pm.response.json().reason).to.eql('WRONG_EVENT'));"
             ]
           }
         }
       ]
     },
     {
-      "name": "E2-02-07 - Consultar turno en espera",
+      "name": "39 - ACCESS_STAFF valida la entrada (ADMITTED)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessStaffToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-Correlation-Id",
+            "value": "access-{{runId}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/access/events/{{accessEventId}}/validations",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "access",
+            "events",
+            "{{accessEventId}}",
+            "validations"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"qrPayload\": \"{{accessQrPayload}}\",\n  \"gate\": \"Puerta 3\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Primer escaneo responde 200', () => pm.response.to.have.status(200));",
+              "const r = pm.response.json();",
+              "pm.test('Ingreso registrado y entrada USED', () => { pm.expect(r.result).to.eql('ADMITTED'); pm.expect(r.status).to.eql('USED'); pm.expect(r.ticketId).to.eql(pm.collectionVariables.get('accessTicketId')); pm.expect(r.gate).to.eql('Puerta 3'); pm.expect(r.validatedBy).to.eql(pm.variables.get('accessStaffUserId')); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "40 - Segundo escaneo rechazado (ALREADY_USED)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessStaffToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/access/events/{{accessEventId}}/validations",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "access",
+            "events",
+            "{{accessEventId}}",
+            "validations"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"qrPayload\": \"{{accessQrPayload}}\",\n  \"gate\": \"Puerta 4\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Segundo escaneo responde 409', () => pm.response.to.have.status(409));",
+              "const r = pm.response.json();",
+              "pm.test('Motivo ALREADY_USED con puerta y hora del ingreso', () => { pm.expect(r.reason).to.eql('ALREADY_USED'); pm.expect(r.usedGate).to.eql('Puerta 3'); pm.expect(r.usedAt).to.be.a('string').and.not.empty; });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "41 - QR adulterado (UNKNOWN_TICKET)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessStaffToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/access/events/{{accessEventId}}/validations",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "access",
+            "events",
+            "{{accessEventId}}",
+            "validations"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"qrPayload\": \"v1.00000000-0000-4000-8000-000000000000.firma-invalida\",\n  \"gate\": \"Puerta 3\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('QR inválido responde 404', () => pm.response.to.have.status(404));",
+              "pm.test('Motivo UNKNOWN_TICKET', () => pm.expect(pm.response.json().reason).to.eql('UNKNOWN_TICKET'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "42 - ADMIN consulta intentos de ingreso",
       "request": {
         "method": "GET",
         "header": [
           {
             "key": "Authorization",
-            "value": "Bearer {{clientToken}}",
-            "type": "text"
-          },
-          {
-            "key": "Content-Type",
-            "value": "application/json",
+            "value": "Bearer {{adminToken}}",
             "type": "text"
           }
         ],
         "url": {
-          "raw": "{{baseUrl}}/api/queue/events/{{highDemandEventId}}/entries/me",
+          "raw": "{{baseUrl}}/api/access/events/{{accessEventId}}/scans",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "queue",
+            "access",
             "events",
-            "{{highDemandEventId}}",
-            "entries",
-            "me"
+            "{{accessEventId}}",
+            "scans"
           ]
         }
       },
@@ -2839,41 +3211,35 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('Consulta exitosa (200)', () => pm.response.to.have.status(200));",
-              "pm.test('No expone disponibilidad', () => pm.expect(JSON.stringify(pm.response.json()).toLowerCase()).to.not.include('available'));"
+              "pm.test('Consulta 200', () => pm.response.to.have.status(200));",
+              "const r = pm.response.json();",
+              "pm.test('Un ingreso y dos rechazos', () => { pm.expect(r.admitted).to.eql(1); pm.expect(r.rejected).to.eql(2); pm.expect(r.countsByResult.ALREADY_USED).to.eql(1); pm.expect(r.countsByResult.UNKNOWN_TICKET).to.eql(1); });"
             ]
           }
         }
       ]
     },
     {
-      "name": "E2-02-08 - Consultar turno admitido y token",
+      "name": "43 - Reporte del evento de acceso (ORGANIZER)",
       "request": {
         "method": "GET",
         "header": [
           {
             "key": "Authorization",
-            "value": "Bearer {{clientToken}}",
-            "type": "text"
-          },
-          {
-            "key": "Content-Type",
-            "value": "application/json",
+            "value": "Bearer {{organizerToken}}",
             "type": "text"
           }
         ],
         "url": {
-          "raw": "{{baseUrl}}/api/queue/events/{{highDemandEventId}}/entries/me",
+          "raw": "{{baseUrl}}/api/reports/events/{{accessEventId}}",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "queue",
+            "reports",
             "events",
-            "{{highDemandEventId}}",
-            "entries",
-            "me"
+            "{{accessEventId}}"
           ]
         }
       },
@@ -2884,463 +3250,48 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('Consulta admitida (200)', () => pm.response.to.have.status(200));",
-              "const json = pm.response.json();",
-              "pm.test('Turno admitido con token', () => { pm.expect(json.status).to.eql('ADMITTED'); pm.expect(json.admissionToken).to.be.a('string').and.not.empty; });",
-              "pm.collectionVariables.set('admissionToken', json.admissionToken);"
+              "pm.test('Reporte 200', () => pm.response.to.have.status(200));",
+              "const r = pm.response.json();",
+              "pm.test('Una vendida, sin devoluciones, recaudación 80', () => { pm.expect(r.totals.soldTickets).to.eql(1); pm.expect(r.totals.refundedTickets).to.eql(0); pm.expect(Number(r.totals.netRevenue)).to.eql(80); });",
+              "pm.test('Ocupación del sector general 0.2%', () => { const g = r.sectors.find(s => s.sectorType === 'GENERAL_ADMISSION'); pm.expect(Number(g.occupancyPercent)).to.eql(0.2); pm.expect(Number(g.unitPrice)).to.eql(80); });"
             ]
           }
         }
       ]
     },
     {
-      "name": "E2-02-09 - Compra sin token es rechazada",
+      "name": "44 - Bitácora: traza de la compra (ADMIN)",
       "request": {
-        "method": "POST",
+        "method": "GET",
         "header": [
           {
             "key": "Authorization",
-            "value": "Bearer {{clientToken}}",
-            "type": "text"
-          },
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          },
-          {
-            "key": "Idempotency-Key",
-            "value": "e2-02-no-token-{{runId}}",
+            "value": "Bearer {{adminToken}}",
             "type": "text"
           }
         ],
         "url": {
-          "raw": "{{baseUrl}}/api/orders",
+          "raw": "{{baseUrl}}/api/audit/traces/purchase-access-{{runId}}",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "orders"
+            "audit",
+            "traces",
+            "purchase-access-{{runId}}"
           ]
         },
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"eventId\": \"{{highDemandEventId}}\",\n  \"items\": [\n    {\n      \"sectorId\": \"{{highDemandInventorySectorId}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"payment\": {\n    \"method\": \"CARD\",\n    \"token\": \"tok_approved\"\n  }\n}",
-          "options": {
-            "raw": {
-              "language": "json"
-            }
-          }
-        }
+        "description": "E2-02: la misma compra se sigue a través de los microservicios por su X-Correlation-Id."
       },
       "response": [],
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('Sin admision responde 403', () => pm.response.to.have.status(403));",
-              "pm.test('Problema JSON', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "E2-02-10 - Compra con token ajeno es rechazada",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{numberedBuyerToken}}",
-            "type": "text"
-          },
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          },
-          {
-            "key": "Idempotency-Key",
-            "value": "e2-02-foreign-token-{{runId}}",
-            "type": "text"
-          },
-          {
-            "key": "X-Admission-Token",
-            "value": "{{admissionToken}}",
-            "type": "text"
-          }
-        ],
-        "url": {
-          "raw": "{{baseUrl}}/api/orders",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "api",
-            "orders"
-          ]
-        },
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"eventId\": \"{{highDemandEventId}}\",\n  \"items\": [\n    {\n      \"sectorId\": \"{{highDemandInventorySectorId}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"payment\": {\n    \"method\": \"CARD\",\n    \"token\": \"tok_approved\"\n  }\n}",
-          "options": {
-            "raw": {
-              "language": "json"
-            }
-          }
-        }
-      },
-      "response": [],
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('Token ajeno responde 403', () => pm.response.to.have.status(403));"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "E2-02-11 - Compra con token valido",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{clientToken}}",
-            "type": "text"
-          },
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          },
-          {
-            "key": "Idempotency-Key",
-            "value": "e2-02-buy-{{runId}}",
-            "type": "text"
-          },
-          {
-            "key": "X-Admission-Token",
-            "value": "{{admissionToken}}",
-            "type": "text"
-          }
-        ],
-        "url": {
-          "raw": "{{baseUrl}}/api/orders",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "api",
-            "orders"
-          ]
-        },
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"eventId\": \"{{highDemandEventId}}\",\n  \"items\": [\n    {\n      \"sectorId\": \"{{highDemandInventorySectorId}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"payment\": {\n    \"method\": \"CARD\",\n    \"token\": \"tok_approved\"\n  }\n}",
-          "options": {
-            "raw": {
-              "language": "json"
-            }
-          }
-        }
-      },
-      "response": [],
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('Compra admitida (201)', () => pm.response.to.have.status(201));",
-              "const json = pm.response.json();",
-              "pm.test('Orden confirmada', () => pm.expect(json.status).to.eql('CONFIRMED'));",
-              "pm.collectionVariables.set('highDemandOrderId', json.orderId);"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "E2-02-12 - Reintento idempotente no consume otro token",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{clientToken}}",
-            "type": "text"
-          },
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          },
-          {
-            "key": "Idempotency-Key",
-            "value": "e2-02-buy-{{runId}}",
-            "type": "text"
-          },
-          {
-            "key": "X-Admission-Token",
-            "value": "{{admissionToken}}",
-            "type": "text"
-          }
-        ],
-        "url": {
-          "raw": "{{baseUrl}}/api/orders",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "api",
-            "orders"
-          ]
-        },
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"eventId\": \"{{highDemandEventId}}\",\n  \"items\": [\n    {\n      \"sectorId\": \"{{highDemandInventorySectorId}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"payment\": {\n    \"method\": \"CARD\",\n    \"token\": \"tok_approved\"\n  }\n}",
-          "options": {
-            "raw": {
-              "language": "json"
-            }
-          }
-        }
-      },
-      "response": [],
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('Replay responde 200', () => pm.response.to.have.status(200));",
-              "pm.test('Misma orden', () => pm.expect(pm.response.json().orderId).to.eql(pm.collectionVariables.get('highDemandOrderId')));"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "E2-02-13 - Reutilizar token con otra clave es rechazado",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{clientToken}}",
-            "type": "text"
-          },
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          },
-          {
-            "key": "Idempotency-Key",
-            "value": "e2-02-buy-again-{{runId}}",
-            "type": "text"
-          },
-          {
-            "key": "X-Admission-Token",
-            "value": "{{admissionToken}}",
-            "type": "text"
-          }
-        ],
-        "url": {
-          "raw": "{{baseUrl}}/api/orders",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "api",
-            "orders"
-          ]
-        },
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"eventId\": \"{{highDemandEventId}}\",\n  \"items\": [\n    {\n      \"sectorId\": \"{{highDemandInventorySectorId}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"payment\": {\n    \"method\": \"CARD\",\n    \"token\": \"tok_approved\"\n  }\n}",
-          "options": {
-            "raw": {
-              "language": "json"
-            }
-          }
-        }
-      },
-      "response": [],
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('Token reutilizado responde 403', () => pm.response.to.have.status(403));"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "E2-02-14 - Segundo cliente entra, abandona y reingresa al final",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{numberedBuyerToken}}",
-            "type": "text"
-          },
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          }
-        ],
-        "url": {
-          "raw": "{{baseUrl}}/api/queue/events/{{highDemandEventId}}/entries",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "api",
-            "queue",
-            "events",
-            "{{highDemandEventId}}",
-            "entries"
-          ]
-        }
-      },
-      "response": [],
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('Segundo cliente entra (201)', () => pm.response.to.have.status(201));",
-              "const json = pm.response.json();",
-              "pm.collectionVariables.set('queueBuyerEntryId', json.entryId);",
-              "pm.collectionVariables.set('queueBuyerPosition', json.position);"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "E2-02-15 - Segundo cliente abandona la fila",
-      "request": {
-        "method": "DELETE",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{numberedBuyerToken}}",
-            "type": "text"
-          },
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          }
-        ],
-        "url": {
-          "raw": "{{baseUrl}}/api/queue/events/{{highDemandEventId}}/entries/me",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "api",
-            "queue",
-            "events",
-            "{{highDemandEventId}}",
-            "entries",
-            "me"
-          ]
-        }
-      },
-      "response": [],
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('Abandono responde 204', () => pm.response.to.have.status(204));"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "E2-02-16 - Reingreso tras abandono obtienen posicion nueva",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{numberedBuyerToken}}",
-            "type": "text"
-          },
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          }
-        ],
-        "url": {
-          "raw": "{{baseUrl}}/api/queue/events/{{highDemandEventId}}/entries",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "api",
-            "queue",
-            "events",
-            "{{highDemandEventId}}",
-            "entries"
-          ]
-        }
-      },
-      "response": [],
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test('Reingreso responde 201', () => pm.response.to.have.status(201));",
-              "const json = pm.response.json();",
-              "pm.test('Posicion nueva al final', () => { pm.expect(json.entryId).to.not.eql(pm.collectionVariables.get('queueBuyerEntryId')); pm.expect(json.position).to.be.greaterThan(Number(pm.collectionVariables.get('queueBuyerPosition'))); });"
-            ]
-          }
-        }
-      ]
-    },
-    {
-      "name": "E2-02-17 - Compra con token vencido es rechazada",
       "event": [
         {
           "listen": "prerequest",
           "script": {
             "type": "text/javascript",
             "exec": [
-              "// Token con marca de tiempo pasada: firma HMAC valida pero fuera de vigencia.",
-              "const secret = pm.collectionVariables.get('queueAdmissionSecret');",
-              "const entryId = pm.collectionVariables.get('queueEntryId');",
-              "const eventId = pm.collectionVariables.get('highDemandEventId');",
-              "const clientId = pm.collectionVariables.get('clientUserId');",
-              "const staleEpoch = Math.floor(Date.now() / 1000) - 3600;",
-              "const payload = entryId + '|' + eventId + '|' + clientId + '|' + staleEpoch;",
-              "const mac = CryptoJS.HmacSHA256(payload, secret);",
-              "const stale = CryptoJS.enc.Base64.stringify(mac).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');",
-              "pm.collectionVariables.set('staleAdmissionToken', stale);"
+              "setTimeout(() => {}, 1000);"
             ]
           }
         },
@@ -3349,57 +3300,136 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('Token vencido responde 403', () => pm.response.to.have.status(403));"
+              "pm.test('Traza 200', () => pm.response.to.have.status(200));",
+              "const r = pm.response.json();",
+              "pm.test('La compra se sigue en Purchase y Ticket', () => { pm.expect(r.services).to.include.members(['purchase-service', 'ticket-service']); const ops = r.events.map(e => e.operation); pm.expect(ops).to.include.members(['PURCHASE_ORDER', 'TICKETS_ISSUED']); const order = r.events.find(e => e.operation === 'PURCHASE_ORDER'); pm.expect(order.outcome).to.eql('CONFIRMED'); pm.expect(order.actorId).to.eql(pm.variables.get('numberedBuyerId')); });"
             ]
           }
         }
-      ],
+      ]
+    },
+    {
+      "name": "45 - Bitácora: traza de la cancelación (ADMIN)",
       "request": {
-        "method": "POST",
+        "method": "GET",
         "header": [
           {
             "key": "Authorization",
-            "value": "Bearer {{clientToken}}",
-            "type": "text"
-          },
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          },
-          {
-            "key": "Idempotency-Key",
-            "value": "e2-02-stale-token-{{runId}}",
-            "type": "text"
-          },
-          {
-            "key": "X-Admission-Token",
-            "value": "{{staleAdmissionToken}}",
+            "value": "Bearer {{adminToken}}",
             "type": "text"
           }
         ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"eventId\": \"{{highDemandEventId}}\",\n  \"items\": [\n    {\n      \"sectorId\": \"{{highDemandInventorySectorId}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"payment\": {\n    \"method\": \"CARD\",\n    \"token\": \"tok_approved\"\n  }\n}",
-          "options": {
-            "raw": {
-              "language": "json"
-            }
-          }
-        },
         "url": {
-          "raw": "{{baseUrl}}/api/orders",
+          "raw": "{{baseUrl}}/api/audit/traces/cancel-{{runId}}",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "orders"
+            "audit",
+            "traces",
+            "cancel-{{runId}}"
           ]
-        },
-        "description": "Rechaza un token con marca de tiempo pasada (firma HMAC calculada con el secreto de desarrollo). La expiracion real por TTL se cubre en AdmissionWindowTest y QueueAdmissionExpiryIntegrationTest con PostgreSQL real."
+        }
       },
-      "response": []
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Traza 200', () => pm.response.to.have.status(200));",
+              "const r = pm.response.json();",
+              "pm.test('La cancelación atraviesa Catalog, Ticket y Purchase', () => { pm.expect(r.services).to.include.members(['purchase-service', 'catalog-service', 'ticket-service']); const ops = r.events.map(e => e.operation); pm.expect(ops).to.include.members(['EVENT_CATALOG_CANCELLATION', 'TICKET_REVOCATION', 'REFUND_EXECUTION', 'EVENT_CANCELLATION']); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "46 - Bitácora: ingresos al evento (ADMIN)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/audit/events?operation=ACCESS_VALIDATION&resourceId={{accessTicketId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "audit",
+            "events"
+          ],
+          "query": [
+            {
+              "key": "operation",
+              "value": "ACCESS_VALIDATION"
+            },
+            {
+              "key": "resourceId",
+              "value": "{{accessTicketId}}"
+            }
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Búsqueda 200', () => pm.response.to.have.status(200));",
+              "const outcomes = pm.response.json().items.map(e => e.outcome);",
+              "pm.test('Registra ingreso y rechazos de la entrada', () => pm.expect(outcomes).to.include.members(['ADMITTED', 'ALREADY_USED', 'WRONG_EVENT']));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "47 - Cliente no puede leer la bitácora",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/audit/events",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "audit",
+            "events"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('CLIENT recibe 403', () => pm.response.to.have.status(403));"
+            ]
+          }
+        }
+      ]
     }
   ],
   "event": [

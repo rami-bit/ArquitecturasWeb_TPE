@@ -35,6 +35,21 @@ spring:
           uri: ${PURCHASE_SERVICE_URL:http://localhost:8084}
           predicates:
             - Path=/api/events/*/cancellation
+        # E2-03: control de acceso QR (Ticket Service).
+        - id: access-control-service
+          uri: ${TICKET_SERVICE_URL:http://localhost:8083}
+          predicates:
+            - Path=/api/access/**
+        # E2-04: reportes del organizador (Purchase Service).
+        - id: organizer-report-service
+          uri: ${PURCHASE_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/reports/**
+        # E2-02: consulta de la bitácora centralizada (Audit Service).
+        - id: audit-service
+          uri: ${AUDIT_SERVICE_URL:http://localhost:8086}
+          predicates:
+            - Path=/api/audit/**
         - id: catalog-service
           uri: ${CATALOG_SERVICE_URL:http://localhost:8081}
           predicates:

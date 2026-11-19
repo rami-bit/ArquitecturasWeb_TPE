@@ -1,4 +1,27 @@
-# Verificación de Entrega 1
+# Verificación de Entrega 1 y Entrega 2
+
+## Verificación de las épicas E2-02, E2-03 y E2-04 (2026-11-17)
+
+Estado: **cerradas**. Entorno: Linux, Docker Engine 29.9.2, OpenJDK 21 (compilación con `release=19`), Maven 3.9.11, Testcontainers con PostgreSQL 16.4 real.
+
+| Verificación | Comando / entorno | Resultado |
+|---|---|---|
+| Línea base antes de los cambios | `mvn -q verify` | 266 pruebas, 0 fallos, 0 errores, 0 omitidos. |
+| Reactor completo | `mvn -q clean verify` | **BUILD SUCCESS. 324 pruebas, 0 fallos, 0 errores, 0 omitidos**: Gateway 55, Catalog 55, Inventory 75, Ticket 32, Payment Mock 26, Purchase 72, Audit 9. XML Surefire recientes revisados. |
+| E2-02 bitácora | `AuditServiceContractTest` (Testcontainers) | 7 pruebas: ingesta idempotente por `eventId`, validación `400`, traza cronológica multi-servicio, `404` sin eventos, filtros y paginación, `403` para roles no ADMIN, eco de `X-Correlation-Id`. |
+| E2-02 publicador | `AuditPublisherTest` en Purchase, Ticket y Catalog | 5 pruebas por módulo: envío con correlation id del MDC, reintento de fallos transitorios con el mismo `eventId`, sin reintento de `400`, servicio caído sin afectar al llamador, modo sólo-log. |
+| E2-02 registro HTTP | `RequestLoggingFilterTest` (6 servicios) y `GatewayEntrega2RoleAuthorizationTest` | Líneas con método, path, status, duración, usuario, rol y correlation id; el Gateway registra `200`, `403` (con usuario) y `401` (anónimo). |
+| E2-03 acceso QR | `AccessControlContractTest`, `TicketQrVerificationTest` | 6 + 2 pruebas: ingreso, reingreso `409 ALREADY_USED`, `422 WRONG_EVENT` sin consumir, `409 REVOKED`, `404 UNKNOWN_TICKET` (firma alterada o ajena), roles; **25 escaneos simultáneos → 1 `200`, 24 `409`, un único registro `ADMITTED`**. |
+| E2-04 reportes | `OrganizerReportCalculatorTest`, `OrganizerReportIntegrationTest` | 4 + 6 pruebas: fórmulas y redondeo, dueño/ADMIN, organizador ajeno `403`, evento inexistente `404`, roles no autorizados sin llamar a Catalog, exclusión de órdenes no pagadas, devolución duplicada contada una vez, Inventory caído (degradación) y Catalog caído (`503`). |
+| Gateway: roles y contrato | `GatewayEntrega2RoleAuthorizationTest`, `ConsolidatedOpenApiDocumentContractTest` | Cada ruta nueva llega al servicio correcto sólo con sus roles; el resto recibe `403` problem+json sin upstream; sin token, `401`. OpenAPI: 42 rutas / 47 operaciones, operaciones E2 con códigos mínimos y seguridad. |
+| Compose aislado | `JWT_ISSUER_URI=http://host.docker.internal:19998 JWT_JWK_SET_URI=http://host.docker.internal:19998/.well-known/jwks.json docker compose -p ticketya_e2_verification up --build -d --wait` | **13/13 servicios healthy** (incluye `audit-db` y `audit-service`). |
+| Postman vía Gateway | Newman 6.2.1 con tokens del IdP local (`tools/local-test-idp`) | **68 requests, 119 aserciones, 0 fallos** (antes: 48/82). Pasos 28-47 cubren reportes, acceso QR y bitácora. |
+| Compras simultáneas | `BASE_URL=http://localhost:8080 IDP_TOKEN_URL=http://localhost:19998/token python postman/concurrent-purchases.py` | PASS: 12 compras, 1 `CONFIRMED`, 11 conflictos, 1 asiento `SOLD`. |
+| Resiliencia de la auditoría | `docker compose stop audit-service` y repetir la prueba anterior | PASS igual; los productores registran `audit service unavailable after 3 attempts; event kept in local log`. |
+| Log centralizado en runtime | `docker compose logs audit-service` | 64 ingestas `POST /internal/audit-events` durante la corrida E2E; trazas consultadas por `GET /api/audit/traces/{id}`. |
+| OpenSpec | `openspec validate --specs` y `openspec validate <cambio> --strict` | 15 specs válidas (avisos de longitud preexistentes en `api-gateway`); los tres cambios válidos en modo estricto antes de archivarse. |
+
+**Limitación del entorno de verificación (no del repositorio):** en el sandbox donde se ejecutó esta verificación, la etapa `maven` de los Dockerfiles multi-stage no pudo descargar dependencias de Maven Central, porque el proxy TLS del entorno no es de confianza dentro de los contenedores de build (error PKIX). Las imágenes se construyeron con un override local, fuera del repositorio, que copia los JAR generados por `mvn verify` sobre la misma imagen base `amazoncorretto:19-alpine`. Los Dockerfiles del repositorio no cambiaron, y el nuevo `services/audit-service/Dockerfile` replica el patrón de Purchase y Payment Mock. En una máquina con acceso normal a Maven Central, `docker compose up --build` construye las imágenes directamente.
 
 
 ## Verificación de la épica E2-02 - Fila virtual (2026-11-17)

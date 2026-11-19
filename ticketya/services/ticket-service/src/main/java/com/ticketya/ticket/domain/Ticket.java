@@ -59,6 +59,15 @@ public class Ticket {
     @Column(name = "issued_at", nullable = false)
     private OffsetDateTime issuedAt;
 
+    @Column(name = "used_at")
+    private OffsetDateTime usedAt;
+
+    @Column(name = "used_by")
+    private UUID usedBy;
+
+    @Column(name = "used_gate", length = 80)
+    private String usedGate;
+
     protected Ticket() {
     }
 
@@ -149,5 +158,17 @@ public class Ticket {
 
     public OffsetDateTime getIssuedAt() {
         return issuedAt;
+    }
+
+    public OffsetDateTime getUsedAt() {
+        return usedAt;
+    }
+
+    public UUID getUsedBy() {
+        return usedBy;
+    }
+
+    public String getUsedGate() {
+        return usedGate;
     }
 }

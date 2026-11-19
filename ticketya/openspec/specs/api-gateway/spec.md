@@ -270,3 +270,44 @@ El Gateway SHALL exponer las operaciones de la fila virtual bajo `/api/queue/**`
 
 - **WHEN** un cliente externo intenta acceder a un comando interno de la fila a través del Gateway
 - **THEN** el Gateway no lo enruta y responde como ruta no encontrada
+### Requirement: Enrutar y proteger la bitácora centralizada
+
+El Gateway SHALL enrutar /api/audit/** a Audit Service sin reescribir el path, exigir un JWT válido con rol ADMIN antes de invocarlo y responder 403 en pplication/problem+json con X-Correlation-Id a cualquier otro rol. /internal/audit-events SHALL permanecer sin ruta pública. Trazabilidad: PDF-NF-GATEWAY, PDF-NF-SECURITY y PDF-NF-TRACE.
+
+#### Scenario: ADMIN consulta la bitácora
+
+- **WHEN** un ADMIN solicita GET /api/audit/traces/{correlationId} por el Gateway
+- **THEN** Audit Service recibe la misma ruta con la identidad derivada
+
+#### Scenario: Otro rol consulta la bitácora
+
+- **WHEN** un CLIENT solicita GET /api/audit/events
+- **THEN** el Gateway responde 403 sin invocar Audit Service
+
+### Requirement: Enrutar y proteger el control de acceso
+
+El Gateway SHALL enrutar /api/access/** a Ticket Service. SHALL exigir el rol ACCESS_STAFF para POST /api/access/events/{eventId}/validations y ACCESS_STAFF o ADMIN para GET /api/access/events/{eventId}/scans, y responder 403 problem+json sin invocar el servicio a cualquier otro rol. Trazabilidad: PDF-NF-GATEWAY y PDF-NF-SECURITY.
+
+#### Scenario: Personal de acceso valida
+
+- **WHEN** ACCESS_STAFF envía una validación por el Gateway
+- **THEN** Ticket Service recibe la misma ruta con la identidad derivada
+
+#### Scenario: Cliente intenta validar
+
+- **WHEN** un CLIENT envía una validación
+- **THEN** el Gateway responde 403 sin invocar Ticket Service
+
+### Requirement: Enrutar y proteger los reportes del organizador
+
+El Gateway SHALL enrutar /api/reports/** a Purchase Service, exigir un JWT con rol ORGANIZER o ADMIN y responder 403 problem+json sin invocar el servicio a cualquier otro rol. Trazabilidad: PDF-NF-GATEWAY y PDF-NF-SECURITY.
+
+#### Scenario: Organizador consulta
+
+- **WHEN** un ORGANIZER solicita GET /api/reports/events/{eventId} por el Gateway
+- **THEN** Purchase recibe la misma ruta con la identidad derivada
+
+#### Scenario: Cliente consulta
+
+- **WHEN** un CLIENT solicita un reporte
+- **THEN** el Gateway responde 403 sin invocar Purchase

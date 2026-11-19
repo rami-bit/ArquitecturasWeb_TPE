@@ -2,6 +2,9 @@ package com.ticketya.purchase.api.refund;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ticketya.purchase.infrastructure.audit.AuditEvent;
+import com.ticketya.purchase.infrastructure.audit.AuditPublisher;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -14,7 +17,9 @@ import org.springframework.web.server.ResponseStatusException;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -30,19 +35,51 @@ public class RefundRequestController {
     private final ObjectMapper mapper;
     private final Clock clock;
     private final String catalogUrl;
+    private final AuditPublisher audit;
 
     public RefundRequestController(JdbcTemplate jdbc, TransactionTemplate transactions,
+            ObjectMapper mapper, Clock clock, String catalogUrl) {
+        this(jdbc, transactions, mapper, clock, catalogUrl, AuditPublisher.localOnly("purchase-service", mapper));
+    }
+
+    @Autowired
+    public RefundRequestController(JdbcTemplate jdbc, TransactionTemplate transactions,
             ObjectMapper mapper, Clock clock,
-            @Value("${purchase.catalog.url:http://localhost:8081}") String catalogUrl) {
+            @Value("${purchase.catalog.url:http://localhost:8081}") String catalogUrl,
+            AuditPublisher audit) {
         this.jdbc = jdbc; this.transactions = transactions; this.mapper = mapper;
         this.clock = clock; this.catalogUrl = catalogUrl;
         this.http = RestClient.builder().build();
+        this.audit = audit;
     }
 
     @PostMapping("/tickets/{ticketId}")
     public ResponseEntity<RefundView> request(@RequestHeader("X-User-Id") UUID customerId,
             @RequestHeader(value = "X-Correlation-Id", required = false) String correlationId,
             @PathVariable("ticketId") UUID ticketId) {
+        try {
+            ResponseEntity<RefundView> response = requestRefund(customerId, correlationId, ticketId);
+            RefundView view = response.getBody();
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("ticketId", ticketId.toString());
+            details.put("eventId", view.eventId().toString());
+            details.put("amount", view.amount());
+            details.put("replay", response.getStatusCode().value() == 200);
+            audit.publish(AuditEvent.of(correlationId, "REFUND_REQUEST", view.status(), customerId.toString(),
+                    "CLIENT", "REFUND", view.id(), details));
+            return response;
+        } catch (ResponseStatusException rejected) {
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("ticketId", ticketId.toString());
+            details.put("httpStatus", rejected.getStatusCode().value());
+            details.put("detail", rejected.getReason());
+            audit.publish(AuditEvent.of(correlationId, "REFUND_REQUEST", "FAILED", customerId.toString(),
+                    "CLIENT", "TICKET", ticketId, details));
+            throw rejected;
+        }
+    }
+
+    private ResponseEntity<RefundView> requestRefund(UUID customerId, String correlationId, UUID ticketId) {
         TicketOrder ticket = ownedTicket(customerId, ticketId);
         RefundView prior = byTicket(ticketId);
         if (prior != null) return ResponseEntity.ok(prior);

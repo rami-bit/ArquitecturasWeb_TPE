@@ -24,6 +24,7 @@ services:
       DB_USER: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       INVENTORY_SERVICE_URL: ${CATALOG_INVENTORY_SERVICE_URL}
+      AUDIT_SERVICE_URL: ${AUDIT_SERVICE_URL}
     depends_on:
       postgres:
         condition: service_healthy
@@ -102,6 +103,7 @@ services:
       DB_USER: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       TICKET_QR_SIGNING_SECRET: ${TICKET_QR_SIGNING_SECRET}
+      AUDIT_SERVICE_URL: ${AUDIT_SERVICE_URL}
     depends_on:
       ticket-db:
         condition: service_healthy
@@ -226,6 +228,7 @@ services:
       TICKET_SERVICE_URL: ${PURCHASE_TICKET_SERVICE_URL}
       QUEUE_SERVICE_URL: ${PURCHASE_QUEUE_SERVICE_URL}
       PURCHASE_TICKET_LIMIT: ${PURCHASE_TICKET_LIMIT}
+      AUDIT_SERVICE_URL: ${AUDIT_SERVICE_URL}
     depends_on:
       purchase-db:
         condition: service_healthy
@@ -248,6 +251,45 @@ services:
     networks:
       - ticketya
 
+  # E2-02: bitácora centralizada. Los productores envían fire-and-forget, por
+  # eso no dependen de que audit-service esté arriba para arrancar.
+  audit-db:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_DB: ${AUDIT_POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - audit-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - ticketya
+
+  audit-service:
+    build:
+      context: .
+      dockerfile: services/audit-service/Dockerfile
+    environment:
+      SERVER_PORT: ${AUDIT_SERVER_PORT}
+      DB_URL: ${AUDIT_DB_URL}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+    depends_on:
+      audit-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${AUDIT_SERVER_PORT}/actuator/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 15s
+    networks:
+      - ticketya
+
   api-gateway:
     build:
       context: ./services/api-gateway
@@ -257,6 +299,8 @@ services:
       INVENTORY_SERVICE_URL: ${GATEWAY_INVENTORY_SERVICE_URL}
       PURCHASE_SERVICE_URL: ${GATEWAY_PURCHASE_SERVICE_URL}
       QUEUE_SERVICE_URL: ${GATEWAY_QUEUE_SERVICE_URL}
+      TICKET_SERVICE_URL: ${GATEWAY_TICKET_SERVICE_URL}
+      AUDIT_SERVICE_URL: ${GATEWAY_AUDIT_SERVICE_URL}
       JWT_ISSUER_URI: ${JWT_ISSUER_URI}
       JWT_JWK_SET_URI: ${JWT_JWK_SET_URI}
     depends_on:
@@ -268,6 +312,14 @@ services:
         condition: service_healthy
       queue-service:
         condition: service_healthy
+      ticket-service:
+        condition: service_healthy
+      audit-service:
+        condition: service_healthy
+    # Permite que el Gateway alcance un IdP de prueba en el host (tools/local-test-idp)
+    # también en Docker Engine para Linux; Docker Desktop ya resuelve este nombre.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${GATEWAY_PORT}:${GATEWAY_SERVER_PORT}"
     healthcheck:
@@ -289,3 +341,4 @@ volumes:
   purchase-postgres-data:
   payment-postgres-data:
   queue-postgres-data:
+  audit-postgres-data:
