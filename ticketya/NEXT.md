@@ -16,7 +16,7 @@ Lección registrada: pasar tokens del IdP a Newman desde PowerShell requiere int
 
 ## PDF-F10 - Preferencias y recomendaciones (2026-11-20)
 
-**Estado:** cerrada e integrada en `main` (cambio OpenSpec `add-preferences-and-recommendations` listo para archivar; no se archivó para no tocar specs vigentes sin revisión).
+**Estado:** cerrada e integrada en `main`. El cambio OpenSpec se archivó como `openspec/changes/archive/2026-11-20-add-preferences-and-recommendations/` y sus deltas se sincronizaron a las specs vigentes (18/18 con `--strict`); no quedan cambios activos.
 
 - [x] **Servicio y base NoSQL:** `services/preferences-service` con MongoDB 7 (`preferences-db`, base `ticketya_preferences`), justificación documentada en `design.md` D1–D17.
 - [x] **API pública:** `PUT`/`GET /api/customers/me/preferences` y `GET /api/customers/me/recommendations`; sólo `CLIENT`, identidad derivada del `sub`, sin `customerId` en la ruta.

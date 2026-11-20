@@ -179,17 +179,21 @@
 
 ### Feature F10 — Preferencias y recomendaciones (Entrega 2)
 
-#### US-E2-04 — Registrar preferencias y recibir recomendaciones
+#### US-F10 - Registrar preferencias y recibir recomendaciones
 
 **Como** cliente, **quiero** registrar mis preferencias y recibir sugerencias de eventos, **para** descubrir opciones afines a mis intereses.
 
-**Trazabilidad:** PDF-F10. **Estado:** **NO IMPLEMENTADO. NO PARTE DE ESTA TAREA.**
+**Trazabilidad:** PDF-F10. **Estado:** **IMPLEMENTADO** (`preferences-service` + MongoDB 7; cambio OpenSpec archivado `2026-11-20-add-preferences-and-recommendations`).
 
-**Criterios de aceptación**
+**Criterios de aceptación (vigentes, actualizados en Entrega 2)**
 
-- **Dado** un cliente, **cuando** registra preferencias, **entonces** el sistema contempla tipos de evento, artistas favoritos y ciudad.
-- **Dado** un cliente con preferencias o historial de compras, **cuando** consulta sugerencias, **entonces** recibe eventos recomendados en función de esa información.
-- **Dado** un evento comprado por clientes, **cuando** se generan recomendaciones basadas en historial, **entonces** se incluyen eventos que también compraron clientes que compraron para ese evento.
+- **Dado** un cliente autenticado con rol `CLIENT`, **cuando** registra preferencias, **entonces** el sistema contempla tipos de evento, artistas favoritos y ciudad, deriva la identidad del `sub` del JWT y persiste un documento por cliente en MongoDB.
+- **Dado** un cliente con preferencias o historial de compras, **cuando** consulta sugerencias, **entonces** recibe eventos publicados y futuros ordenados por un puntaje explicable con motivos (`FAVORITE_EVENT_TYPE`, `FAVORITE_ARTIST`, `SAME_CITY`, `CO_PURCHASE`, `UPCOMING_FALLBACK`).
+- **Dado** un evento comprado por clientes, **cuando** se generan recomendaciones basadas en historial, **entonces** se incluyen eventos que también compraron clientes que compraron para ese evento, acotados a 200 señales y sin exponer órdenes individuales.
+- **Dado** un cliente con una compra confirmada de un evento, **cuando** consulta sugerencias, **entonces** ese evento no aparece aunque tenga afinidad alta.
+- **Dado** un cliente sin preferencias ni historial, **cuando** consulta sugerencias, **entonces** recibe los próximos eventos con puntaje cero y motivo `UPCOMING_FALLBACK`.
+- **Dado** un fallo de Purchase, **cuando** se consultan recomendaciones, **entonces** la respuesta se entrega con `warnings: ["HISTORY_UNAVAILABLE"]`; si falla Catalog, responde `503`.
+- **Dado** un rol distinto de `CLIENT` o una solicitud sin JWT, **cuando** intenta acceder a `/api/customers/**`, **entonces** recibe `403` o `401` respectivamente sin invocar al servicio.
 
 ### Feature F11 — Notificaciones al cliente (Entrega 2)
 
@@ -197,9 +201,9 @@
 
 **Como** cliente, **quiero** recibir notificaciones sobre mis compras y eventos de mi interés, **para** estar informado de cambios relevantes.
 
-**Trazabilidad:** PDF-F11. **Estado:** **NO IMPLEMENTADO. NO PARTE DE ESTA TAREA.**
+**Trazabilidad:** PDF-F11. **Estado:** **CRITERIOS DE ACEPTACIÓN VIGENTES PARA LA ENTREGA 2; IMPLEMENTACIÓN PENDIENTE.** Depende del contrato de eventos de F4/F7.3 y de las preferencias de F10.
 
-**Criterios de aceptación**
+**Criterios de aceptación (revisados y completados en Entrega 2)**
 
 - **Dado** que una compra se confirma, **cuando** se completa la confirmación, **entonces** se envía una notificación por email o push.
 - **Dado** un evento que cambia o se cancela, **cuando** ocurre el cambio, **entonces** se notifica a sus compradores.

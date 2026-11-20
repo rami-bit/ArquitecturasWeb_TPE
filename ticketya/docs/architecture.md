@@ -279,7 +279,7 @@ evolución natural.
 
 ## PDF-F10: preferencias y recomendaciones
 
-`preferences-service` es el único servicio con base NoSQL: MongoDB 7 cumple `PDF-NF-PERSISTENCE`. Las preferencias son un documento con identidad natural (`customerId`) y listas de tamaño variable; el patrón de acceso es "leer o reemplazar por clave". Se descartó PostgreSQL `JSONB` porque no satisface el requisito explícito de NoSQL. La justificación completa está en `openspec/changes/add-preferences-and-recommendations/design.md` (D1–D17).
+`preferences-service` es el único servicio con base NoSQL: MongoDB 7 cumple `PDF-NF-PERSISTENCE`. Las preferencias son un documento con identidad natural (`customerId`) y listas de tamaño variable; el patrón de acceso es "leer o reemplazar por clave". Se descartó PostgreSQL `JSONB` porque no satisface el requisito explícito de NoSQL. La justificación completa está en `openspec/changes/archive/2026-11-20-add-preferences-and-recommendations/design.md` (D1–D17).
 
 ```json
 {

@@ -12,6 +12,8 @@
 > [Trazabilidad y bitácora](#trazabilidad-y-bitácora-centralizada-e2-02),
 > [Control de acceso QR](#control-de-acceso-con-qr-us-f8-e2-03) y
 > [Reportes del organizador](#reportes-del-organizador-us-f12-e2-04).
+>
+> **Carátula de la Entrega 2:** estado de los entregables, criterios de aceptación y evidencia en [`docs/entrega2.md`](docs/entrega2.md).
 
 ## Control de acceso con QR (US-F8, E2-03)
 
