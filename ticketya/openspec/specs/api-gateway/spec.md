@@ -65,7 +65,7 @@ Toda respuesta producida por el Gateway, incluidas las rutas no encontradas y lo
 
 ### Requirement: Reenviar la identidad provisional sin autorizar en el Gateway
 
-El Gateway SHALL eliminar de toda solicitud externa los encabezados `X-User-Id` y `X-User-Role` enviados por el cliente y SHALL NOT reenviar el JWT Bearer a servicios. Si la solicitud presenta un JWT válido, SHALL propagar únicamente la identidad derivada de `sub` y roles validados. Las operaciones protegidas SHALL exigir JWT; las consultas públicas SHALL permitir solicitudes anónimas y no propagar una identidad ausente. El Gateway SHALL NOT decidir autorización de dominio; los servicios SHALL seguir validando rol y ownership. Trazabilidad: PDF-NF-SECURITY.
+El Gateway SHALL eliminar de toda solicitud externa los encabezados `X-User-Id` y `X-User-Role` y SHALL NOT reenviar el JWT Bearer a los servicios. Con un JWT válido SHALL propagar únicamente la identidad derivada de `sub` y roles validados; en operaciones protegidas SHALL exigir JWT y en consultas públicas SHALL permitir solicitudes anónimas sin propagar una identidad ausente. Trazabilidad: PDF-NF-SECURITY.
 
 #### Scenario: Reenviar identidad en una operación de gestión
 
@@ -93,6 +93,15 @@ El Gateway SHALL eliminar de toda solicitud externa los encabezados `X-User-Id` 
 - **WHEN** un cliente consulta disponibilidad sin JWT e incluye `X-User-Id` o `X-User-Role`
 - **THEN** el Gateway enruta la consulta anónima y no propaga esos encabezados ni agrega identidad
 
+### Requirement: Delegar la autorización de dominio a los servicios
+
+El Gateway SHALL NOT decidir autorización de dominio. Los servicios SHALL seguir validando el rol y el ownership de cada recurso, incluso cuando el Gateway ya haya exigido un rol para la ruta. Trazabilidad: PDF-NF-SECURITY.
+
+#### Scenario: El servicio revalida el ownership
+
+- **WHEN** un ORGANIZER autenticado solicita por el Gateway un recurso de otro organizador
+- **THEN** el servicio de dominio responde `403` aunque el Gateway haya aceptado el rol de la ruta
+
 ### Requirement: Preservar las respuestas de error de Catalog Service
 
 El Gateway SHALL reenviar el status, content type, headers y body de Catalog Service, incluidos los errores `application/problem+json` y su campo `correlationId`.
@@ -104,7 +113,7 @@ El Gateway SHALL reenviar el status, content type, headers y body de Catalog Ser
 
 ### Requirement: Enrutar la disponibilidad de inventario por el Gateway
 
-El Gateway SHALL enrutar las solicitudes públicas de disponibilidad bajo `/api/inventory/**` hacia Inventory Service, evaluando esa ruta antes de la ruta de catálogo `/api/**`. SHALL preservar método, path, query params, body y encabezados no relacionados con autenticación. SHALL consumir y no reenviar `Authorization` ni confiar en `X-User-Id` o `X-User-Role` externos; cuando un JWT válido esté presente, sólo SHALL propagar identidad derivada. SHALL NOT exponer el puerto interno de Inventory. Trazabilidad: PDF-NF-GATEWAY y PDF-NF-SECURITY.
+El Gateway SHALL enrutar las solicitudes públicas de disponibilidad bajo `/api/inventory/**` hacia Inventory Service, evaluando esa ruta antes del comodín de catálogo `/api/**`. SHALL preservar método, path, query params, body y encabezados no relacionados con autenticación. SHALL NOT exponer el puerto interno de Inventory. Trazabilidad: PDF-NF-GATEWAY.
 
 #### Scenario: Enrutar una consulta de disponibilidad
 
@@ -130,6 +139,10 @@ El Gateway SHALL enrutar las solicitudes públicas de disponibilidad bajo `/api/
 
 - **WHEN** se inspecciona el despliegue del incremento
 - **THEN** el único puerto HTTP publicado al host es el del Gateway e Inventory Service sólo es accesible dentro de la red interna
+
+### Requirement: Consumir credenciales al enrutar inventario
+
+El Gateway SHALL consumir y no reenviar `Authorization` hacia Inventory Service y SHALL descartar los encabezados `X-User-Id` y `X-User-Role` externos. Cuando la solicitud presente un JWT válido, sólo SHALL propagar la identidad derivada de los claims. Trazabilidad: PDF-NF-SECURITY.
 
 #### Scenario: Consultar disponibilidad sin identidad
 

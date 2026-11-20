@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "TicketYa - Entrega 1 + E2-01..E2-04 E2E via Gateway",
-    "description": "Flujo E2E por Gateway con JWT de un IdP externo: catalogo, disponibilidad, compra, devoluciones y cancelacion. Configure los tokens del IdP en las variables de la coleccion antes de ejecutar; cada corrida genera IDs de datos nuevos. Desde E2-02/E2-03/E2-04 (pasos 28-47) cubre ademas reportes del organizador, control de acceso QR (ingreso, reingreso, otro evento, revocada, adulterada) y la bitacora centralizada por X-Correlation-Id.",
+    "name": "TicketYa - E2E (Gateway)",
+    "description": "Flujo E2E por Gateway con JWT de un IdP externo: catalogo, disponibilidad, compra, devoluciones y cancelacion. Configure los tokens del IdP en las variables de la coleccion antes de ejecutar; cada corrida genera IDs de datos nuevos. Desde E2-02/E2-03/E2-04 (pasos 28-47) cubre ademas reportes del organizador, control de acceso QR (ingreso, reingreso, otro evento, revocada, adulterada) y la bitacora centralizada por X-Correlation-Id. Incluye la fila virtual (PDF-F6): evento de alta demanda, entrada idempotente, espera de tanda, token de admision de un solo uso, compra sin token, con token ajeno, con token valido, replay idempotente, reutilizacion rechazada y abandono/reingreso.\nLos pasos F10-01 a F10-09 cubren preferencias y recomendaciones (PDF-F10).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -141,6 +141,50 @@
     },
     {
       "key": "accessTicketId",
+      "value": ""
+    },
+    {
+      "key": "highDemandEventId",
+      "value": ""
+    },
+    {
+      "key": "highDemandInventorySectorId",
+      "value": ""
+    },
+    {
+      "key": "admissionToken",
+      "value": ""
+    },
+    {
+      "key": "queueEntryId",
+      "value": ""
+    },
+    {
+      "key": "queuePosition",
+      "value": ""
+    },
+    {
+      "key": "queueBuyerEntryId",
+      "value": ""
+    },
+    {
+      "key": "queueBuyerPosition",
+      "value": ""
+    },
+    {
+      "key": "highDemandOrderId",
+      "value": ""
+    },
+    {
+      "key": "clientUserId",
+      "value": ""
+    },
+    {
+      "key": "queueAdmissionSecret",
+      "value": "ticketya-local-development-admission-secret-2026"
+    },
+    {
+      "key": "staleAdmissionToken",
       "value": ""
     }
   ],
@@ -2515,6 +2559,927 @@
       ]
     },
     {
+      "name": "F6-01 - Crear evento de alta demanda (ORGANIZER)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{organizerToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/management/events",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "management",
+            "events"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Fila virtual {{runId}}\",\n  \"description\": \"Evento de alta demanda para la fila virtual (PDF-F6)\",\n  \"eventType\": \"MUSIC\",\n  \"startsAt\": \"2030-07-01T20:00:00-03:00\",\n  \"venueId\": \"{{venueId}}\",\n  \"participants\": [\n    \"Artista fila {{runId}}\"\n  ],\n  \"offerings\": [],\n  \"highDemand\": true\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "Crea el evento de alta demanda usado por el flujo de fila."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status es 201', () => pm.response.to.have.status(201));",
+              "const json = pm.response.json();",
+              "pm.test('highDemand queda activo', () => pm.expect(json.highDemand).to.eql(true));",
+              "pm.collectionVariables.set('highDemandEventId', json.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F6-02 - Configurar ofertas del evento de alta demanda",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{organizerToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/management/events/{{highDemandEventId}}/offerings",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "management",
+            "events",
+            "{{highDemandEventId}}",
+            "offerings"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"offerings\": [\n    {\n      \"sectorId\": \"{{sectorGeneralId}}\",\n      \"price\": \"50.00\"\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status es 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F6-03 - Publicar evento de alta demanda",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{organizerToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/management/events/{{highDemandEventId}}/publish",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "management",
+            "events",
+            "{{highDemandEventId}}",
+            "publish"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status es 200', () => pm.response.to.have.status(200));",
+              "pm.test('Queda publicado', () => pm.expect(pm.response.json().status).to.eql('PUBLISHED'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F6-04 - Disponibilidad del evento de alta demanda",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/inventory/events/{{highDemandEventId}}/availability",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "inventory",
+            "events",
+            "{{highDemandEventId}}",
+            "availability"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status es 200', () => pm.response.to.have.status(200));",
+              "const general = pm.response.json().sectors.find(s => s.type === 'GENERAL_ADMISSION');",
+              "pm.test('Hay sector general', () => pm.expect(general).to.not.be.undefined);",
+              "pm.collectionVariables.set('highDemandInventorySectorId', general.sectorId);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F6-05 - Cliente entra a la fila",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/queue/events/{{highDemandEventId}}/entries",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "queue",
+            "events",
+            "{{highDemandEventId}}",
+            "entries"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Entrada creada (201)', () => pm.response.to.have.status(201));",
+              "const json = pm.response.json();",
+              "pm.test('Turno WAITING con posicion', () => { pm.expect(json.status).to.eql('WAITING'); pm.expect(json.position).to.be.at.least(1); });",
+              "pm.collectionVariables.set('queueEntryId', json.entryId);",
+              "pm.collectionVariables.set('queuePosition', json.position);"
+            ]
+          }
+        },
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const token = pm.variables.get('clientToken');",
+              "if (token && token.split('.').length === 3) {",
+              "  const part = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');",
+              "  const payload = JSON.parse(atob(part));",
+              "  if (payload.sub) { pm.collectionVariables.set('clientUserId', payload.sub); }",
+              "}",
+              "pm.collectionVariables.set('f6PollAttempts', 0);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F6-06 - Reingreso idempotente conserva el turno",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/queue/events/{{highDemandEventId}}/entries",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "queue",
+            "events",
+            "{{highDemandEventId}}",
+            "entries"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Reingreso responde 200', () => pm.response.to.have.status(200));",
+              "const json = pm.response.json();",
+              "pm.test('Mismo turno y posicion', () => { pm.expect(json.entryId).to.eql(pm.collectionVariables.get('queueEntryId')); pm.expect(json.position).to.eql(Number(pm.collectionVariables.get('queuePosition'))); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F6-07 - Consultar turno en espera",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/queue/events/{{highDemandEventId}}/entries/me",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "queue",
+            "events",
+            "{{highDemandEventId}}",
+            "entries",
+            "me"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Consulta exitosa (200)', () => pm.response.to.have.status(200));",
+              "pm.test('No expone disponibilidad', () => pm.expect(JSON.stringify(pm.response.json()).toLowerCase()).to.not.include('available'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F6-08 - Esperar la tanda y obtener el token de admision",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/queue/events/{{highDemandEventId}}/entries/me",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "queue",
+            "events",
+            "{{highDemandEventId}}",
+            "entries",
+            "me"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Consulta exitosa (200)', () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "const accept = (json) => {",
+              "  pm.test('Turno admitido con token', () => {",
+              "    pm.expect(json.status).to.eql('ADMITTED');",
+              "    pm.expect(json.admissionToken).to.be.a('string').and.not.empty;",
+              "  });",
+              "  pm.collectionVariables.set('admissionToken', json.admissionToken);",
+              "};",
+              "if (body.status === 'ADMITTED') {",
+              "  accept(body);",
+              "} else {",
+              "  let attempts = 0;",
+              "  const poll = () => {",
+              "    pm.sendRequest({",
+              "      url: pm.variables.get('baseUrl') + '/api/queue/events/' + pm.variables.get('highDemandEventId') + '/entries/me',",
+              "      method: 'GET',",
+              "      header: [{ key: 'Authorization', value: 'Bearer ' + pm.variables.get('clientToken') }]",
+              "    }, (err, res) => {",
+              "      if (!err && res.code === 200 && res.json().status === 'ADMITTED') {",
+              "        accept(res.json());",
+              "      } else if (attempts < 20) {",
+              "        attempts += 1;",
+              "        setTimeout(poll, 2000);",
+              "      } else {",
+              "        pm.test('Turno admitido con token', () => {",
+              "          throw new Error('La fila no admitio al cliente dentro de 40 s');",
+              "        });",
+              "      }",
+              "    });",
+              "  };",
+              "  poll();",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F6-09 - Compra sin token es rechazada",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "e2-02-no-token-{{runId}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "orders"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"eventId\": \"{{highDemandEventId}}\",\n  \"items\": [\n    {\n      \"sectorId\": \"{{highDemandInventorySectorId}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"payment\": {\n    \"method\": \"CARD\",\n    \"token\": \"tok_approved\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Sin admision responde 403', () => pm.response.to.have.status(403));",
+              "pm.test('Problema JSON', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F6-10 - Compra con token ajeno es rechazada",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{numberedBuyerToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "e2-02-foreign-token-{{runId}}",
+            "type": "text"
+          },
+          {
+            "key": "X-Admission-Token",
+            "value": "{{admissionToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "orders"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"eventId\": \"{{highDemandEventId}}\",\n  \"items\": [\n    {\n      \"sectorId\": \"{{highDemandInventorySectorId}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"payment\": {\n    \"method\": \"CARD\",\n    \"token\": \"tok_approved\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Token ajeno responde 403', () => pm.response.to.have.status(403));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F6-11 - Compra con token valido",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "e2-02-buy-{{runId}}",
+            "type": "text"
+          },
+          {
+            "key": "X-Admission-Token",
+            "value": "{{admissionToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "orders"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"eventId\": \"{{highDemandEventId}}\",\n  \"items\": [\n    {\n      \"sectorId\": \"{{highDemandInventorySectorId}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"payment\": {\n    \"method\": \"CARD\",\n    \"token\": \"tok_approved\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Compra admitida (201)', () => pm.response.to.have.status(201));",
+              "const json = pm.response.json();",
+              "pm.test('Orden confirmada', () => pm.expect(json.status).to.eql('CONFIRMED'));",
+              "pm.collectionVariables.set('highDemandOrderId', json.orderId);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F6-12 - Reintento idempotente no consume otro token",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "e2-02-buy-{{runId}}",
+            "type": "text"
+          },
+          {
+            "key": "X-Admission-Token",
+            "value": "{{admissionToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "orders"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"eventId\": \"{{highDemandEventId}}\",\n  \"items\": [\n    {\n      \"sectorId\": \"{{highDemandInventorySectorId}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"payment\": {\n    \"method\": \"CARD\",\n    \"token\": \"tok_approved\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Replay responde 200', () => pm.response.to.have.status(200));",
+              "pm.test('Misma orden', () => pm.expect(pm.response.json().orderId).to.eql(pm.collectionVariables.get('highDemandOrderId')));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F6-13 - Reutilizar token con otra clave es rechazado",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "e2-02-buy-again-{{runId}}",
+            "type": "text"
+          },
+          {
+            "key": "X-Admission-Token",
+            "value": "{{admissionToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "orders"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"eventId\": \"{{highDemandEventId}}\",\n  \"items\": [\n    {\n      \"sectorId\": \"{{highDemandInventorySectorId}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"payment\": {\n    \"method\": \"CARD\",\n    \"token\": \"tok_approved\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Token reutilizado responde 403', () => pm.response.to.have.status(403));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F6-14 - Segundo cliente entra, abandona y reingresa al final",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{numberedBuyerToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/queue/events/{{highDemandEventId}}/entries",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "queue",
+            "events",
+            "{{highDemandEventId}}",
+            "entries"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Segundo cliente entra (201)', () => pm.response.to.have.status(201));",
+              "const json = pm.response.json();",
+              "pm.collectionVariables.set('queueBuyerEntryId', json.entryId);",
+              "pm.collectionVariables.set('queueBuyerPosition', json.position);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F6-15 - Segundo cliente abandona la fila",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{numberedBuyerToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/queue/events/{{highDemandEventId}}/entries/me",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "queue",
+            "events",
+            "{{highDemandEventId}}",
+            "entries",
+            "me"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Abandono responde 204', () => pm.response.to.have.status(204));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F6-16 - Reingreso tras abandono obtienen posicion nueva",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{numberedBuyerToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/queue/events/{{highDemandEventId}}/entries",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "queue",
+            "events",
+            "{{highDemandEventId}}",
+            "entries"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Reingreso responde 201', () => pm.response.to.have.status(201));",
+              "const json = pm.response.json();",
+              "pm.test('Posicion nueva al final', () => { pm.expect(json.entryId).to.not.eql(pm.collectionVariables.get('queueBuyerEntryId')); pm.expect(json.position).to.be.greaterThan(Number(pm.collectionVariables.get('queueBuyerPosition'))); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F6-17 - Compra con token adulterado es rechazada",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Token vencido responde 403', () => pm.response.to.have.status(403));"
+            ]
+          }
+        },
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// Token con firma HMAC invalida: la marca de tiempo no es la del turno admitido.",
+              "const secret = pm.variables.get('queueAdmissionSecret');",
+              "const entryId = pm.collectionVariables.get('queueEntryId');",
+              "const eventId = pm.variables.get('highDemandEventId');",
+              "const clientId = pm.collectionVariables.get('clientUserId');",
+              "const forgedEpoch = Math.floor(Date.now() / 1000) - 3600;",
+              "const payload = entryId + '|' + eventId + '|' + clientId + '|' + forgedEpoch;",
+              "const mac = CryptoJS.HmacSHA256(payload, secret);",
+              "const forged = CryptoJS.enc.Base64.stringify(mac).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');",
+              "pm.collectionVariables.set('staleAdmissionToken', forged);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "e2-02-stale-token-{{runId}}",
+            "type": "text"
+          },
+          {
+            "key": "X-Admission-Token",
+            "value": "{{staleAdmissionToken}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"eventId\": \"{{highDemandEventId}}\",\n  \"items\": [\n    {\n      \"sectorId\": \"{{highDemandInventorySectorId}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"payment\": {\n    \"method\": \"CARD\",\n    \"token\": \"tok_approved\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "orders"
+          ]
+        },
+        "description": "Rechaza un token con marca de tiempo pasada (firma HMAC calculada con el secreto de desarrollo). La expiracion real por TTL se cubre en AdmissionWindowTest y QueueAdmissionExpiryIntegrationTest con PostgreSQL real."
+      },
+      "response": []
+    },
+    {
       "name": "28 - Reporte del evento cancelado (ORGANIZER)",
       "request": {
         "method": "GET",
@@ -3426,6 +4391,395 @@
             "type": "text/javascript",
             "exec": [
               "pm.test('CLIENT recibe 403', () => pm.response.to.have.status(403));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F10-01 - Registrar preferencias del cliente",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/customers/me/preferences",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "customers",
+            "me",
+            "preferences"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"city\": \"Buenos Aires\",\n  \"eventTypes\": [\n    \"MUSIC\",\n    \"CONCIERTO\"\n  ],\n  \"favoriteArtists\": [\n    \"Artista F10\"\n  ]\n}"
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Respuesta 200', () => pm.response.to.have.status(200));",
+              "pm.test('Correlation ID en la respuesta', () => pm.response.to.have.header('X-Correlation-Id'));",
+              "pm.test('Ciudad registrada', () => pm.expect(pm.response.json().city).to.eql('Buenos Aires'));",
+              "pm.test('Tipos de evento registrados', () => pm.expect(pm.response.json().eventTypes).to.include('MUSIC'));",
+              "pm.test('Version incrementada', () => pm.expect(pm.response.json().version).to.be.at.least(1));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F10-02 - Consultar las preferencias propias",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/customers/me/preferences",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "customers",
+            "me",
+            "preferences"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Respuesta 200', () => pm.response.to.have.status(200));",
+              "pm.test('Correlation ID en la respuesta', () => pm.response.to.have.header('X-Correlation-Id'));",
+              "pm.test('Ciudad persistida', () => pm.expect(pm.response.json().city).to.eql('Buenos Aires'));",
+              "pm.test('Artista favorito persistido', () => pm.expect(pm.response.json().favoriteArtists).to.include('Artista F10'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F10-03 - Recomendaciones del cliente",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/customers/me/recommendations",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "customers",
+            "me",
+            "recommendations"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Respuesta 200', () => pm.response.to.have.status(200));",
+              "pm.test('Correlation ID en la respuesta', () => pm.response.to.have.header('X-Correlation-Id'));",
+              "pm.test('Pagina con items, warnings y generatedAt', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.items).to.be.an('array');",
+              "  pm.expect(body.warnings).to.be.an('array');",
+              "  pm.expect(body.generatedAt).to.be.a('string');",
+              "});",
+              "pm.test('Cada recomendacion tiene puntaje y motivos', () => {",
+              "  pm.response.json().items.forEach((it) => {",
+              "    pm.expect(it.score).to.be.at.least(0);",
+              "    pm.expect(it.reasons).to.be.an('array');",
+              "    pm.expect(it.eventId).to.be.a('string');",
+              "  });",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F10-04 - Recomendaciones con limite explicito",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/customers/me/recommendations",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "customers",
+            "me",
+            "recommendations"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "1"
+            }
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Respuesta 200', () => pm.response.to.have.status(200));",
+              "pm.test('Correlation ID en la respuesta', () => pm.response.to.have.header('X-Correlation-Id'));",
+              "pm.test('Respeta el limite', () => pm.expect(pm.response.json().items.length).to.be.at.most(1));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F10-05 - Limite fuera de rango es rechazado",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/customers/me/recommendations",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "customers",
+            "me",
+            "recommendations"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "0"
+            }
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Limite invalido responde 400', () => pm.response.to.have.status(400));",
+              "pm.test('Problema con correlationId', () => {",
+              "  pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+              "  pm.expect(pm.response.json().correlationId).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F10-06 - Otro cliente no ve estas preferencias",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{numberedBuyerToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/customers/me/preferences",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "customers",
+            "me",
+            "preferences"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Respuesta 200', () => pm.response.to.have.status(200));",
+              "pm.test('Correlation ID en la respuesta', () => pm.response.to.have.header('X-Correlation-Id'));",
+              "pm.test('Cliente sin preferencias tiene version 0', () => pm.expect(pm.response.json().version).to.eql(0));",
+              "pm.test('Ciudad no filtrada del otro cliente', () => pm.expect(pm.response.json().city).to.be.null);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F10-07 - Organizador no puede usar preferencias",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{organizerToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/customers/me/preferences",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "customers",
+            "me",
+            "preferences"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Organizador recibe 403', () => pm.response.to.have.status(403));",
+              "pm.test('Error problem+json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F10-08 - Preferencias sin token son rechazadas",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/customers/me/preferences",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "customers",
+            "me",
+            "preferences"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Sin token recibe 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F10-09 - Identidad en el cuerpo es rechazada",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/customers/me/preferences",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "customers",
+            "me",
+            "preferences"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customerId\": \"00000000-0000-4000-8000-000000000001\",\n  \"city\": \"Rosario\"\n}"
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Identidad en el cuerpo responde 400', () => pm.response.to.have.status(400));",
+              "pm.test('Problema con correlationId', () => pm.expect(pm.response.json().correlationId).to.be.a('string'));"
             ]
           }
         }

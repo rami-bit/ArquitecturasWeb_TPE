@@ -18,6 +18,7 @@
         <module>services/purchase-service</module>
         <module>services/queue-service</module>
         <module>services/audit-service</module>
+        <module>services/preferences-service</module>
     </modules>
 
     <properties>

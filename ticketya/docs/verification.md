@@ -186,6 +186,44 @@ docker compose -p ticketya_e1_verification down
 
 Comprobar los XML recientes de Surefire para confirmar que las clases Testcontainers ejecutaron pruebas y no quedaron omitidas. El informe histórico de Inventory que sigue registra una corrida anterior; sus 116 pruebas y cinco servicios no representan el stack actual.
 
+## Fase 0 + PDF-F10 (2026-11-20)
+
+Estado: `main` en `6f1ed0b` más los cambios locales de la reparación post-merge y de la épica PDF-F10. Entorno: Java 19.0.2, Maven con Spring Boot 3.2.5, Testcontainers 1.21.4, Docker Desktop 29.7.2, MongoDB 7 y PostgreSQL 16.4.
+
+### Fase 0 — reparación de integración
+
+| Verificación | Resultado |
+|---|---|
+| `mvn verify` del reactor | 388 pruebas, 0 fallos, 0 errores, 0 omitidos (84 clases) |
+| `ConsolidatedOpenApiDocumentContractTest` | 18/18 |
+| `docker compose -p ticketya_f10_verification up --build -d --wait` | 15/15 contenedores `healthy` |
+| Newman por el Gateway (`baseUrl=http://localhost:8080`) | 94 requests, 85 test-scripts, 147 aserciones, 0 fallos; incluye `F6-01`…`F6-17` |
+| `openspec validate --all --strict` | 17/17 |
+| `git diff --check` | limpio |
+
+### PDF-F10 — preferencias y recomendaciones
+
+| Verificación | Resultado |
+|---|---|
+| `mvn verify` del reactor | 421 pruebas, 0 fallos, 0 errores, 0 omitidos (91 clases) |
+| `CustomerPreferencesApiContractTest` | 6/6: 200/400/403, cuerpo con `customerId`, `version` 0, `problem+json` y `X-Correlation-Id` |
+| `RecommendationScorerTest` | 6/6: puntaje máximo 17, topes de artistas y co-compra, motivos, exclusión de comprados, orden y fallback |
+| `RecommendationServiceTest` | 5/5: límite, `HISTORY_UNAVAILABLE`, `503` por Catalog, fallback y límite aplicado tras ordenar |
+| `CustomerPreferencesMongoIntegrationTest` (Testcontainers MongoDB 7) | 4/4: `_id` = UUID, upsert atómico, reemplazo con `version` 2, escrituras concurrentes sin duplicados y validaciones rechazadas |
+| `RecommendationSignalsIntegrationTest` (Testcontainers PostgreSQL) | 4/4: compras pagadas, sin historial, tope de 200 co-compras |
+| `RecommendationCandidatesIntegrationTest` (Testcontainers PostgreSQL) | 2/2: sólo `PUBLISHED` futuros, orden estable y `limit` |
+| `GatewayPreferencesRoutingTest` | 4/4: precedencia sobre el comodín, identidad derivada, `CLIENT`, 401/403 y `/internal/**` no publicado |
+| `ConsolidatedOpenApiDocumentContractTest` | 20/20: 49 paths, 56 operaciones y 83 schemas con 5 operaciones y 8 esquemas nuevos |
+| `docker compose -p ticketya_f10_verification up --build -d --wait` | 17/17 contenedores `healthy`, incluidos `preferences-db` (mongo:7) y `preferences-service` (puerto interno 8087, sin publicar) |
+| Newman por el Gateway | 103 requests, 94 test-scripts, 174 aserciones, 0 fallos; incluye `F10-01`…`F10-09` y sin regresiones en F6/E2 |
+| `python postman/concurrent-purchases.py` | PASS: 12 compras simultáneas, 1 `CONFIRMED`, 11 conflictos y un asiento vendido |
+| `openspec validate --all --strict` | 17/17 |
+| `git diff --check` | limpio (sólo avisos LF→CRLF en dos roadmaps heredados) |
+
+La degradación con `HISTORY_UNAVAILABLE` y el `503` por caída de Catalog están cubiertos por `RecommendationServiceTest` con stubs; para reproducirla en el stack, detener `purchase-service` o `catalog-service` del proyecto Compose aislado y repetir `F10-03`, luego reiniciar el contenedor. No se detuvieron servicios del stack ajeno ni se borraron volúmenes.
+
+Nota: los tokens del IdP de prueba se pasan a Newman con interpolación explícita de PowerShell (`"clientToken=$($tokens['client'])"`). Sin `$()` el argumento llega como texto literal y el Gateway responde `401` en cascada.
+
 ## Informe histórico: Establish Inventory and Reservations
 
 Fecha: 2026-11-07  

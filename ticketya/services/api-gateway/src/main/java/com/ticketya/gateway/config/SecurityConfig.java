@@ -41,6 +41,8 @@ public class SecurityConfig {
                         .pathMatchers("/api/reports/**").hasAnyRole("ORGANIZER", "ADMIN")
                         // E2-02: la bitácora centralizada es exclusiva de ADMIN.
                         .pathMatchers("/api/audit/**").hasRole("ADMIN")
+                        // PDF-F10: preferencias y recomendaciones son sólo del cliente autenticado.
+                        .pathMatchers("/api/customers/**").hasRole("CLIENT")
                         .pathMatchers("/api/**").authenticated()
                         .anyExchange().permitAll())
                 .oauth2ResourceServer(oauth2 -> oauth2

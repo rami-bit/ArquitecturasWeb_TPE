@@ -191,6 +191,10 @@ Docker Compose carga automáticamente el archivo `.env` de esta carpeta. Mantenl
 | `QUEUE_BATCH_INTERVAL_SECONDS` | `15` | Duración de cada tanda de la fila virtual |
 | `QUEUE_ADMISSION_TTL_SECONDS` | `120` | Vigencia del token de admisión |
 | `QUEUE_ADMISSION_SECRET` | Clave local definida en `.env` | Clave HMAC estable que firma los tokens de admisión |
+| `PREFERENCES_MONGODB_DATABASE` | `ticketya_preferences` | Base MongoDB de preferencias (PDF-F10) |
+| `PREFERENCES_CANDIDATE_LIMIT` | `200` | Máximo de candidatos pedidos al catálogo por recomendación |
+| `PREFERENCES_HTTP_CONNECT_TIMEOUT_MS` | `2000` | Timeout de conexión hacia Catalog y Purchase |
+| `PREFERENCES_HTTP_READ_TIMEOUT_MS` | `5000` | Timeout de lectura hacia Catalog y Purchase |
 | `TICKET_QR_SIGNING_SECRET` | Clave local definida en `.env` | Clave estable de al menos 32 bytes para firmar los QR |
 
 Ticket Service requiere `TICKET_QR_SIGNING_SECRET`; el `.env` incluye una clave local de desarrollo para arrancar el stack directamente. Conserva el mismo valor entre reinicios si quieres validar QR ya emitidos. Al cambiarlo, los QR existentes dejarán de validarse. No reutilices esta clave fuera del entorno didáctico local.
@@ -275,6 +279,11 @@ Los servicios internos reciben su configuración a través de variables de Compo
 | queue-service | `QUEUE_ADMISSION_SECRET` | Obligatoria; clave HMAC estable del token de admisión |
 | audit-service | `SERVER_PORT` | `8086` |
 | audit-service | `DB_URL` | `jdbc:postgresql://audit-db:5432/ticketya_audit` |
+| preferences-service | `SERVER_PORT` | `8087` |
+| preferences-service | `MONGODB_URI` | `mongodb://preferences-db:27017` |
+| preferences-service | `MONGODB_DATABASE` | `ticketya_preferences` |
+| preferences-service | `CATALOG_SERVICE_URL` / `PURCHASE_SERVICE_URL` | `http://catalog-service:8081` / `http://purchase-service:8084` |
+| api-gateway | `GATEWAY_PREFERENCES_SERVICE_URL` | `http://preferences-service:8087` |
 | audit-service | `DB_USER` / `DB_PASSWORD` | `ticketya` / `ticketya` |
 | catalog-service, ticket-service, purchase-service | `AUDIT_SERVICE_URL` | `http://audit-service:8086` |
 | api-gateway | `SERVER_PORT` | `8080` |
@@ -371,7 +380,8 @@ El Gateway expone el único puerto publicado (`${GATEWAY_PORT:-8080}:8080`). Cat
 
 Cada servicio tiene una comprobación de estado basada en `wget` contra su endpoint de actuator:
 
-- `postgres` (Catálogo), `inventory-db`, `ticket-db`, `purchase-db`, `queue-db`, `payment-db` y `audit-db`: `pg_isready`
+- `postgres` (Catálogo), `inventory-db`, `ticket-db`, `purchase-db`, `queue-db`, `payment-db` y `audit-db`: `pg_isready`; `preferences-db`: `mongosh --eval "db.adminCommand('ping')"`
+- Preferences Service: healthcheck interno en `http://preferences-service:8087/actuator/health` (no publica puerto en el host; compruébalo con `docker compose ps`)
 - Catalog Service: `http://localhost:8081/actuator/health`
 - Inventory Service: `http://localhost:8082/actuator/health`
 - Ticket Service: `http://localhost:8083/actuator/health`
@@ -381,7 +391,7 @@ Cada servicio tiene una comprobación de estado basada en `wget` contra su endpo
 - Audit Service: `http://localhost:8086/actuator/health`
 - API Gateway: `http://localhost:8080/actuator/health`
 
-Espera a que los 15 contenedores informen `healthy` antes de ejecutar la colección Postman.
+Espera a que los 17 contenedores informen `healthy` antes de ejecutar la colección Postman.
 
 ## Ejecutar la colección Postman (vía Gateway)
 
@@ -399,7 +409,7 @@ npx --yes newman run postman/ticketya.postman_collection.json \
 
 Exporta esas cinco variables con tokens vigentes del IdP. `organizerToken` debe tener `sub=userId` y rol `ORGANIZER`; `clientToken`, `sub=userId` y rol `CLIENT`; `numberedBuyerToken`, `sub=numberedBuyerId` y rol `CLIENT`; `adminToken`, `sub=adminUserId` y rol `ADMIN`; `accessStaffToken`, `sub=accessStaffUserId` y rol `ACCESS_STAFF`. Los tokens son datos sensibles: pásalos al proceso de Newman desde el entorno y no los guardes en archivos del repositorio.
 
-La colección es repetible: cada corrida genera un `runId` único para evitar colisiones. Cubre Catalog e Inventory, compras aprobadas de admisión general y asiento numerado con QR, reintento idempotente, consulta de tickets por su titular, pago rechazado con liberación del cupo y límite de seis entradas por cliente y evento. También prueba solicitud y resolución de devoluciones, cancelación con reintegros, suspensión y reanudación del evento, y el flujo de la fila virtual con compra usando el token de admisión. Los pasos 28 a 47 cubren E2-02/E2-03/E2-04. Incluyen el reporte del evento cancelado (7 vendidas, 7 devueltas, neto 0) y el de un evento activo, los rechazos por rol, el ingreso con QR, el reingreso, el QR de otro evento, la entrada revocada y el QR adulterado, la consulta de intentos, y las trazas en la bitácora de una compra y de una cancelación. Todas las rutas públicas se recorren sin token y todas las operaciones protegidas por el Gateway. Inventory materializa el inventario de forma perezosa a partir del snapshot publicado de Catalog en la primera consulta.
+La colección es repetible: cada corrida genera un `runId` único para evitar colisiones. Cubre Catalog e Inventory, compras aprobadas de admisión general y asiento numerado con QR, reintento idempotente, consulta de tickets por su titular, pago rechazado con liberación del cupo y límite de seis entradas por cliente y evento. También prueba solicitud y resolución de devoluciones, cancelación con reintegros, suspensión y reanudación del evento, y el flujo de la fila virtual con compra usando el token de admisión. Los pasos 28 a 47 cubren E2-02/E2-03/E2-04. Los pasos `F10-01` a `F10-09` cubren preferencias, recomendaciones, aislamiento por cliente, roles y rechazo de identidad en el cuerpo. Los pasos `F6-01` a `F6-17` cubren la fila virtual: alta del evento de alta demanda, ingreso e reingreso idempotente, espera de la tanda con sondeo de `GET /entries/me`, compras sin token, con token ajeno, con token válido, reutilización y token adulterado, y abandono con reingreso al final de la fila. Incluyen el reporte del evento cancelado (7 vendidas, 7 devueltas, neto 0) y el de un evento activo, los rechazos por rol, el ingreso con QR, el reingreso, el QR de otro evento, la entrada revocada y el QR adulterado, la consulta de intentos, y las trazas en la bitácora de una compra y de una cancelación. Todas las rutas públicas se recorren sin token y todas las operaciones protegidas por el Gateway. Inventory materializa el inventario de forma perezosa a partir del snapshot publicado de Catalog en la primera consulta.
 
 Para comprobar muchas compras completas simultáneas del mismo asiento con compradores y claves distintas, sobre un stack saludable ejecuta `python postman/concurrent-purchases.py`. La prueba crea sus propios datos, espera una compra confirmada y once conflictos, y comprueba que Inventory registra un solo asiento vendido.
 
@@ -480,6 +490,22 @@ Smoke test interno, sin publicar puertos:
 docker compose exec -T queue-service wget -qO- http://localhost:8086/v3/api-docs
 docker compose exec -T queue-service wget -qO- http://localhost:8086/actuator/health
 ```
+
+## Preferencias y recomendaciones (PDF-F10)
+
+`preferences-service` guarda un documento por cliente en **MongoDB 7** (`preferences-db`, base `ticketya_preferences`, colección `customer_preferences`) y calcula recomendaciones bajo demanda. Es la base NoSQL del sistema (`PDF-NF-PERSISTENCE`); el resto de los servicios sigue usando PostgreSQL. La identidad se deriva del `sub` del JWT: ninguna ruta recibe un `customerId`.
+
+| Método | Ruta (por Gateway) | Descripción |
+|---|---|---|
+| `PUT` | `/api/customers/me/preferences` | Registrar o reemplazar ciudad, tipos de evento y artistas favoritos. Responde `200` con `version` |
+| `GET` | `/api/customers/me/preferences` | Consultar preferencias propias; sin documento responde `200` con `version` `0` |
+| `GET` | `/api/customers/me/recommendations?limit=10` | Recomendaciones explicables; `limit` de 1 a 20 |
+
+Las únicas operaciones permitidas requieren rol `CLIENT`. El Gateway publica `/api/customers/**` hacia Preferences **antes** del comodín `/api/**` de Catalog y no publica los contratos internos: `GET /internal/customers/{customerId}/recommendation-signals` (Purchase) y `GET /internal/events/recommendation-candidates?limit=200` (Catalog). Preferences no accede a esas bases.
+
+El puntaje es lineal y determinista: `3` por tipo favorito, `2` por artista favorito en el cartel (tope tres), `2` por ciudad, `min(5, co-compras)` y `1` si el evento es de los próximos 30 días; máximo 17. Cada componente que suma aparece en `reasons` (`FAVORITE_EVENT_TYPE`, `FAVORITE_ARTIST`, `SAME_CITY`, `CO_PURCHASE`, `UPCOMING_FALLBACK`). Se ordena por puntaje descendente, fecha ascendente e identificador ascendente, y se excluyen eventos ya comprados. Sin preferencias ni historial se devuelven los próximos eventos con puntaje cero y motivo `UPCOMING_FALLBACK`.
+
+No hay cache: cada consulta lee un documento, un agregado acotado en Purchase y hasta 200 candidatos en Catalog. Si Purchase falla, la respuesta sigue con `warnings: ["HISTORY_UNAVAILABLE"]`; si falla Catalog, responde `503`. Para reproducir la degradación en un stack ya levantado, detén `purchase-service` (`docker compose stop purchase-service`) y consulta recomendaciones, luego reinícialo; no detengas contenedores del stack de verificación ajeno.
 
 ## Pasarela de pagos simulada (interna)
 

@@ -50,6 +50,7 @@ class ConsolidatedOpenApiDocumentContractTest {
     private static final String PURCHASE = "Purchase";
     private static final String TICKET = "Ticket";
     private static final String PAYMENT = "Payment";
+    private static final String PREFERENCES = "Preferences";
 
     private static final List<Operation> ENTREGA1_OPERATIONS = List.of(
             // ---------------------------------------------------------------- Catalog
@@ -136,6 +137,22 @@ class ConsolidatedOpenApiDocumentContractTest {
             new Operation("/api/audit/traces/{correlationId}", "get", "getAuditTrace", AUDIT),
             new Operation("/internal/audit-events", "post", "recordAuditEvent", AUDIT));
 
+    /**
+     * Operaciones de PDF-F10 (preferencias y recomendaciones): tres públicas en
+     * Preferences Service y dos contratos internos en Purchase y Catalog.
+     */
+    private static final List<Operation> PREFERENCES_OPERATIONS = List.of(
+            new Operation("/api/customers/me/preferences", "put",
+                    "replaceCustomerPreferences", PREFERENCES),
+            new Operation("/api/customers/me/preferences", "get",
+                    "getCustomerPreferences", PREFERENCES),
+            new Operation("/api/customers/me/recommendations", "get",
+                    "getCustomerRecommendations", PREFERENCES),
+            new Operation("/internal/customers/{customerId}/recommendation-signals", "get",
+                    "getRecommendationSignals", PURCHASE),
+            new Operation("/internal/events/recommendation-candidates", "get",
+                    "getRecommendationCandidates", CATALOG));
+
     private static final Map<String, Set<Integer>> ENTREGA2_STATUS_CODES = Map.of(
             "/api/access/events/{eventId}/validations:post", Set.of(200, 400, 401, 403, 404, 409, 422),
             "/api/access/events/{eventId}/scans:get", Set.of(200, 400, 401, 403),
@@ -143,6 +160,13 @@ class ConsolidatedOpenApiDocumentContractTest {
             "/api/audit/events:get", Set.of(200, 400, 401, 403),
             "/api/audit/traces/{correlationId}:get", Set.of(200, 401, 403, 404),
             "/internal/audit-events:post", Set.of(202, 400));
+
+    private static final Map<String, Set<Integer>> PREFERENCES_STATUS_CODES = Map.of(
+            "/api/customers/me/preferences:put", Set.of(200, 400, 401, 403),
+            "/api/customers/me/preferences:get", Set.of(200, 401, 403),
+            "/api/customers/me/recommendations:get", Set.of(200, 400, 401, 403, 503),
+            "/internal/customers/{customerId}/recommendation-signals:get", Set.of(200),
+            "/internal/events/recommendation-candidates:get", Set.of(200, 400));
 
     private static final Map<String, Set<Integer>> MINIMUM_STATUS_CODES = new LinkedHashMap<>();
 
@@ -232,14 +256,13 @@ class ConsolidatedOpenApiDocumentContractTest {
     private static final Map<String, List<String>> BEARER_REQUIREMENT = Map.of("BearerJWT", List.of());
 
     /**
-     * Fragmentos de capacidades fuera del alcance del contrato: aunque
-     * {@code add-jwt-and-role-security} declara el esquema BearerJWT, la
-     * superficie sigue sin paths ni schemas de login, tokens, cola virtual,
-     * preferencias, recomendaciones, notificaciones, reportes o control de
-     * acceso QR.
+     * Fragmentos de capacidades todavía fuera del alcance del contrato. Las
+     * épicas E2-01 a E2-04 y la fila virtual (PDF-F6) ya están implementadas y
+     * declaradas, por lo que sólo queda excluir lo que aún no existe: las
+     * notificaciones (PDF-F11). Este guard impide documentar como disponible
+     * una capacidad que ningún servicio implementa.
      */
-    private static final List<String> ENTREGA2_CAPABILITY_FRAGMENTS = List.of(
-            "jwt", "auth", "login", "token", "queue", "preference", "recommendation",
+    private static final List<String> NOT_YET_IMPLEMENTED_CAPABILITY_FRAGMENTS = List.of(
             "notification");
 
     private static Map<String, Object> contract;
@@ -691,21 +714,21 @@ class ConsolidatedOpenApiDocumentContractTest {
     }
 
     @Test
-    void theContractDoesNotDeclareEntrega2Capabilities() {
+    void theContractDoesNotDeclareCapabilitiesOutsideTheImplementedScope() {
         for (String path : paths().keySet()) {
             String normalized = path.toLowerCase();
-            for (String fragment : ENTREGA2_CAPABILITY_FRAGMENTS) {
+            for (String fragment : NOT_YET_IMPLEMENTED_CAPABILITY_FRAGMENTS) {
                 assertThat(normalized)
-                        .as("el path %s no declara capacidad de Entrega 2 (%s)",
+                        .as("el path %s no declara una capacidad aún no implementada (%s)",
                                 path, fragment)
                         .doesNotContain(fragment);
             }
         }
         for (String schemaName : schemas().keySet()) {
             String normalized = schemaName.toLowerCase();
-            for (String fragment : ENTREGA2_CAPABILITY_FRAGMENTS) {
+            for (String fragment : NOT_YET_IMPLEMENTED_CAPABILITY_FRAGMENTS) {
                 assertThat(normalized)
-                        .as("el schema %s no declara capacidad de Entrega 2 (%s)",
+                        .as("el schema %s no declara una capacidad aún no implementada (%s)",
                                 schemaName, fragment)
                         .doesNotContain(fragment);
             }
@@ -750,6 +773,54 @@ class ConsolidatedOpenApiDocumentContractTest {
         Map<String, Object> result = (Map<String, Object>) scanView.get("result");
         assertThat((List<String>) result.get("enum"))
                 .containsExactlyInAnyOrder("ADMITTED", "ALREADY_USED", "REVOKED", "WRONG_EVENT", "UNKNOWN_TICKET");
+    }
+
+    @Test
+    void contractDeclaresThePreferencesOperationsWithStatusCodesAndSecurity() {
+        for (Operation operation : PREFERENCES_OPERATIONS) {
+            Map<String, Object> op = operation(operation);
+            assertThat(op.get("operationId"))
+                    .as("operationId de %s %s", operation.method(), operation.path())
+                    .isEqualTo(operation.operationId());
+            String key = operation.path() + ":" + operation.method();
+            Set<Integer> documented = responses(operation).keySet().stream()
+                    .filter(code -> code.matches("\\d{3}"))
+                    .map(Integer::parseInt)
+                    .collect(java.util.stream.Collectors.toSet());
+            assertThat(documented).as("codigos minimos de %s", key)
+                    .containsAll(PREFERENCES_STATUS_CODES.get(key));
+            if (operation.path().startsWith("/internal/")) {
+                assertThat(op.get("security")).as("%s es interna: security []", key)
+                        .isEqualTo(List.of());
+            } else {
+                assertThat(op.get("security"))
+                        .as("%s hereda el requisito BearerJWT global", key).isNull();
+                @SuppressWarnings("unchecked")
+                List<Object> security = (List<Object>) effectiveSecurity(op);
+                assertThat(security).containsExactly((Object) BEARER_REQUIREMENT);
+            }
+        }
+    }
+
+    @Test
+    void preferencesSchemasAreDeclared() {
+        assertThat(schemas().keySet()).contains(
+                "CustomerPreferencesRequest", "CustomerPreferencesResponse",
+                "RecommendedEvent", "EventRecommendationPage",
+                "RecommendationSignals", "CoPurchaseSignal",
+                "EventCandidate", "EventCandidatePage");
+        assertThat(required("CustomerPreferencesResponse"))
+                .contains("city", "eventTypes", "favoriteArtists", "updatedAt", "version");
+        assertThat(required("RecommendedEvent"))
+                .contains("eventId", "name", "eventType", "startsAt", "city",
+                        "participants", "minPrice", "score", "reasons");
+        assertThat(required("RecommendationSignals"))
+                .contains("customerId", "purchasedEventIds", "coPurchases", "generatedAt");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> request = schema("CustomerPreferencesRequest");
+        assertThat(request.get("properties"))
+                .as("CustomerPreferencesRequest declara properties")
+                .isInstanceOf(Map.class);
     }
 
     @Test

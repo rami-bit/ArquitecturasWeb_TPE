@@ -70,9 +70,9 @@ Este roadmap convierte F1-F12 del PDF en historias priorizadas. Para cerrar Entr
 | **P1 / verificación** | **US-F7.2 - Resolver devolución (implementado; E2E verificado).** ADMIN aprueba o rechaza; la aprobación revoca el ticket, reintegra su importe y libera la unidad vendida. La colección actual prueba dos reintegros parciales de un mismo pago. | Depende de US-F7.1, Ticket revocable, Payment Mock con reintegro parcial e Inventory con liberación de unidad vendida. |
 | **P1 / pruebas** | **US-F7.3 - Cancelar evento con reintegros (implementado; E2E verificado).** ADMIN inicia el proceso; Catalog marca `CANCELLED`; Purchase revoca tickets, procesa reintegros y cierra inventario de forma idempotente. La colección ampliada pasó 42 requests y 72 aserciones, incluidos siete tickets vendidos (seis generales y uno numerado), rechazo previo, reintento y bloqueo de compra posterior. | Depende de US-F4.3/4.4 y de las primitivas de US-F7.2. Purchase orquesta; Catalog no orquesta reintegros. La notificacion a compradores se completa en US-F11 (E2). |
 | **P1 / cierre E1** | **US-E1-05 - Integrar y entregar el core (14/14 tareas OpenSpec, archivadas).** El reactor Java 21/Testcontainers pasó 260 pruebas sin fallos ni omisiones; 11 servicios Compose quedaron saludables; Postman pasó 42 requests y 72 aserciones; 12 compras simultáneas por Gateway dejaron una sola venta. `docs/verification.md` registra los comandos y la evidencia. | Depende de US-F4.1-F4.4 y US-F7.1-F7.3. Las pruebas adicionales de fallos downstream, pago incierto y reintento QR quedaron cubiertas por contratos de Purchase. |
-| **P2 / E2** | **US-F6 - Fila virtual.** Para evento de alta demanda, informar posicion y habilitar tandas ordenadas; el token de admision no garantiza disponibilidad de inventario. | Se puede especificar en paralelo con P0; la integracion depende del endpoint de compra de US-F4.3 e Inventory. |
+| **F6 / implementado** | **US-F6 - Fila virtual (implementado; E2E por Gateway).** Para evento de alta demanda, informa posición y habilita tandas ordenadas con token de admisión de un solo uso; el token no garantiza disponibilidad de inventario. Implementado con PostgreSQL (`queue-service` + `queue-db`), no con Redis. | Se puede especificar en paralelo con P0; la integración depende del endpoint de compra de US-F4.3 e Inventory. |
 | **E2-03 / implementado** | **US-F8 - Validar acceso QR (implementado; E2E verificado).** Personal valida existencia, evento correcto y no usado; el primer escaneo marca uso atomico y los siguientes se rechazan. 25 escaneos simultaneos: 1 ingreso. | Depende del contrato de tickets emitidos de US-F4.4. Puede implementarse en paralelo con devoluciones cuando se acuerden los estados de revocacion/uso. |
-| **P2 / E2** | **US-F10 - Preferencias y recomendaciones.** Guardar tipos, artistas y ciudad; sugerir eventos por preferencias e historial de compras. | Catalog ya existe; historial depende de US-F4.1-F4.4. Definir NoSQL y su justificacion en esta historia. |
+| **F10 / implementado** | **US-F10 - Preferencias y recomendaciones.** Guardar tipos, artistas y ciudad; sugerir eventos por preferencias e historial de compras. | Implementado con `preferences-service` + MongoDB 7; justificación NoSQL en `openspec/changes/add-preferences-and-recommendations/design.md`. |
 | **P2 / E2** | **US-F11 - Notificar al cliente.** Enviar confirmacion de compra, cancelacion/cambio y eventos de artistas favoritos en su ciudad. | Confirmacion depende de US-F4.3; cancelacion de US-F7.3; alertas personalizadas de US-F10. Se puede desarrollar el adaptador de notificaciones en paralelo una vez acordado el contrato de eventos. |
 | **E2-04 / implementado** | **US-F12 - Reportes del organizador (implementado; E2E verificado).** Mostrar vendidos/devueltos por sector, ocupacion y recaudacion por evento propio. | Depende de compras de US-F4 y devoluciones/cancelacion de US-F7; requiere filtrar por ownership del organizador. |
 
@@ -131,7 +131,7 @@ Evidencia: [`docs/architecture.md`](docs/architecture.md) reúne servicios y res
 - [x] [x] Incluir ejemplos JSON de request y response.
 - [x] [x] Documentar la API con OpenAPI/Swagger, incluyendo descripciones, ejemplos y códigos de error.
 
-Evidencia: [`docs/openapi.yaml`](docs/openapi.yaml) es el contrato consolidado de la entrega (36 paths, 41 operaciones) con ejemplos, errores `application/problem+json` y esquemas de Catalog, Inventory, Purchase, Ticket y Payment. Cada servicio expone además su `/v3/api-docs` y Swagger UI en su puerto interno.
+Evidencia: [`docs/openapi.yaml`](docs/openapi.yaml) es el contrato consolidado de la entrega (49 paths, 56 operaciones) con ejemplos, errores `application/problem+json` y esquemas de Catalog, Inventory, Purchase, Ticket, Payment, Queue, Audit y Preferences. Cada servicio expone además su `/v3/api-docs` y Swagger UI en su puerto interno.
 
 ## Implementación y ejecución
 
@@ -153,7 +153,7 @@ Evidencia: el `README.md` documenta requisitos, variables de entorno, build, Com
 - [x] [x] No confiar en los encabezados de identidad enviados por el cliente: el Gateway deriva la identidad de los claims validados y no reenvía el Bearer.
 - [x] [x] Documentar el esquema Bearer en OpenAPI, actualizar la colección Postman y el README, y verificar el flujo protegido por el Gateway.
 
-Evidencia: el Gateway valida firma, expiración, `sub` UUID y un único rol permitido (`GatewayJwtSecurityIntegrationTest`, 5 pruebas con 13 variantes de token inválido). `docs/openapi.yaml` declara el esquema HTTP `BearerJWT` con `security: []` explícito en las operaciones públicas (`ConsolidatedOpenApiDocumentContractTest`, 16 pruebas). Verificación completa, con IdP de prueba local y Compose aislado, en [`docs/verification.md`](docs/verification.md) y en `NEXT.md`.
+Evidencia: el Gateway valida firma, expiración, `sub` UUID y un único rol permitido (`GatewayJwtSecurityIntegrationTest`, 5 pruebas con 13 variantes de token inválido). `docs/openapi.yaml` declara el esquema HTTP `BearerJWT` con `security: []` explícito en las operaciones públicas (`ConsolidatedOpenApiDocumentContractTest`, 18 pruebas). Verificación completa, con IdP de prueba local y Compose aislado, en [`docs/verification.md`](docs/verification.md) y en `NEXT.md`.
 
 ## Entrega 2: Fila virtual y alta demanda (E2-02)
 
@@ -210,10 +210,21 @@ Evidencia: `AccessControlContractTest` (6, incluye 25 escaneos concurrentes → 
 
 Evidencia: `OrganizerReportCalculatorTest` (4), `OrganizerReportIntegrationTest` (6); Postman 28-31 y 43.
 
+## PDF-F10: preferencias y recomendaciones
+
+- [x] [x] Servicio propio `preferences-service` con base NoSQL MongoDB 7 (`preferences-db`), justificada frente a PostgreSQL JSONB en `design.md` (D2).
+- [x] [x] Documento por cliente con `_id` = UUID del `sub`, upsert atómico de un solo documento y `version` gestionada por el servidor.
+- [x] [x] `PUT`/`GET /api/customers/me/preferences` con validación D14, rechazo de identidad en el cuerpo y representación vacía (`version` `0`) para clientes nuevos.
+- [x] [x] `GET /api/customers/me/recommendations` con puntaje explicable, motivos, exclusión de comprados, orden determinista y `limit` 1..20.
+- [x] [x] Contratos internos de señales (Purchase) y candidatos (Catalog), sin acceso cruzado a bases.
+- [x] [x] Degradación asimétrica: `HISTORY_UNAVAILABLE` si falla Purchase, `503` si falla Catalog, y `UPCOMING_FALLBACK` sin señales.
+- [x] [x] Ruta del Gateway con rol `CLIENT` antes del comodín; contratos internos no publicados.
+- [x] [x] Contrato OpenAPI (5 operaciones y 8 esquemas), 9 pasos Postman (`F10-01`…`F10-09`), Compose con 17 contenedores y documentación actualizada.
+
 ## Pendiente de Entrega 2
 
-- [ ] [ ] US-F6 Fila virtual (con Redis).
-- [ ] [ ] US-F10 Preferencias y recomendaciones (base NoSQL MongoDB, con justificación).
+- [x] [x] US-F6 Fila virtual (implementada con PostgreSQL; ver «Entrega 2: Fila virtual y alta demanda»).
+- [x] [x] US-F10 Preferencias y recomendaciones (MongoDB 7, con justificación; ver «PDF-F10: preferencias y recomendaciones»).
 - [ ] [ ] US-F11 Notificaciones (asíncronas).
 - [ ] [ ] Cache del catálogo y de las búsquedas (TTL, invalidación y justificación de lo no cacheado).
 - [ ] [ ] Circuit breaker y fallback hacia Payment y Notificaciones (hoy hay timeouts y reintentos idempotentes, pero no breaker).

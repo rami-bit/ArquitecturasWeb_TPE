@@ -50,6 +50,12 @@ spring:
           uri: ${AUDIT_SERVICE_URL:http://localhost:8086}
           predicates:
             - Path=/api/audit/**
+        # PDF-F10: preferencias y recomendaciones del cliente autenticado. Debe ir
+        # antes del comodín de catálogo para no ser absorbida por /api/**.
+        - id: preferences-service
+          uri: ${GATEWAY_PREFERENCES_SERVICE_URL:http://localhost:8087}
+          predicates:
+            - Path=/api/customers/**
         - id: catalog-service
           uri: ${CATALOG_SERVICE_URL:http://localhost:8081}
           predicates:

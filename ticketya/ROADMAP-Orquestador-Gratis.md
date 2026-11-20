@@ -1,5 +1,7 @@
 # Roadmap - Orquestador Gratuito (PDF-F6 + Epics)
 
+> **SUPERADO (2026-11-20).** Este documento describe un estado anterior al cierre de la Fase 0 de reparación post-merge y no debe usarse como fuente de verdad. El estado vigente está en `ROADMAP-Orquestador-F10.md`, `NEXT.md`, `TODO.md` y `docs/verification.md`.
+
 ## Contexto
 Orquestador de compras para eventos de alta demanda usando modelos gratuitos de OpenCode.
 Integra PDF-F6 (fila virtual) con epics E2 (trazabilidad) y seguridad JWT.

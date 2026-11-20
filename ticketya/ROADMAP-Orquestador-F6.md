@@ -1,5 +1,7 @@
 # Roadmap - Orquestador de Epics/Funcionalidades Post-Merge PDF-F6
 
+> **SUPERADO (2026-11-20).** Este documento describe un estado anterior al cierre de la Fase 0 de reparación post-merge y no debe usarse como fuente de verdad. Contiene endpoints inexistentes (`/api/queue/join`, `/api/queue/position`, `/api/queue/trigger`) y cifras desactualizadas. El estado vigente está en `ROADMAP-Orquestador-F10.md`, `NEXT.md`, `TODO.md` y `docs/verification.md`.
+
 ## Contexto Actual (después de merge a main)
 - Rama `integracionJwtyF6` fusionada exitosamente a `main`
 - Implementado PDF-F6: Fila virtual para eventos de alta demanda

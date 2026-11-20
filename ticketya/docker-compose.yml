@@ -290,6 +290,45 @@ services:
     networks:
       - ticketya
 
+  preferences-db:
+    image: mongo:7
+    environment:
+      MONGO_INITDB_DATABASE: ${PREFERENCES_MONGODB_DATABASE}
+    volumes:
+      - preferences-mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    networks:
+      - ticketya
+
+  preferences-service:
+    build:
+      context: .
+      dockerfile: services/preferences-service/Dockerfile
+    environment:
+      PREFERENCES_SERVER_PORT: ${PREFERENCES_SERVER_PORT}
+      PREFERENCES_MONGODB_URI: ${PREFERENCES_MONGODB_URI}
+      PREFERENCES_MONGODB_DATABASE: ${PREFERENCES_MONGODB_DATABASE}
+      PREFERENCES_CATALOG_SERVICE_URL: ${PREFERENCES_CATALOG_SERVICE_URL}
+      PREFERENCES_PURCHASE_SERVICE_URL: ${PREFERENCES_PURCHASE_SERVICE_URL}
+      PREFERENCES_CANDIDATE_LIMIT: ${PREFERENCES_CANDIDATE_LIMIT}
+      PREFERENCES_HTTP_CONNECT_TIMEOUT_MS: ${PREFERENCES_HTTP_CONNECT_TIMEOUT_MS}
+      PREFERENCES_HTTP_READ_TIMEOUT_MS: ${PREFERENCES_HTTP_READ_TIMEOUT_MS}
+    depends_on:
+      preferences-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${PREFERENCES_SERVER_PORT}/actuator/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 15s
+    networks:
+      - ticketya
+
   api-gateway:
     build:
       context: ./services/api-gateway
@@ -301,6 +340,7 @@ services:
       QUEUE_SERVICE_URL: ${GATEWAY_QUEUE_SERVICE_URL}
       TICKET_SERVICE_URL: ${GATEWAY_TICKET_SERVICE_URL}
       AUDIT_SERVICE_URL: ${GATEWAY_AUDIT_SERVICE_URL}
+      GATEWAY_PREFERENCES_SERVICE_URL: ${GATEWAY_PREFERENCES_SERVICE_URL}
       JWT_ISSUER_URI: ${JWT_ISSUER_URI}
       JWT_JWK_SET_URI: ${JWT_JWK_SET_URI}
     depends_on:
@@ -315,6 +355,8 @@ services:
       ticket-service:
         condition: service_healthy
       audit-service:
+        condition: service_healthy
+      preferences-service:
         condition: service_healthy
     # Permite que el Gateway alcance un IdP de prueba en el host (tools/local-test-idp)
     # también en Docker Engine para Linux; Docker Desktop ya resuelve este nombre.
@@ -342,3 +384,4 @@ volumes:
   payment-postgres-data:
   queue-postgres-data:
   audit-postgres-data:
+  preferences-mongo-data:

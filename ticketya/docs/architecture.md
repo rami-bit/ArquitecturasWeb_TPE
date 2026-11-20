@@ -2,7 +2,7 @@
 
 Documento de arquitectura de la Entrega 1 y de las épicas de Entrega 2
 E2-01 (JWT y roles), E2-02 (trazabilidad y bitácora centralizada), E2-03
-(control de acceso QR) y E2-04 (reportes del organizador). Resume los microservicios, sus
+(control de acceso QR), E2-04 (reportes del organizador) y PDF-F10 (preferencias y recomendaciones). Resume los microservicios, sus
 responsabilidades y su API, la comunicación entre ellos, el mecanismo contra la
 doble venta y los modelos de datos. Incluye el núcleo de la Entrega 1 y las
 épicas de Entrega 2 ya implementadas: seguridad JWT (`add-jwt-and-role-security`)
@@ -23,6 +23,7 @@ y [`openspec/changes/add-virtual-queue/design.md`](../openspec/changes/add-virtu
 | `payment-mock` | 8085 | `ticketya_payment` | — | `POST /internal/payments`, `GET /internal/payments/{paymentId}`, `GET /internal/payments/by-order/{orderId}`, `POST /internal/payments/{paymentId}/refund` (total), `POST /internal/payments/{paymentId}/refunds` (parcial) |
 | `audit-service` (E2-02) | 8086 | `ticketya_audit` | `GET /api/audit/events`, `GET /api/audit/traces/{correlationId}` (sólo ADMIN) | `POST /internal/audit-events` (ingesta idempotente) |
 | `queue-service` (E2-02) | 8086 | `ticketya_queue` | `POST /api/queue/events/{eventId}/entries`, `GET/DELETE /api/queue/events/{eventId}/entries/me` | `POST /internal/admissions/validate` |
+| `preferences-service` (PDF-F10) | 8087 | `ticketya_preferences` (**MongoDB 7**) | `PUT/GET /api/customers/me/preferences`, `GET /api/customers/me/recommendations?limit=10` (sólo `CLIENT`) | Consume `GET /internal/customers/{customerId}/recommendation-signals` (Purchase) y `GET /internal/events/recommendation-candidates?limit=200` (Catalog) |
 
 Las rutas de cancelación tienen propósitos distintos. Catalog expone
 `POST /api/management/events/{id}/cancel`: cambia el estado a `CANCELLED` y
@@ -38,6 +39,10 @@ flowchart LR
     GW -->|/api/orders, /api/refunds, cancelación, /api/reports| PUR[purchase-service :8084]
     GW -->|/api/access| TKT[ticket-service :8083]
     GW -->|/api/audit| AUD[audit-service :8086]
+    GW -->|/api/customers (sólo CLIENT)| PREF[preferences-service :8087]
+    PREF -->|señales de historial| PUR
+    PREF -->|candidatos publicados| CAT
+    PREF --- DB7[(ticketya_preferences · MongoDB 7)]
     PUR -->|snapshot / fecha / cancelación lógica (F7)| CAT
     PUR -->|validar y consumir admisión (F6)| QUE[queue-service :8086]
     QUE -->|snapshot publicado: highDemand| CAT
@@ -271,6 +276,46 @@ El reporte se calcula en cada consulta, sin cache ni tabla de agregados. El
 volumen por evento es acotado y así refleja al instante devoluciones y
 cancelaciones. Si hiciera falta, una vista materializada por evento es la
 evolución natural.
+
+## PDF-F10: preferencias y recomendaciones
+
+`preferences-service` es el único servicio con base NoSQL: MongoDB 7 cumple `PDF-NF-PERSISTENCE`. Las preferencias son un documento con identidad natural (`customerId`) y listas de tamaño variable; el patrón de acceso es "leer o reemplazar por clave". Se descartó PostgreSQL `JSONB` porque no satisface el requisito explícito de NoSQL. La justificación completa está en `openspec/changes/add-preferences-and-recommendations/design.md` (D1–D17).
+
+```json
+{
+  "_id": "8f14e45f-ceea-467f-a8a4-0f1b2f0f9c11",
+  "city": "Buenos Aires",
+  "eventTypes": ["CONCIERTO", "TEATRO"],
+  "favoriteArtists": ["Artista A", "Artista B"],
+  "updatedAt": "2026-11-20T12:00:00Z",
+  "version": 3
+}
+```
+
+El `PUT` hace un `findAndModify` con `upsert=true` y `$inc` de `version` sobre `_id`: un solo documento, sin transacciones multi-documento. No hay cache de recomendaciones: cada consulta recalcula con preferencias, señales de compra y candidatos, para no recomendar un evento ya comprado ni uno cancelado.
+
+```mermaid
+sequenceDiagram
+    participant C as CLIENT (JWT)
+    participant G as api-gateway
+    participant P as preferences-service
+    participant M as preferences-db (MongoDB 7)
+    participant U as purchase-service
+    participant A as catalog-service
+    C->>G: GET /api/customers/me/recommendations
+    G->>G: valida JWT y exige rol CLIENT
+    G->>P: reenvía X-User-Id derivado del sub
+    P->>M: lee customer_preferences por _id
+    P->>U: GET /internal/customers/{id}/recommendation-signals
+    U-->>P: comprados + co-compras (o falla → HISTORY_UNAVAILABLE)
+    P->>A: GET /internal/events/recommendation-candidates?limit=200
+    A-->>P: eventos PUBLISHED futuros (o falla → 503)
+    P->>P: puntúa, filtra, ordena y aplica limit
+    P-->>G: items + reasons + warnings
+    G-->>C: 200 application/json + X-Correlation-Id
+```
+
+La ruta `/api/customers/**` se declara antes del comodín de catálogo y exige `CLIENT` tanto en el Gateway como en el servicio. Los contratos `/internal/**` no se publican: Preferences es el único consumidor y Purchase/Catalog conservan la propiedad de sus datos.
 
 ## 8. Contrato y documentación
 

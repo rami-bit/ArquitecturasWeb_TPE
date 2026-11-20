@@ -229,6 +229,23 @@ tags:
       por Purchase Service antes de reservar y cobrar. Sólo accesible dentro de
       la red de servicios; el Gateway no publica esta ruta.
 
+  - name: Customer preferences
+    description: |
+      Preferencias del cliente autenticado (ciudad, tipos de evento y artistas
+      favoritos), publicadas por el API Gateway en `http://localhost:8080`.
+      Requieren Bearer JWT con rol `CLIENT` y se resuelven exclusivamente por
+      el `sub`: ninguna ruta recibe un `customerId`.
+  - name: Event recommendations
+    description: |
+      Recomendaciones explicables de eventos publicados y futuros, derivadas de
+      las preferencias del cliente y de su historial de compras. Requieren
+      Bearer JWT con rol `CLIENT`, no garantizan disponibilidad ni reservan
+      inventario, y degradan con `HISTORY_UNAVAILABLE` si Purchase no responde.
+  - name: Recommendation contracts (internal)
+    description: |
+      Contratos internos de senales de historial (Purchase) y de candidatos
+      (Catalog), consumidos solo por Preferences Service dentro de la red de
+      servicios. El Gateway no publica ninguna de estas rutas.
 paths:
 
   # ─── CATALOG VENUES ────────────────────────────────────────────────────────
@@ -3265,6 +3282,676 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
 
+  /api/access/events/{eventId}/validations:
+    post:
+      tags: [Access control]
+      operationId: validateTicketAccess
+      summary: Validar el QR de una entrada y registrar el ingreso
+      description: |
+        Requiere rol `ACCESS_STAFF`. Verifica la firma HMAC del QR, que la
+        entrada exista, que corresponda al evento de la ruta y que no haya sido
+        usada ni revocada. El ingreso se marca con un único
+        `UPDATE ... WHERE status = 'ISSUED'`: ante escaneos simultáneos del mismo
+        QR (aun desde varias instancias) exactamente uno obtiene `200`. Cada
+        intento queda registrado en `access_scans` y en la bitácora centralizada.
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AccessValidationRequest' }
+            example:
+              qrPayload: v1.2a2383ad-0396-4465-820f-5d75710c0206.p7x1yJ4vR0xg0kC6bQbqk1x7m2f3nV0gQ5h6t8e9w0A
+              gate: Puerta 3
+      responses:
+        '200':
+          description: Entrada válida; queda marcada como utilizada.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccessValidationResponse' }
+              example:
+                result: ADMITTED
+                ticketId: 2a2383ad-0396-4465-820f-5d75710c0206
+                eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+                eventName: Recital Rosario
+                sectorName: Platea
+                rowLabel: F
+                seatNumber: 7
+                status: USED
+                usedAt: '2027-03-10T20:41:12.318Z'
+                gate: Puerta 3
+                validatedBy: d160e54c-5f88-49a1-9e9a-2c901ac70a01
+        '400':
+          description: Cuerpo inválido (qrPayload ausente o vacío).
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '401':
+          description: Token Bearer ausente, inválido o vencido; lo responde el Gateway sin invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403':
+          description: El rol no es ACCESS_STAFF.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: 'QR con firma inválida o entrada inexistente (`reason: UNKNOWN_TICKET`).'
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/AccessProblem' }
+        '409':
+          description: 'Entrada ya utilizada (`reason: ALREADY_USED`, con `usedAt` y `usedGate`) o revocada por devolución/cancelación (`reason: REVOKED`).'
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/AccessProblem' }
+        '422':
+          description: 'La entrada corresponde a otro evento (`reason: WRONG_EVENT`); no se consume.'
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/AccessProblem' }
+
+  /api/access/events/{eventId}/scans:
+    get:
+      tags: [Access control]
+      operationId: listAccessScans
+      summary: Consultar los intentos de ingreso de un evento
+      description: |
+        Requiere `ACCESS_STAFF` o `ADMIN`. Devuelve los intentos más recientes
+        primero y el total por resultado (`ADMITTED`, `ALREADY_USED`, `REVOKED`,
+        `WRONG_EVENT`, `UNKNOWN_TICKET`).
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/PageNumber'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Página de intentos de ingreso.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccessScanPage' }
+        '400':
+          description: Paginación inválida.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '401':
+          description: Token Bearer ausente, inválido o vencido; lo responde el Gateway sin invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403':
+          description: El rol no es ACCESS_STAFF ni ADMIN.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  # ─── E2-04 REPORTES DEL ORGANIZADOR (PURCHASE) ──────────────────────────────
+
+  /api/reports/events/{eventId}:
+    get:
+      tags: [Organizer reports]
+      operationId: getOrganizerEventReport
+      summary: Reporte de ventas, devoluciones, ocupación y recaudación por sector
+      description: |
+        `ORGANIZER` sólo puede consultar sus eventos (Catalog aplica el ownership
+        y responde `403` si el evento es ajeno); `ADMIN` puede consultar
+        cualquiera.
+
+        - `soldTickets`: unidades de órdenes pagadas (`CONFIRMED` o
+          `PAID_PENDING_TICKETS`), incluidas las luego devueltas.
+        - `refundedTickets` / `refundedAmount`: devoluciones con reintegro
+          completado (individuales o por cancelación, una vez por entrada).
+        - `activeTickets = soldTickets - refundedTickets`.
+        - `occupancyPercent = activeTickets / capacity * 100` (2 decimales).
+        - `netRevenue = grossRevenue - refundedAmount`.
+
+        La capacidad proviene de Inventory. Si Inventory no responde, el reporte
+        se entrega igual con `capacity` y `occupancyPercent` en `null`,
+        `capacityAvailable: false` y una advertencia en `warnings`. El reporte se
+        calcula en cada consulta y no se cachea.
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Reporte del evento.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizerEventReport' }
+              example:
+                eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+                eventName: Recital Rosario
+                eventStatus: PUBLISHED
+                eventStartsAt: '2027-03-10T21:00:00Z'
+                organizerId: 7f9c2f43-8a8f-4c1e-9c43-6f0f1c2b9a10
+                currency: ARS
+                generatedAt: '2026-11-17T18:00:00Z'
+                capacityAvailable: true
+                sectors:
+                  - sectorId: 0b5e9b5e-7b0e-4c0a-9f5e-2f7b8c1d2e3f
+                    sourceSectorId: 9c8d7e6f-5a4b-4c3d-8e2f-1a0b9c8d7e6f
+                    sectorName: Campo
+                    sectorType: GENERAL_ADMISSION
+                    unitPrice: 5000.00
+                    capacity: 100
+                    soldTickets: 4
+                    refundedTickets: 1
+                    activeTickets: 3
+                    occupancyPercent: 3.00
+                    grossRevenue: 20000.00
+                    refundedAmount: 5000.00
+                    netRevenue: 15000.00
+                totals:
+                  capacity: 100
+                  soldTickets: 4
+                  refundedTickets: 1
+                  activeTickets: 3
+                  occupancyPercent: 3.00
+                  grossRevenue: 20000.00
+                  refundedAmount: 5000.00
+                  netRevenue: 15000.00
+                warnings: []
+        '401':
+          description: Token Bearer ausente, inválido o vencido; lo responde el Gateway sin invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403':
+          description: Rol distinto de ORGANIZER/ADMIN, o evento de otro organizador.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: Evento inexistente.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: Catalog no disponible para autorizar el reporte.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  # ─── E2-02 BITÁCORA CENTRALIZADA (AUDIT) ────────────────────────────────────
+
+  /api/audit/events:
+    get:
+      tags: [Audit log]
+      operationId: searchAuditEvents
+      summary: Buscar eventos de auditoría por filtros
+      description: |
+        Sólo `ADMIN`. Todos los filtros son opcionales y se combinan con AND.
+        Resultados ordenados del más reciente al más antiguo.
+      parameters:
+        - { name: correlationId, in: query, required: false, schema: { type: string } }
+        - { name: service, in: query, required: false, schema: { type: string, example: purchase-service } }
+        - { name: operation, in: query, required: false, schema: { type: string, example: PURCHASE_ORDER } }
+        - { name: outcome, in: query, required: false, schema: { type: string, example: CONFIRMED } }
+        - { name: resourceId, in: query, required: false, schema: { type: string } }
+        - { name: actorId, in: query, required: false, schema: { type: string } }
+        - { name: from, in: query, required: false, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: false, schema: { type: string, format: date-time } }
+        - $ref: '#/components/parameters/PageNumber'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Página de eventos de auditoría.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditEventPage' }
+        '400':
+          description: Filtros o paginación inválidos (p. ej. `from` posterior a `to`).
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '401':
+          description: Token Bearer ausente, inválido o vencido; lo responde el Gateway sin invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403':
+          description: El rol no es ADMIN.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /api/audit/traces/{correlationId}:
+    get:
+      tags: [Audit log]
+      operationId: getAuditTrace
+      summary: Seguir una operación a través de los microservicios
+      description: |
+        Sólo `ADMIN`. Devuelve en orden cronológico todos los eventos de
+        auditoría con el mismo `X-Correlation-Id` (p. ej. Purchase → Ticket en
+        una compra, o Purchase → Catalog → Ticket en una cancelación).
+      parameters:
+        - { name: correlationId, in: path, required: true, schema: { type: string } }
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Recorrido de la operación.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditTrace' }
+              example:
+                correlationId: cancel-e88d7b2d
+                eventCount: 3
+                services: [catalog-service, ticket-service, purchase-service]
+                startedAt: '2026-11-17T18:00:00.120Z'
+                endedAt: '2026-11-17T18:00:00.410Z'
+                events:
+                  - eventId: 4f3c2b1a-0e9d-4c8b-a7f6-e5d4c3b2a190
+                    correlationId: cancel-e88d7b2d
+                    service: catalog-service
+                    operation: EVENT_CATALOG_CANCELLATION
+                    outcome: CANCELLED
+                    actorId: a1b2c3d4-1111-2222-3333-444455556666
+                    actorRole: ADMIN
+                    resourceType: EVENT
+                    resourceId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+                    occurredAt: '2026-11-17T18:00:00.120Z'
+                    receivedAt: '2026-11-17T18:00:00.131Z'
+                    details: { eventName: Recital Rosario }
+        '401':
+          description: Token Bearer ausente, inválido o vencido; lo responde el Gateway sin invocar el servicio.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403':
+          description: El rol no es ADMIN.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: No hay eventos para ese identificador.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /api/customers/me/preferences:
+    put:
+      tags: [Customer preferences]
+      operationId: replaceCustomerPreferences
+      summary: Registrar o reemplazar las preferencias del cliente autenticado
+      description: |
+        Escribe el documento de preferencias del cliente identificado por el `sub`
+        del JWT validado. La operacion es idempotente: repetirla con el mismo
+        contenido no crea un segundo documento y devuelve `version`
+        incrementada. La identidad se deriva exclusivamente del `sub`; el cuerpo
+        no acepta `customerId`, `version` ni `updatedAt` (responden `400`).
+
+        - `city`: opcional; si se informa, no vacia y de hasta 120 caracteres.
+        - `eventTypes`: hasta 10 elementos, cada uno no vacio y de hasta 80
+          caracteres, sin duplicados ignorando mayusculas.
+        - `favoriteArtists`: hasta 20 elementos, cada uno no vacio y de hasta
+          200 caracteres, sin duplicados ignorando mayusculas.
+        - `updatedAt` y `version` los gestiona el servidor.
+
+        `PUT` devuelve `200` con la representacion resultante, incluido
+        `version`; `GET` devuelve `200` con ciudad nula, listas vacias y
+        `version` `0` cuando el cliente todavia no registro preferencias.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerPreferencesRequest' }
+            example:
+              city: Buenos Aires
+              eventTypes: [CONCIERTO, TEATRO]
+              favoriteArtists: [Artista A, Artista B]
+      responses:
+        '200':
+          description: Preferencias registradas.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerPreferencesResponse' }
+              example:
+                city: Buenos Aires
+                eventTypes: [CONCIERTO, TEATRO]
+                favoriteArtists: [Artista A, Artista B]
+                updatedAt: '2026-11-20T12:00:00Z'
+                version: 1
+        '400':
+          description: Preferencias invalidas (campo vacio, demasiado largo, duplicado o identidad en el cuerpo).
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example:
+                type: about:blank
+                title: Preferencias invalidas
+                status: 400
+                detail: favoriteArtists no puede superar los 20 elementos.
+                instance: /api/customers/me/preferences
+                correlationId: trace-preferences-1
+        '401':
+          description: Token ausente, invalido o vencido.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403':
+          description: Rol distinto de CLIENT.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    get:
+      tags: [Customer preferences]
+      operationId: getCustomerPreferences
+      summary: Consultar las preferencias del cliente autenticado
+      description: |
+        Devuelve las preferencias del cliente identificado por el `sub` del JWT
+        validado. Si el cliente todavia no registro preferencias, responde `200`
+        con `city` nula, `eventTypes` y `favoriteArtists` vacias y `version`
+        `0`, sin crear el documento.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Preferencias del cliente.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerPreferencesResponse' }
+              example:
+                city: null
+                eventTypes: []
+                favoriteArtists: []
+                updatedAt: null
+                version: 0
+        '401':
+          description: Token ausente, invalido o vencido.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403':
+          description: Rol distinto de CLIENT.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /api/customers/me/recommendations:
+    get:
+      tags: [Event recommendations]
+      operationId: getCustomerRecommendations
+      summary: Recomendar eventos publicados y futuros afines al cliente
+      description: |
+        Calcula en cada consulta hasta `limit` eventos `PUBLISHED` con `startsAt`
+        futuro que el cliente no haya comprado, ordenados por afinidad. No
+        informa disponibilidad ni reserva inventario.
+
+        Puntaje explicable: `3` por tipo favorito, `2` por artista del evento en
+        favoritos con tope de tres, `2` por coincidir la ciudad,
+        `min(5, coCompras)` y `1` si el evento ocurre dentro de los proximos 30
+        dias. El puntaje maximo es `17`; un candidato con `score` `0` no se
+        devuelve en modo normal.
+
+        Degradacion: si Purchase no responde, se responde `200` con
+        `warnings: ["HISTORY_UNAVAILABLE"]`; si Catalog no responde, se
+        responde `503`. Sin preferencias ni historial se devuelven los proximos
+        eventos con `score` `0` y motivo `UPCOMING_FALLBACK`.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Cantidad maxima de recomendaciones (1 a 20).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 10
+          example: 10
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Recomendaciones del cliente.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EventRecommendationPage' }
+              example:
+                items:
+                  - eventId: 3f6f1c2a-8e6b-4a1d-9a2c-5d7e8f9a0b1c
+                    name: Recital de Primavera
+                    eventType: CONCIERTO
+                    startsAt: '2026-12-05T21:00:00Z'
+                    city: Buenos Aires
+                    participants: [Artista A]
+                    minPrice: 5000.0
+                    score: 12
+                    reasons: [FAVORITE_EVENT_TYPE, FAVORITE_ARTIST, SAME_CITY]
+                warnings: [HISTORY_UNAVAILABLE]
+                generatedAt: '2026-11-20T12:00:00Z'
+        '400':
+          description: Limite fuera de rango o no numerico.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example:
+                type: about:blank
+                title: Limite invalido
+                status: 400
+                detail: limit debe ser un numero entre 1 y 20.
+                instance: /api/customers/me/recommendations
+                correlationId: trace-preferences-2
+        '401':
+          description: Token ausente, invalido o vencido.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403':
+          description: Rol distinto de CLIENT.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: Catalog no disponible; no hay candidatos que recomendar.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /internal/audit-events:
+    post:
+      tags: [Audit ingestion (internal)]
+      operationId: recordAuditEvent
+      security: []
+      summary: Registrar un evento de auditoría (interno, idempotente por eventId)
+      description: |
+        Lo invocan Catalog, Ticket y Purchase en forma asíncrona
+        (fire-and-forget) con timeouts cortos y reintentos. Reenviar el mismo
+        `eventId` responde `202` con `duplicate: true` sin duplicar el registro.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuditEventRequest' }
+            example:
+              eventId: 4f3c2b1a-0e9d-4c8b-a7f6-e5d4c3b2a190
+              correlationId: purchase-7b1f
+              service: purchase-service
+              operation: PURCHASE_ORDER
+              outcome: CONFIRMED
+              actorId: 66bd0a43-1baa-4f7b-8316-930593b84d7c
+              actorRole: CLIENT
+              resourceType: ORDER
+              resourceId: 0a9b8c7d-6e5f-4a3b-9c2d-1e0f9a8b7c6d
+              occurredAt: '2026-11-17T18:00:00Z'
+              details: { httpStatus: 201, ticketCount: 2 }
+      responses:
+        '202':
+          description: Evento registrado, o reintento ya registrado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditIngestResponse' }
+        '400':
+          description: Evento inválido.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /internal/customers/{customerId}/recommendation-signals:
+    get:
+      tags: [Recommendation contracts (internal)]
+      operationId: getRecommendationSignals
+      summary: Senales de historial de compras de un cliente
+      description: |
+        Contrato interno de solo lectura sobre `purchase_orders`, consumido por
+        Preferences Service. Devuelve los eventos con al menos una orden en
+        estado `CONFIRMED` o `PAID_PENDING_TICKETS` del cliente y las
+        co-compras: para cada evento que el cliente no compro, la cantidad de
+        clientes distintos que compraron ese evento y ademas alguno de los
+        eventos del cliente. Las co-compras se ordenan por `count` descendente
+        y `eventId` ascendente, con tope de 200. Un cliente sin compras recibe
+        `200` con listas vacias. No expone montos, pagos ni tickets.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Senales del cliente.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecommendationSignals' }
+              example:
+                customerId: 8f14e45f-ceea-467f-a8a4-0f1b2f0f9c11
+                purchasedEventIds: [3f6f1c2a-8e6b-4a1d-9a2c-5d7e8f9a0b1c]
+                coPurchases:
+                  - eventId: 9c8d7e6f-5a4b-4c3d-8e2f-1a0b9c8d7e6f
+                    count: 4
+                generatedAt: '2026-11-20T12:00:00Z'
+  /internal/events/recommendation-candidates:
+    get:
+      tags: [Recommendation contracts (internal)]
+      operationId: getRecommendationCandidates
+      summary: Candidatos publicados y futuros para recomendar
+      description: |
+        Contrato interno de solo lectura sobre `event_snapshots`, consumido por
+        Preferences Service. Devuelve los eventos `PUBLISHED` con `startsAt`
+        futuro, ordenados por `startsAt` ascendente y `eventId` ascendente,
+        acotados por `limit` (por omision y maximo 200). Informa `eventId`,
+        `name`, `eventType`, `startsAt`, `city`, `participants` y `minPrice`;
+        no informa disponibilidad, cupos ni stock.
+      security: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Cantidad maxima de candidatos (1 a 200).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 200
+          example: 200
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Candidatos disponibles.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EventCandidatePage' }
+              example:
+                items:
+                  - eventId: 3f6f1c2a-8e6b-4a1d-9a2c-5d7e8f9a0b1c
+                    name: Recital de Primavera
+                    eventType: CONCIERTO
+                    startsAt: '2026-12-05T21:00:00Z'
+                    city: Buenos Aires
+                    participants: [Artista A, Artista B]
+                    minPrice: 5000.0
+                generatedAt: '2026-11-20T12:00:00Z'
+        '400':
+          description: Limite fuera de rango.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 components:
   securitySchemes:
     BearerJWT:
@@ -3407,6 +4094,15 @@ components:
           - COMPENSATED
         example: CONFIRMED
 
+    CustomerId:
+      name: customerId
+      in: path
+      required: true
+      description: UUID del cliente cuyas senales se consultan.
+      schema:
+        type: string
+        format: uuid
+      example: 8f14e45f-ceea-467f-a8a4-0f1b2f0f9c11
   headers:
     CorrelationId:
       description: |
@@ -5160,6 +5856,332 @@ components:
           example: 6f4e1b2a-3c4d-4e5f-9a0b-1c2d3e4f5a6b
         orderStatus:
           $ref: '#/components/schemas/OrderStatus'
+
+    AccessValidationRequest:
+      type: object
+      required: [qrPayload]
+      properties:
+        qrPayload:
+          type: string
+          maxLength: 512
+          description: Texto leído del QR (`v1.<ticketId>.<firma>`).
+        gate:
+          type: string
+          maxLength: 80
+          nullable: true
+          description: Puerta o molinete donde se escanea.
+
+    AccessValidationResponse:
+      type: object
+      required: [result, ticketId, eventId, status, usedAt, validatedBy]
+      properties:
+        result: { type: string, enum: [ADMITTED] }
+        ticketId: { type: string, format: uuid }
+        eventId: { type: string, format: uuid }
+        eventName: { type: string }
+        sectorName: { type: string }
+        rowLabel: { type: string, nullable: true }
+        seatNumber: { type: integer, nullable: true }
+        status: { type: string, enum: [USED] }
+        usedAt: { type: string, format: date-time }
+        gate: { type: string, nullable: true }
+        validatedBy: { type: string, format: uuid }
+
+    AccessProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          required: [reason]
+          properties:
+            reason:
+              type: string
+              enum: [ALREADY_USED, REVOKED, WRONG_EVENT, UNKNOWN_TICKET]
+            ticketId: { type: string, format: uuid, nullable: true }
+            usedAt: { type: string, format: date-time, nullable: true }
+            usedGate: { type: string, nullable: true }
+
+    AccessScanView:
+      type: object
+      properties:
+        scanId: { type: string, format: uuid }
+        ticketId: { type: string, format: uuid, nullable: true }
+        staffId: { type: string, format: uuid }
+        gate: { type: string, nullable: true }
+        result:
+          type: string
+          enum: [ADMITTED, ALREADY_USED, REVOKED, WRONG_EVENT, UNKNOWN_TICKET]
+        scannedAt: { type: string, format: date-time }
+        correlationId: { type: string, nullable: true }
+
+    AccessScanPage:
+      type: object
+      required: [eventId, admitted, rejected, countsByResult, page, size, totalItems, items]
+      properties:
+        eventId: { type: string, format: uuid }
+        admitted: { type: integer, format: int64 }
+        rejected: { type: integer, format: int64 }
+        countsByResult:
+          type: object
+          additionalProperties: { type: integer, format: int64 }
+        page: { type: integer }
+        size: { type: integer }
+        totalItems: { type: integer, format: int64 }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AccessScanView' }
+
+    SectorReport:
+      type: object
+      required: [sourceSectorId, soldTickets, refundedTickets, activeTickets, grossRevenue, refundedAmount, netRevenue]
+      properties:
+        sectorId: { type: string, format: uuid, nullable: true, description: Identificador de Inventory. }
+        sourceSectorId: { type: string, format: uuid, description: Identificador del sector en Catalog. }
+        sectorName: { type: string, nullable: true }
+        sectorType: { type: string, nullable: true, enum: [NUMBERED, GENERAL_ADMISSION] }
+        unitPrice: { type: number, nullable: true }
+        capacity: { type: integer, nullable: true }
+        soldTickets: { type: integer }
+        refundedTickets: { type: integer }
+        activeTickets: { type: integer }
+        occupancyPercent: { type: number, nullable: true }
+        grossRevenue: { type: number }
+        refundedAmount: { type: number }
+        netRevenue: { type: number }
+
+    ReportTotals:
+      type: object
+      required: [soldTickets, refundedTickets, activeTickets, grossRevenue, refundedAmount, netRevenue]
+      properties:
+        capacity: { type: integer, nullable: true }
+        soldTickets: { type: integer }
+        refundedTickets: { type: integer }
+        activeTickets: { type: integer }
+        occupancyPercent: { type: number, nullable: true }
+        grossRevenue: { type: number }
+        refundedAmount: { type: number }
+        netRevenue: { type: number }
+
+    OrganizerEventReport:
+      type: object
+      required: [eventId, currency, generatedAt, capacityAvailable, sectors, totals, warnings]
+      properties:
+        eventId: { type: string, format: uuid }
+        eventName: { type: string }
+        eventStatus:
+          type: string
+          enum: [DRAFT, PUBLISHED, SUSPENDED, SOLD_OUT, CANCELLED, FINISHED]
+        eventStartsAt: { type: string, format: date-time }
+        organizerId: { type: string, format: uuid }
+        currency: { type: string, example: ARS }
+        generatedAt: { type: string, format: date-time }
+        capacityAvailable: { type: boolean }
+        sectors:
+          type: array
+          items: { $ref: '#/components/schemas/SectorReport' }
+        totals: { $ref: '#/components/schemas/ReportTotals' }
+        warnings:
+          type: array
+          items: { type: string }
+
+    AuditEventRequest:
+      type: object
+      required: [eventId, correlationId, service, operation, outcome, occurredAt]
+      properties:
+        eventId: { type: string, format: uuid }
+        correlationId: { type: string, maxLength: 120 }
+        service: { type: string, maxLength: 60 }
+        operation: { type: string, maxLength: 60, pattern: '^[A-Z][A-Z0-9_]*$' }
+        outcome: { type: string, maxLength: 40 }
+        actorId: { type: string, maxLength: 64, nullable: true }
+        actorRole: { type: string, maxLength: 20, nullable: true }
+        resourceType: { type: string, maxLength: 40, nullable: true }
+        resourceId: { type: string, maxLength: 120, nullable: true }
+        occurredAt: { type: string, format: date-time }
+        details: { type: object, additionalProperties: true, nullable: true }
+
+    AuditIngestResponse:
+      type: object
+      required: [eventId, duplicate]
+      properties:
+        eventId: { type: string, format: uuid }
+        duplicate: { type: boolean }
+
+    AuditEventView:
+      type: object
+      properties:
+        eventId: { type: string, format: uuid }
+        correlationId: { type: string }
+        service: { type: string }
+        operation: { type: string }
+        outcome: { type: string }
+        actorId: { type: string, nullable: true }
+        actorRole: { type: string, nullable: true }
+        resourceType: { type: string, nullable: true }
+        resourceId: { type: string, nullable: true }
+        occurredAt: { type: string, format: date-time }
+        receivedAt: { type: string, format: date-time }
+        details: { type: object, additionalProperties: true }
+
+    AuditEventPage:
+      type: object
+      required: [items, page, size, totalItems]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AuditEventView' }
+        page: { type: integer }
+        size: { type: integer }
+        totalItems: { type: integer, format: int64 }
+
+    AuditTrace:
+      type: object
+      required: [correlationId, eventCount, services, events]
+      properties:
+        correlationId: { type: string }
+        eventCount: { type: integer }
+        services:
+          type: array
+          items: { type: string }
+        startedAt: { type: string, format: date-time }
+        endedAt: { type: string, format: date-time }
+        events:
+          type: array
+          items: { $ref: '#/components/schemas/AuditEventView' }
+
+    CustomerPreferencesRequest:
+      type: object
+      description: |
+        Preferencias que el cliente registra o reemplaza. No acepta
+        `customerId`, `version` ni `updatedAt`: la identidad se deriva del `sub`
+        del JWT y los otros dos campos los gestiona el servidor.
+      required: []
+      properties:
+        city:
+          type: string
+          nullable: true
+          maxLength: 120
+          description: Ciudad de preferencia; se guarda con `trim`.
+          example: Buenos Aires
+        eventTypes:
+          type: array
+          maxItems: 10
+          description: Tipos de evento favoritos, como texto libre (Catalog no define un enum).
+          items:
+            type: string
+            minLength: 1
+            maxLength: 80
+          example: [CONCIERTO, TEATRO]
+        favoriteArtists:
+          type: array
+          maxItems: 20
+          description: Artistas favoritos; se comparan sin distinguir mayusculas.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 200
+          example: [Artista A, Artista B]
+    CustomerPreferencesResponse:
+      type: object
+      description: Preferencias del cliente; `version` `0` y `updatedAt` nulo indican que todavia no registro.
+      required: [city, eventTypes, favoriteArtists, updatedAt, version]
+      properties:
+        city: { type: string, nullable: true, example: Buenos Aires }
+        eventTypes:
+          type: array
+          items: { type: string }
+          example: [CONCIERTO, TEATRO]
+        favoriteArtists:
+          type: array
+          items: { type: string }
+          example: [Artista A, Artista B]
+        updatedAt: { type: string, format: date-time, nullable: true, example: '2026-11-20T12:00:00Z' }
+        version: { type: integer, minimum: 0, example: 1 }
+    RecommendedEvent:
+      type: object
+      description: Evento recomendado con su puntaje explicable y los motivos que lo produjeron.
+      required: [eventId, name, eventType, startsAt, city, participants, minPrice, score, reasons]
+      properties:
+        eventId: { type: string, format: uuid }
+        name: { type: string, example: Recital de Primavera }
+        eventType: { type: string, example: CONCIERTO }
+        startsAt: { type: string, format: date-time, example: '2026-12-05T21:00:00Z' }
+        city: { type: string, example: Buenos Aires }
+        participants:
+          type: array
+          items: { type: string }
+          example: [Artista A]
+        minPrice: { type: number, format: double, example: 5000.0 }
+        score: { type: integer, minimum: 0, example: 12 }
+        reasons:
+          type: array
+          description: Motivos que sumaron puntaje, en orden de contribucion.
+          items:
+            type: string
+            enum: [FAVORITE_EVENT_TYPE, FAVORITE_ARTIST, SAME_CITY, CO_PURCHASE, UPCOMING_FALLBACK]
+          example: [FAVORITE_EVENT_TYPE, FAVORITE_ARTIST, SAME_CITY]
+    EventRecommendationPage:
+      type: object
+      description: |
+        Pagina de recomendaciones. En modo normal los elementos tienen `score`
+        mayor que cero; en modo fallback (`UPCOMING_FALLBACK`) pueden tener
+        `score` `0`. `warnings` informa la degradacion de dependencias.
+      required: [items, warnings, generatedAt]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/RecommendedEvent' }
+        warnings:
+          type: array
+          items: { type: string }
+          example: [HISTORY_UNAVAILABLE]
+        generatedAt: { type: string, format: date-time, example: '2026-11-20T12:00:00Z' }
+    CoPurchaseSignal:
+      type: object
+      description: Cantidad de clientes distintos que compraron un evento y ademas algun evento del cliente consultado.
+      required: [eventId, count]
+      properties:
+        eventId: { type: string, format: uuid }
+        count: { type: integer, minimum: 0, example: 4 }
+    RecommendationSignals:
+      type: object
+      description: Senales de historial de un cliente, ya sea con compras o con listas vacias.
+      required: [customerId, purchasedEventIds, coPurchases, generatedAt]
+      properties:
+        customerId: { type: string, format: uuid }
+        purchasedEventIds:
+          type: array
+          items: { type: string, format: uuid }
+          example: [3f6f1c2a-8e6b-4a1d-9a2c-5d7e8f9a0b1c]
+        coPurchases:
+          type: array
+          maxItems: 200
+          items: { $ref: '#/components/schemas/CoPurchaseSignal' }
+        generatedAt: { type: string, format: date-time, example: '2026-11-20T12:00:00Z' }
+    EventCandidate:
+      type: object
+      description: Evento publicado y futuro, sin informacion de disponibilidad.
+      required: [eventId, name, eventType, startsAt, city, participants, minPrice]
+      properties:
+        eventId: { type: string, format: uuid }
+        name: { type: string, example: Recital de Primavera }
+        eventType: { type: string, example: CONCIERTO }
+        startsAt: { type: string, format: date-time, example: '2026-12-05T21:00:00Z' }
+        city: { type: string, example: Buenos Aires }
+        participants:
+          type: array
+          items: { type: string }
+          example: [Artista A, Artista B]
+        minPrice: { type: number, format: double, example: 5000.0 }
+    EventCandidatePage:
+      type: object
+      description: Listado de candidatos para recomendacion.
+      required: [items, generatedAt]
+      properties:
+        items:
+          type: array
+          maxItems: 200
+          items: { $ref: '#/components/schemas/EventCandidate' }
+        generatedAt: { type: string, format: date-time, example: '2026-11-20T12:00:00Z' }
 
   examples:
     QueueEntryWaiting:
