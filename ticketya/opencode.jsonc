@@ -19,7 +19,7 @@
     },
     "api-builder": {
       "mode": "subagent",
-      "model": "opencode/nemotron-3.5-super-free"
+      "model": "opencode/nemotron-3.5-super-vl-free"
     }
   }
 }

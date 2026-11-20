@@ -3,6 +3,11 @@
 .opencode/sessions/
 .opencode/worktrees/
 
+# Local OpenCode model overrides (ignored, user-specific)
+.opencode/opencode.jsonc
+opencode.jsonc.local
+.env.local
+
 # Build outputs
 target/
 *.class
