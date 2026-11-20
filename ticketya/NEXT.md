@@ -14,6 +14,16 @@
 
 Lección registrada: pasar tokens del IdP a Newman desde PowerShell requiere interpolar con `"organizerToken=$($tokens['organizer'])"`; sin `$()` el argumento llega como texto y el Gateway responde `401` en cascada.
 
+## Cierre de controles de la Entrega 2 (2026-11-20)
+
+**Estado:** los cuatro controles restantes quedan cerrados; F11 no se tocó y sigue delegado. Cambio OpenSpec `complete-entrega2-quality-gates` creado con la CLI, validado y aplicado.
+
+- [x] **Prueba de carga:** `postman/load-test.py` (stdlib, etapas 10/20/40, p50/p95/p99, RPS y errores) ejecutado contra el stack; informe medido en `docs/load-test-report.md` (0 errores en 70 compras).
+- [x] **Caché:** `EventDiscoveryCache` en Catalog con TTL y tope configurables, invalidación tras commit en cambios de estado y ofertas, sin cachear disponibilidad ni recomendaciones; pruebas unitarias y de integración.
+- [x] **Arnés de integración:** `postman/integration-harness.py` reutiliza o levanta el stack, verifica 17 servicios, ejecuta Newman por el Gateway y falla con código no cero; corrida real PASS.
+- [x] **Documento único:** `docs/patterns-and-consistency.md` con patrones, alternativas descartadas, consistencia y compensaciones, trazable al PDF.
+- [x] Verificación: `mvn verify` sin fallos, Compose 17/17 healthy, Newman 103 requests/174 aserciones y arnés PASS; OpenSpec y `git diff --check` limpios (detalle en `docs/verification.md`).
+
 ## Resiliencia: circuit breaker y fallback (2026-11-20)
 
 **Estado:** cerrada. Cambio OpenSpec `add-circuit-breaker-and-fallback` sincronizado y archivado como `openspec/changes/archive/2026-11-20-add-circuit-breaker-and-fallback/`; spec vigente `resilience-circuit-breaker`.

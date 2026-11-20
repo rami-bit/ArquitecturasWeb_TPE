@@ -14,6 +14,8 @@
 > [Reportes del organizador](#reportes-del-organizador-us-f12-e2-04).
 >
 > **Carátula de la Entrega 2:** estado de los entregables, criterios de aceptación y evidencia en [`docs/entrega2.md`](docs/entrega2.md).
+>
+> **Patrones y consistencia:** [`docs/patterns-and-consistency.md`](docs/patterns-and-consistency.md) es el documento único de decisiones. **Prueba de carga:** [`docs/load-test-report.md`](docs/load-test-report.md).
 
 ## Control de acceso con QR (US-F8, E2-03)
 
@@ -303,6 +305,21 @@ Los servicios internos reciben su configuración a través de variables de Compo
 
 Ninguna variable contiene rutas personales ni secretos de producción.
 
+## Verificación de sistema completo, carga e integración
+
+Con el stack saludable y el IdP de prueba en `:19998`:
+
+```bash
+# Prueba de carga del flujo de compra (etapas 10/20/40 por omisión)
+python postman/load-test.py
+
+# Arnés de integración: reutiliza el stack si ya está levantado;
+# con --down detiene sólo el stack que él mismo creó (sin borrar volúmenes)
+python postman/integration-harness.py
+```
+
+La prueba de carga es complementaria a la colección Postman: el arnés comprueba ambas y falla si cualquiera no pasa. Los resultados medidos están en [`docs/load-test-report.md`](docs/load-test-report.md) y las decisiones de arquitectura en [`docs/patterns-and-consistency.md`](docs/patterns-and-consistency.md).
+
 ## Compilación y verificación con Maven
 
 Desde la carpeta `ticketya/`:
@@ -495,6 +512,10 @@ Smoke test interno, sin publicar puertos:
 docker compose exec -T queue-service wget -qO- http://localhost:8086/v3/api-docs
 docker compose exec -T queue-service wget -qO- http://localhost:8086/actuator/health
 ```
+
+## Caché del catálogo (PDF-NF-CACHE)
+
+Catalog mantiene una caché en memoria de búsquedas y detalles de eventos publicados con `CATALOG_CACHE_TTL_SECONDS` (30 por omisión) y `CATALOG_CACHE_MAX_ENTRIES` (200). La clave incluye filtros, paginación y orden. Publicar, suspender, cancelar, reanudar o reemplazar ofertas invalida la caché después del commit; si la invalidación falla, la entrada expira por TTL. **Nunca se cachea la disponibilidad de Inventory**, que se consulta en cada petición, ni las recomendaciones. El detalle y las alternativas descartadas están en `caching-strategy/spec.md` y en [`docs/patterns-and-consistency.md`](docs/patterns-and-consistency.md).
 
 ## Preferencias y recomendaciones (PDF-F10)
 

@@ -22,6 +22,12 @@ management:
     web:
       exposure:
         include: health,info
+# PDF-NF-CACHE: cache en memoria del catálogo publicado (nunca de disponibilidad).
+catalog:
+  cache:
+    ttl-seconds: ${CATALOG_CACHE_TTL_SECONDS:30}
+    max-entries: ${CATALOG_CACHE_MAX_ENTRIES:200}
+
 inventory:
   base-url: ${INVENTORY_SERVICE_URL:http://localhost:8082}
   connect-timeout-ms: ${INVENTORY_CONNECT_TIMEOUT_MS:2000}

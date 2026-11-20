@@ -30,10 +30,12 @@ Este documento es la carátula del entregable 2 del enunciado (`TPE-ArqWeb-Ticke
 |---|---|---|
 | Repositorio Git actualizado con código fuente | Cumplido | rama `main`, commit `fb56dfa` |
 | `docker-compose.yml` con todas las bases, gateway y microservicios | Cumplido | 17/17 servicios `healthy` en verificación aislada |
-| Especificaciones y documentación de diseño actualizadas | Cumplido | 19 specs OpenSpec vigentes, 0 cambios activos; `docs/architecture.md`, `docs/Documentacion-de-diseño.md` |
+| Especificaciones y documentación de diseño actualizadas | Cumplido | 23 specs OpenSpec vigentes, 0 cambios activos; `docs/architecture.md`, `docs/Documentacion-de-diseño.md` |
 | README con instrucciones de ejecución y diseño | Cumplido | [`README.md`](../README.md) |
 | Colección de requests actualizada | Cumplido | 94 items, ejecutada por el Gateway con Newman |
-| Informe de la prueba de carga | Pendiente | Ver sección "Pendiente verificable" |
+| Informe de la prueba de carga | Cumplido | [`docs/load-test-report.md`](load-test-report.md), medido el 20/11/2026 |
+| Integración automatizada entre servicios | Cumplido | `postman/integration-harness.py`, corrida PASS con 17 servicios |
+| Documento único de patrones y consistencia | Cumplido | [`docs/patterns-and-consistency.md`](patterns-and-consistency.md) |
 | Instrucciones de interfaz gráfica | No aplica | El proyecto no desarrolló interfaz gráfica |
 
 ## Criterios de aceptación
@@ -42,21 +44,17 @@ Los criterios de aceptación de las doce historias están en [`docs/Documentacio
 
 ## Evidencia de verificación
 
-- `mvn verify`: 430 pruebas, 0 fallos, 0 errores, 0 omitidos (Java 19, Testcontainers 1.21.4, PostgreSQL 16.4 y MongoDB 7).
+- `mvn verify`: 436 pruebas, 0 fallos, 0 errores, 0 omitidos (Java 19, Testcontainers 1.21.4, PostgreSQL 16.4 y MongoDB 7).
 - `docker compose -p ticketya_f10_verification up --build -d --wait`: 17/17 contenedores `healthy`.
 - Newman por el Gateway: 103 requests, 94 test-scripts, 174 aserciones, 0 fallos.
 - `python postman/concurrent-purchases.py`: 12 compras concurrentes, 1 confirmada y 11 conflictos, sin doble venta.
-- `openspec validate --all --strict`: 19/19 specs y 0 cambios activos.
+- `openspec validate --all --strict`: 23/23 specs y 0 cambios activos.
 - `git diff --check`: limpio.
 
 Detalle en [`verification.md`](verification.md).
 
 ## Pendiente verificable
 
-No forma parte del cierre de documentación, pero sigue abierto en `TODO.md` y debe resolverse antes de dar la entrega por terminada en su totalidad:
+Sólo queda una historia funcional, delegada explícitamente a otro compañero y sin artefactos modificados en este cierre:
 
-1. Prueba de carga del flujo de compra con informe de usuarios concurrentes, tiempos de respuesta y errores. La prueba de concurrencia actual no sustituye al informe de carga.
-2. Estrategia de caché del catálogo y las búsquedas, con TTL e invalidación justificada.
-3. Arnés de integración entre servicios reales que ejecute el flujo completo de forma automatizada.
-4. Documento único de justificación de patrones y estrategias de consistencia.
-5. Implementación de F11 y su despliegue en Compose (el despacho y el fallback local ya están disponibles; falta el adaptador y el servicio de entrega).
+1. Implementación de F11 y su despliegue en Compose. El despacho con fallback local ya existe, pero falta el adaptador y el servicio de entrega real (email/push).

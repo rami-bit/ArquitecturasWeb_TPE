@@ -241,6 +241,23 @@ Cambio OpenSpec `add-circuit-breaker-and-fallback` sincronizado y archivado como
 
 El flujo de compra existente se ejecuta sin cambios en Postman: el circuito sólo actúa ante una racha de fallas de infraestructura. Para observar el fallback local con el stack levantado, dejar `NOTIFICATION_SERVICE_URL` vacía (valor por omisión) y buscar los eventos `ORDER_CONFIRMED`/`ORDER_CANCELLED` en el logger `ticketya.notification`; para probar la apertura con Payment, configurar un adaptador que responda `5xx` o usar los tests con stub HTTP.
 
+## Cierre de controles de la Entrega 2 (2026-11-20)
+
+Cambio OpenSpec `complete-entrega2-quality-gates` creado con `openspec new change`, validado en estricto antes de implementar y aplicado íntegramente. F11 no se modificó.
+
+| Verificación | Resultado |
+|---|---|
+| `EventDiscoveryCacheTest` | 4/4: hit, expiración por TTL, tope de entradas e invalidación |
+| `EventDiscoveryCacheIntegrationTest` (H2 con esquema de Catalog) | 2/2: la búsqueda cacheada se refresca tras invalidar; el detalle no incluye disponibilidad |
+| `mvn verify` del reactor | 436 pruebas, 0 fallos, 0 errores, 0 omitidos (96 clases) |
+| `docker compose -p ticketya_f10_verification up --build -d --wait` | 17/17 contenedores `healthy` tras reconstruir Catalog con la caché |
+| `python postman/load-test.py` | 70 compras en tres etapas (10/20/40), 0 errores; p95 1050/1643/2373 ms; informe en `docs/load-test-report.md` |
+| `python postman/integration-harness.py` | PASS: 17 servicios, 103 requests, 174 aserciones, 0 fallos |
+| `openspec validate --all --strict` | 23/23 specs, 0 cambios activos |
+| `git diff --check` | limpio (sólo avisos LF→CRLF en archivos heredados) |
+
+La prueba de carga complementa pero no sustituye la colección Postman: el arnés ejecuta ambas comprobaciones y reporta el resultado del total. La caché se invalida en memoria por proceso; no hay réplicas de Catalog en el Compose didáctico.
+
 ## Informe histórico: Establish Inventory and Reservations
 
 Fecha: 2026-11-07  

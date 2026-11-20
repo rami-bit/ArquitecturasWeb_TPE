@@ -17,10 +17,25 @@ import java.util.*;
 public class EventDiscoveryService {
     public static final int MAX_PAGE_SIZE = 50;
     private final JdbcTemplate jdbc;
+    private final com.ticketya.catalog.infrastructure.cache.EventDiscoveryCache cache;
 
-    public EventDiscoveryService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    public EventDiscoveryService(JdbcTemplate jdbc) {
+        this(jdbc, com.ticketya.catalog.infrastructure.cache.EventDiscoveryCache.disabled());
+    }
 
+    @org.springframework.beans.factory.annotation.Autowired
+    public EventDiscoveryService(JdbcTemplate jdbc,
+                                 com.ticketya.catalog.infrastructure.cache.EventDiscoveryCache cache) {
+        this.jdbc = jdbc;
+        this.cache = cache;
+    }
+
+    /** Búsqueda con caché acotada del catálogo publicado (PDF-NF-CACHE). */
     public SearchPage search(SearchCriteria c) {
+        return cache.get(cache.searchKey(c), () -> searchUncached(c));
+    }
+
+    private SearchPage searchUncached(SearchCriteria c) {
         if (c.page() == null || c.page() < 0) throw bad("page must be zero or greater");
         if (c.size() == null || c.size() < 1 || c.size() > MAX_PAGE_SIZE) throw bad("size must be between 1 and " + MAX_PAGE_SIZE);
         if (c.from() != null && c.to() != null && c.from().isAfter(c.to())) throw bad("from must be before or equal to to");
@@ -60,7 +75,12 @@ public class EventDiscoveryService {
         return new SearchPage(items, c.page(), c.size(), total, pages);
     }
 
+    /** Detalle con caché acotada; nunca incluye disponibilidad de inventario. */
     public EventDetail detail(UUID id) {
+        return cache.get(cache.detailKey(id), () -> detailUncached(id));
+    }
+
+    private EventDetail detailUncached(UUID id) {
         List<EventDetail> found = jdbc.query("SELECT e.id,e.organizer_id,s.name,s.description,s.event_type,s.starts_at,e.high_demand,s.venue_name,s.venue_address,s.venue_city,s.venue_latitude,s.venue_longitude FROM events e JOIN event_snapshots s ON s.event_id=e.id WHERE e.id=? AND e.status='PUBLISHED'", (rs, row) -> new EventDetail(rs.getObject("id", UUID.class), rs.getObject("organizer_id", UUID.class), rs.getString("name"), rs.getString("description"), rs.getString("event_type"), rs.getObject("starts_at", OffsetDateTime.class), rs.getBoolean("high_demand"), rs.getString("venue_name"), rs.getString("venue_address"), rs.getString("venue_city"), rs.getBigDecimal("venue_latitude"), rs.getBigDecimal("venue_longitude"), List.of(), List.of()), id);
         if (found.isEmpty()) throw new ApiProblemException(HttpStatus.NOT_FOUND, "Not found", "Published event not found");
         EventDetail base = found.get(0);

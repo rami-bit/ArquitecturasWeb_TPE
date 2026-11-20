@@ -226,7 +226,7 @@ Evidencia: `OrganizerReportCalculatorTest` (4), `OrganizerReportIntegrationTest`
 - [x] [x] US-F6 Fila virtual (implementada con PostgreSQL; ver «Entrega 2: Fila virtual y alta demanda»).
 - [x] [x] US-F10 Preferencias y recomendaciones (MongoDB 7, con justificación; ver «PDF-F10: preferencias y recomendaciones»).
 - [ ] [ ] US-F11 Notificaciones (asíncronas).
-- [ ] [ ] Cache del catálogo y de las búsquedas (TTL, invalidación y justificación de lo no cacheado).
+- [x] [x] Cache del catálogo y de las búsquedas (TTL, invalidación y justificación de lo no cacheado; ver «Caché del catálogo» en README).
 - [x] [x] Circuit breaker y fallback hacia Payment y Notificaciones (cambio archivado `2026-11-20-add-circuit-breaker-and-fallback`; timeouts + circuito de tres estados + fallback local).
-- [ ] [ ] Pruebas de integración entre microservicios reales (Testcontainers o Compose automatizado) y prueba de carga con informe.
-- [ ] [ ] Justificación de patrones (Gateway, Circuit Breaker, BFF, Saga, Service Discovery) y estrategias de consistencia en un documento único.
+- [x] [x] Pruebas de integración entre microservicios reales (`postman/integration-harness.py`) y prueba de carga con informe (`docs/load-test-report.md`).
+- [x] [x] Justificación de patrones (Gateway, Circuit Breaker, BFF, Saga, Service Discovery) y estrategias de consistencia en `docs/patterns-and-consistency.md`.

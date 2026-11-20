@@ -9,7 +9,7 @@ doble venta y los modelos de datos. Incluye el núcleo de la Entrega 1 y las
 y fila virtual (`add-virtual-queue`). El contrato HTTP versionado está en
 [`docs/openapi.yaml`](openapi.yaml) y las decisiones de detalle en
 [`openspec/changes/archive/2026-11-15-establish-purchase-and-ticketing/design.md`](../openspec/changes/archive/2026-11-15-establish-purchase-and-ticketing/design.md)
-y [`openspec/changes/add-virtual-queue/design.md`](../openspec/changes/add-virtual-queue/design.md).
+y [`openspec/changes/add-virtual-queue/design.md`](../openspec/changes/add-virtual-queue/design.md). Las decisiones de patrones y consistencia se resumen en [`patterns-and-consistency.md`](patterns-and-consistency.md).
 
 ## 1. Microservicios y responsabilidades
 
