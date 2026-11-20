@@ -20,7 +20,7 @@ Este documento es la carátula del entregable 2 del enunciado (`TPE-ArqWeb-Ticke
 | Consistencia y compensaciones | Implementado | Saga de compra con reintentos idempotentes y compensaciones observables |
 | Resiliencia (timeouts y degradación asimétrica) | Implementado | Timeouts 2 s/5 s hacia Catalog y Purchase; `HISTORY_UNAVAILABLE`, `503`, `UPCOMING_FALLBACK` |
 | Circuit breaker y fallback (Payment y notificaciones) | Implementado | `CircuitBreaker` de tres estados, fallo rápido `503` sin cobrar y fallback local de notificaciones; cambio archivado `2026-11-20-add-circuit-breaker-and-fallback` |
-| Cache | Pendiente | SSD-5.4 del enunciado; decisión "sin caché de recomendaciones" justificada en D10 |
+| Cache | Cumplido | `EventDiscoveryCache` en Catalog con TTL e invalidación; `caching-strategy/spec.md`; la decisión "sin caché de recomendaciones" se mantuvo justificada en D10 |
 | Bitácora y log centralizado | Implementado | `audit-service`, `/api/audit/**` sólo ADMIN |
 | Contenedor por microservicio y Compose central | Implementado | 17 contenedores, `docker-compose.yml` raíz |
 

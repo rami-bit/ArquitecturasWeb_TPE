@@ -7,11 +7,18 @@
 > [Autenticación con JWT](#autenticación-con-jwt-e2-01).
 >
 > **Entrega 2 implementada hasta hoy:** E2-01 (JWT y roles), E2-02
-> (trazabilidad HTTP y bitácora centralizada), E2-03 (control de acceso con QR)
-> y E2-04 (reportes del organizador). Ver
+> (trazabilidad HTTP y bitácora centralizada), E2-03 (control de acceso con QR),
+> E2-04 (reportes del organizador), F6 (fila virtual), F10 (preferencias y
+> recomendaciones con MongoDB 7) y los controles transversales de caché,
+> circuit breaker, pruebas de integración y carga. Falta F11 (notificaciones),
+> delegado a otro compañero. Ver
 > [Trazabilidad y bitácora](#trazabilidad-y-bitácora-centralizada-e2-02),
-> [Control de acceso QR](#control-de-acceso-con-qr-us-f8-e2-03) y
-> [Reportes del organizador](#reportes-del-organizador-us-f12-e2-04).
+> [Control de acceso QR](#control-de-acceso-con-qr-us-f8-e2-03),
+> [Reportes del organizador](#reportes-del-organizador-us-f12-e2-04),
+> [Fila virtual](#fila-virtual-de-eventos-de-alta-demanda),
+> [Caché](#caché-del-catálogo-pdf-nf-cache),
+> [Preferencias](#preferencias-y-recomendaciones-pdf-f10) y
+> [Resiliencia](#resiliencia-circuit-breaker-y-fallback-pdf-nf-resilience).
 >
 > **Carátula de la Entrega 2:** estado de los entregables, criterios de aceptación y evidencia en [`docs/entrega2.md`](docs/entrega2.md).
 >
