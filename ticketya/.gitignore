@@ -1,5 +1,25 @@
-# Keep the repository's local Docker Compose defaults available to contributors.
-!.env
+# User-specific OpenCode directories
+.opencode/agents/
+.opencode/sessions/
+.opencode/worktrees/
 
-# Local secrets and keys of the verification tooling (e.g. the test IdP key pair).
-.local/
+# Build outputs
+target/
+*.class
+*.jar
+*.war
+
+# IDE files
+.idea/
+*.iws
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+
+# Docker
+.dockerinit

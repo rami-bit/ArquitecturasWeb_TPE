@@ -46,11 +46,13 @@ public class PurchaseOrderController {
             @RequestHeader(value = "X-User-Id", required = false) String userIdHeader,
             @RequestHeader(value = "X-User-Role", required = false) String roleHeader,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "X-Admission-Token", required = false) String admissionTokenHeader,
             @RequestHeader(value = "X-Correlation-Id", required = false) String correlationId,
             @RequestBody(required = false) String rawBody) {
         UUID customerId = resolveUserId(userIdHeader); // 403 si falta o no es UUID
         String role = resolveRole(roleHeader); // 403 si rol inválido
         validateIdempotencyKey(idempotencyKey); // 400 si falta o excede 120
+        String admissionToken = admissionTokenHeader;
         if (rawBody == null || rawBody.isBlank()) {
             throw new com.ticketya.purchase.api.error.ApiProblemException(
                     org.springframework.http.HttpStatus.BAD_REQUEST,
@@ -58,7 +60,7 @@ public class PurchaseOrderController {
         }
         String trace = resolveCorrelationId(correlationId);
         try {
-            ResponseEntity<JsonNode> response = service.createOrder(customerId, role, idempotencyKey, trace, rawBody);
+            ResponseEntity<JsonNode> response = service.createOrder(customerId, role, idempotencyKey, admissionToken, trace, rawBody);
             auditSuccess("PURCHASE_ORDER", customerId, role, trace, response, idempotencyKey);
             return response;
         } catch (ApiProblemException problem) {
