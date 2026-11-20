@@ -13,6 +13,8 @@ import com.ticketya.purchase.domain.model.OrderUnit;
 import com.ticketya.purchase.infrastructure.client.CatalogClient;
 import com.ticketya.purchase.infrastructure.client.InventoryClient;
 import com.ticketya.purchase.infrastructure.client.PaymentClient;
+import com.ticketya.purchase.infrastructure.notification.NotificationDispatcher;
+import com.ticketya.purchase.infrastructure.notification.NotificationEvent;
 import com.ticketya.purchase.infrastructure.client.QueueClient;
 import com.ticketya.purchase.infrastructure.client.ServiceException;
 import com.ticketya.purchase.infrastructure.client.TicketClient;
@@ -55,13 +57,28 @@ public class PurchaseService {
     private final InventoryClient inventory;
     private final PaymentClient payment;
     private final TicketClient ticket;
+    private final NotificationDispatcher notifications;
     private final JdbcPurchaseRepository repository;
     private final int ticketLimit;
     private final int holdTtl;
 
+    /** Constructor de pruebas: notificaciones en modo local (sin adaptador remoto). */
     public PurchaseService(JdbcTemplate jdbc, ObjectMapper mapper, CatalogClient catalog, QueueClient queue,
                            InventoryClient inventory, PaymentClient payment, TicketClient ticket,
                            JdbcPurchaseRepository repository,
+                           @Value("${purchase.ticket-limit:6}") int ticketLimit,
+                           @Value("${purchase.hold-ttl-seconds:600}") int holdTtl) {
+        this(jdbc, mapper, catalog, queue, inventory, payment, ticket,
+                new NotificationDispatcher(null, mapper,
+                        new com.ticketya.purchase.infrastructure.resilience.CircuitBreaker(
+                                "notifications", 5, java.time.Duration.ofSeconds(30))),
+                repository, ticketLimit, holdTtl);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PurchaseService(JdbcTemplate jdbc, ObjectMapper mapper, CatalogClient catalog, QueueClient queue,
+                           InventoryClient inventory, PaymentClient payment, TicketClient ticket,
+                           NotificationDispatcher notifications, JdbcPurchaseRepository repository,
                            @Value("${purchase.ticket-limit:6}") int ticketLimit,
                            @Value("${purchase.hold-ttl-seconds:600}") int holdTtl) {
         this.jdbc = jdbc;
@@ -71,6 +88,7 @@ public class PurchaseService {
         this.inventory = inventory;
         this.payment = payment;
         this.ticket = ticket;
+        this.notifications = notifications;
         this.repository = repository;
         this.ticketLimit = ticketLimit;
         this.holdTtl = holdTtl;
@@ -266,6 +284,8 @@ public class PurchaseService {
                     return ResponseEntity.status(HttpStatus.ACCEPTED).body(buildOrderResponse(orderId, correlationId));
                 }
                 repository.updateOrderStatus(orderId, OrderStatus.CONFIRMED.name(), "APPROVED", null);
+                notifications.publish(new NotificationEvent(
+                        "ORDER_CONFIRMED", orderId, customerId, correlationId));
                 return ResponseEntity.status(HttpStatus.CREATED).body(buildOrderResponse(orderId, correlationId));
             }
             default -> throw new IllegalStateException("Estado de pago inesperado: " + paymentStatus);
@@ -549,6 +569,8 @@ public class PurchaseService {
         }
         repository.releaseLimit(customerId, eventId, units);
         repository.updateOrderStatus(orderId, OrderStatus.COMPENSATED.name(), "REFUNDED", null);
+        notifications.publish(new NotificationEvent(
+                "ORDER_CANCELLED", orderId, customerId, correlationId));
     }
 
     // ======================================================================== helpers de acceso a datos

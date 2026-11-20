@@ -317,6 +317,15 @@ sequenceDiagram
 
 La ruta `/api/customers/**` se declara antes del comodín de catálogo y exige `CLIENT` tanto en el Gateway como en el servicio. Los contratos `/internal/**` no se publican: Preferences es el único consumidor y Purchase/Catalog conservan la propiedad de sus datos.
 
+## Resiliencia: circuit breaker y fallback
+
+`PurchaseService` conserva los timeouts y los reintentos idempotentes de la saga y agrega un `CircuitBreaker` de tres estados para sus dependencias externas. La decisión de alcance y los umbrales están en `openspec/changes/archive/2026-11-20-add-circuit-breaker-and-fallback/design.md` (D1–D7).
+
+- **Estados:** `CLOSED` pasa llamadas; al alcanzar el umbral de fallas consecutivas pasa a `OPEN` y rechaza sin invocar a la dependencia; vencida la duración de apertura permite una sola llamada de prueba en `HALF_OPEN`. Éxito cierra y falla reabre.
+- **Payment:** cuentan como falla los errores de transporte y los `5xx`; un `402` o cualquier `4xx` es una respuesta de negocio que no abre el circuito. Con el circuito abierto, `charge` lanza `503` antes de construir la request: Purchase libera la reserva y no registra un pago.
+- **Notificaciones:** `NotificationDispatcher` escribe primero en el log local `ticketya.notification` y, si `NOTIFICATION_SERVICE_URL` está configurada, envía fuera del hilo de la solicitud protegido por el mismo circuito. Ante fallo o circuito abierto, el evento queda en el log y la compra no se ve afectada. No se publican montos ni payloads QR.
+- **Configuración:** `PURCHASE_CIRCUIT_FAILURE_THRESHOLD` (5) y `PURCHASE_CIRCUIT_OPEN_SECONDS` (30). No hay persistencia del estado del circuito ni coordinación entre réplicas: el Compose didáctico ejecuta una sola instancia de Purchase.
+
 ## 8. Contrato y documentación
 
 - Contrato consolidado: [`docs/openapi.yaml`](openapi.yaml) — 47 operaciones

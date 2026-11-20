@@ -227,6 +227,6 @@ Evidencia: `OrganizerReportCalculatorTest` (4), `OrganizerReportIntegrationTest`
 - [x] [x] US-F10 Preferencias y recomendaciones (MongoDB 7, con justificación; ver «PDF-F10: preferencias y recomendaciones»).
 - [ ] [ ] US-F11 Notificaciones (asíncronas).
 - [ ] [ ] Cache del catálogo y de las búsquedas (TTL, invalidación y justificación de lo no cacheado).
-- [ ] [ ] Circuit breaker y fallback hacia Payment y Notificaciones (hoy hay timeouts y reintentos idempotentes, pero no breaker).
+- [x] [x] Circuit breaker y fallback hacia Payment y Notificaciones (cambio archivado `2026-11-20-add-circuit-breaker-and-fallback`; timeouts + circuito de tres estados + fallback local).
 - [ ] [ ] Pruebas de integración entre microservicios reales (Testcontainers o Compose automatizado) y prueba de carga con informe.
 - [ ] [ ] Justificación de patrones (Gateway, Circuit Breaker, BFF, Saga, Service Discovery) y estrategias de consistencia en un documento único.

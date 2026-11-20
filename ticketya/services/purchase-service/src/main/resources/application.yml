@@ -25,6 +25,9 @@ purchase:
     url: ${QUEUE_SERVICE_URL:http://localhost:8086}
   ticket-limit: ${PURCHASE_TICKET_LIMIT:6}
   hold-ttl-seconds: ${INVENTORY_HOLD_TTL_SECONDS:600}
+  circuit:
+    failure-threshold: ${PURCHASE_CIRCUIT_FAILURE_THRESHOLD:5}
+    open-seconds: ${PURCHASE_CIRCUIT_OPEN_SECONDS:30}
 
 # E2-02: cada línea de log incluye el servicio y el X-Correlation-Id de la solicitud (MDC).
 logging:
@@ -35,3 +38,6 @@ logging:
 ticketya:
   audit:
     url: ${AUDIT_SERVICE_URL:}
+  # Vacío = fallback local: los eventos se registran en el log y no se envían.
+  notifications:
+    url: ${NOTIFICATION_SERVICE_URL:}

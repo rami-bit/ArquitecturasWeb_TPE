@@ -224,6 +224,23 @@ La degradación con `HISTORY_UNAVAILABLE` y el `503` por caída de Catalog está
 
 Nota: los tokens del IdP de prueba se pasan a Newman con interpolación explícita de PowerShell (`"clientToken=$($tokens['client'])"`). Sin `$()` el argumento llega como texto literal y el Gateway responde `401` en cascada.
 
+## Circuit breaker y fallback (2026-11-20)
+
+Cambio OpenSpec `add-circuit-breaker-and-fallback` sincronizado y archivado como `openspec/changes/archive/2026-11-20-add-circuit-breaker-and-fallback/`. Entorno: el mismo stack de verificación aislado (`ticketya_f10_verification`), Java 19.0.2 y Docker Desktop 29.7.2.
+
+| Verificación | Resultado |
+|---|---|
+| `CircuitBreakerTest` | 4/4: acumulación de fallas, rechazo en abierto, semiabierto con una sola prueba, cierre tras éxito y reapertura |
+| `PaymentClientCircuitBreakerTest` | 3/3: tras tres `503` no se hacen más llamadas y se responde fallo rápido; recuperación en semiabierto; `402` no abre el circuito |
+| `NotificationDispatcherTest` | 2/2: sin adaptador no hay envío ni excepción; con adaptador caído se abre el circuito y el fallback local conserva el evento |
+| `mvn verify` del reactor | 430 pruebas, 0 fallos, 0 errores, 0 omitidos (94 clases) |
+| `docker compose -p ticketya_f10_verification up --build -d --wait` | 17/17 contenedores `healthy` tras reconstruir la imagen de Purchase con el circuito |
+| Newman por el Gateway | 103 requests, 94 test-scripts, 174 aserciones, 0 fallos: la saga de compra no cambió de comportamiento |
+| `openspec validate --all --strict` | 19/19 specs, 0 cambios activos |
+| `git diff --check` | limpio (sólo avisos LF→CRLF en archivos heredados) |
+
+El flujo de compra existente se ejecuta sin cambios en Postman: el circuito sólo actúa ante una racha de fallas de infraestructura. Para observar el fallback local con el stack levantado, dejar `NOTIFICATION_SERVICE_URL` vacía (valor por omisión) y buscar los eventos `ORDER_CONFIRMED`/`ORDER_CANCELLED` en el logger `ticketya.notification`; para probar la apertura con Payment, configurar un adaptador que responda `5xx` o usar los tests con stub HTTP.
+
 ## Informe histórico: Establish Inventory and Reservations
 
 Fecha: 2026-11-07  

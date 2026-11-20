@@ -197,6 +197,9 @@ Docker Compose carga automáticamente el archivo `.env` de esta carpeta. Mantenl
 | `PREFERENCES_CANDIDATE_LIMIT` | `200` | Máximo de candidatos pedidos al catálogo por recomendación |
 | `PREFERENCES_HTTP_CONNECT_TIMEOUT_MS` | `2000` | Timeout de conexión hacia Catalog y Purchase |
 | `PREFERENCES_HTTP_READ_TIMEOUT_MS` | `5000` | Timeout de lectura hacia Catalog y Purchase |
+| `PURCHASE_CIRCUIT_FAILURE_THRESHOLD` | `5` | Fallas consecutivas que abren el circuito de Payment y notificaciones |
+| `PURCHASE_CIRCUIT_OPEN_SECONDS` | `30` | Duración de la apertura antes de permitir una llamada de prueba |
+| `NOTIFICATION_SERVICE_URL` | vacía | Adaptador remoto de notificaciones; vacío = fallback local |
 | `TICKET_QR_SIGNING_SECRET` | Clave local definida en `.env` | Clave estable de al menos 32 bytes para firmar los QR |
 
 Ticket Service requiere `TICKET_QR_SIGNING_SECRET`; el `.env` incluye una clave local de desarrollo para arrancar el stack directamente. Conserva el mismo valor entre reinicios si quieres validar QR ya emitidos. Al cambiarlo, los QR existentes dejarán de validarse. No reutilices esta clave fuera del entorno didáctico local.
@@ -508,6 +511,15 @@ Las únicas operaciones permitidas requieren rol `CLIENT`. El Gateway publica `/
 El puntaje es lineal y determinista: `3` por tipo favorito, `2` por artista favorito en el cartel (tope tres), `2` por ciudad, `min(5, co-compras)` y `1` si el evento es de los próximos 30 días; máximo 17. Cada componente que suma aparece en `reasons` (`FAVORITE_EVENT_TYPE`, `FAVORITE_ARTIST`, `SAME_CITY`, `CO_PURCHASE`, `UPCOMING_FALLBACK`). Se ordena por puntaje descendente, fecha ascendente e identificador ascendente, y se excluyen eventos ya comprados. Sin preferencias ni historial se devuelven los próximos eventos con puntaje cero y motivo `UPCOMING_FALLBACK`.
 
 No hay cache: cada consulta lee un documento, un agregado acotado en Purchase y hasta 200 candidatos en Catalog. Si Purchase falla, la respuesta sigue con `warnings: ["HISTORY_UNAVAILABLE"]`; si falla Catalog, responde `503`. Para reproducir la degradación en un stack ya levantado, detén `purchase-service` (`docker compose stop purchase-service`) y consulta recomendaciones, luego reinícialo; no detengas contenedores del stack de verificación ajeno.
+
+## Resiliencia: circuit breaker y fallback (PDF-NF-RESILIENCE)
+
+Purchase protege sus dependencias con un circuito de tres estados (`CLOSED`, `OPEN`, `HALF_OPEN`) implementado en `CircuitBreaker`, sin dependencias nuevas:
+
+- **Payment:** tras `PURCHASE_CIRCUIT_FAILURE_THRESHOLD` fallas consecutivas de transporte o respuestas `5xx`, el circuito se abre y `charge` responde `503` sin invocar a Payment. Purchase libera la reserva y no marca la orden como pagada. Un `402` (pago rechazado) **no** abre el circuito porque es una respuesta de negocio. Vencidos `PURCHASE_CIRCUIT_OPEN_SECONDS`, se permite una sola llamada de prueba; si falla, el circuito se reabre.
+- **Notificaciones:** cada evento (`ORDER_CONFIRMED`, `ORDER_CANCELLED`) se escribe siempre en el log local `ticketya.notification` con `correlationId`, `orderId` y `customerId`. Con `NOTIFICATION_SERVICE_URL` vacía no hay envío remoto (fallback local). Si hay URL, el envío es asíncrono y usa el mismo circuito: ante fallo, el evento queda en el log y la compra continúa. Este componente nunca lanza excepciones al flujo de negocio.
+
+Los cambios de estado y los eventos en fallback se registran con SLF4J. F11 (entrega por email/push) sigue pendiente: hoy sólo existe el despacho con degradación controlada.
 
 ## Pasarela de pagos simulada (interna)
 

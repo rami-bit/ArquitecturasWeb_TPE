@@ -14,6 +14,16 @@
 
 Lección registrada: pasar tokens del IdP a Newman desde PowerShell requiere interpolar con `"organizerToken=$($tokens['organizer'])"`; sin `$()` el argumento llega como texto y el Gateway responde `401` en cascada.
 
+## Resiliencia: circuit breaker y fallback (2026-11-20)
+
+**Estado:** cerrada. Cambio OpenSpec `add-circuit-breaker-and-fallback` sincronizado y archivado como `openspec/changes/archive/2026-11-20-add-circuit-breaker-and-fallback/`; spec vigente `resilience-circuit-breaker`.
+
+- [x] `CircuitBreaker` de tres estados con umbral, duración de apertura, una llamada de prueba en semiabierto y contadores (`CircuitBreakerTest`, 4).
+- [x] Payment con circuito: fallas de transporte y `5xx` cuentan; `4xx` no abre; circuito abierto responde `503` sin invocar al cobro (`PaymentClientCircuitBreakerTest`, 3).
+- [x] Notificaciones con fallback local: evento siempre en el log, envío remoto opcional con el mismo circuito y sin excepciones al flujo (`NotificationDispatcherTest`, 2).
+- [x] `ORDER_CONFIRMED` y `ORDER_CANCELLED` publicados desde Purchase; configuración por `PURCHASE_CIRCUIT_FAILURE_THRESHOLD`, `PURCHASE_CIRCUIT_OPEN_SECONDS` y `NOTIFICATION_SERVICE_URL`.
+- [x] Verificación: `mvn verify` 430 pruebas, 0 fallos/errores/omisiones; `openspec validate --all --strict` 19/19 y 0 cambios activos; Compose y Newman sin regresiones (ver `docs/verification.md`).
+
 ## PDF-F10 - Preferencias y recomendaciones (2026-11-20)
 
 **Estado:** cerrada e integrada en `main`. El cambio OpenSpec se archivó como `openspec/changes/archive/2026-11-20-add-preferences-and-recommendations/` y sus deltas se sincronizaron a las specs vigentes (18/18 con `--strict`); no quedan cambios activos.
