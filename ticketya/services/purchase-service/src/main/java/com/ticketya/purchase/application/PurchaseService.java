@@ -285,7 +285,7 @@ public class PurchaseService {
                 }
                 repository.updateOrderStatus(orderId, OrderStatus.CONFIRMED.name(), "APPROVED", null);
                 notifications.publish(new NotificationEvent(
-                        "ORDER_CONFIRMED", orderId, customerId, correlationId));
+                        "ORDER_CONFIRMED", orderId, customerId, correlationId, eventId, eventName, eventStartsAt));
                 return ResponseEntity.status(HttpStatus.CREATED).body(buildOrderResponse(orderId, correlationId));
             }
             default -> throw new IllegalStateException("Estado de pago inesperado: " + paymentStatus);
@@ -399,6 +399,9 @@ public class PurchaseService {
                         }
                         repository.releaseLimit(order.customerId(), order.eventId(), units);
                         repository.updateOrderStatus(orderId, OrderStatus.COMPENSATED.name(), "REFUNDED", null);
+                        notifications.publish(new NotificationEvent("ORDER_CANCELLED", orderId,
+                                order.customerId(), correlationId, order.eventId(), order.eventName(),
+                                order.eventStartsAt()));
                         return ResponseEntity.ok(buildOrderResponse(orderId, correlationId));
                     }
                     throw new ApiProblemException(HttpStatus.SERVICE_UNAVAILABLE, "Service unavailable",
@@ -412,6 +415,9 @@ public class PurchaseService {
                     return ResponseEntity.ok(buildOrderResponse(orderId, correlationId));
                 }
                 repository.updateOrderStatus(orderId, OrderStatus.CONFIRMED.name(), "APPROVED", null);
+                // PDF-F11: la orden reconciliada también notifica la compra confirmada.
+                notifications.publish(new NotificationEvent("ORDER_CONFIRMED", orderId, order.customerId(),
+                        correlationId, order.eventId(), order.eventName(), order.eventStartsAt()));
                 return ResponseEntity.ok(buildOrderResponse(orderId, correlationId));
             }
             case "PENDING" -> {
@@ -570,7 +576,7 @@ public class PurchaseService {
         repository.releaseLimit(customerId, eventId, units);
         repository.updateOrderStatus(orderId, OrderStatus.COMPENSATED.name(), "REFUNDED", null);
         notifications.publish(new NotificationEvent(
-                "ORDER_CANCELLED", orderId, customerId, correlationId));
+                "ORDER_CANCELLED", orderId, customerId, correlationId, eventId, null, null));
     }
 
     // ======================================================================== helpers de acceso a datos

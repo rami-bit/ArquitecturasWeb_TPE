@@ -1,0 +1,53 @@
+server:
+  port: ${SERVER_PORT:8088}
+
+spring:
+  application:
+    name: notification-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/ticketya_notification}
+    username: ${DB_USER:ticketya}
+    password: ${DB_PASSWORD:ticketya}
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+
+# PDF-F11: notificaciones al cliente.
+notifications:
+  # Canales simulados por cada destinatario (email y push).
+  channels: ${NOTIFICATION_CHANNELS:EMAIL,PUSH}
+  purchase:
+    url: ${NOTIFICATION_PURCHASE_SERVICE_URL:http://localhost:8084}
+  preferences:
+    url: ${NOTIFICATION_PREFERENCES_SERVICE_URL:http://localhost:8087}
+  http:
+    connect-timeout-ms: ${NOTIFICATION_HTTP_CONNECT_TIMEOUT_MS:1000}
+    read-timeout-ms: ${NOTIFICATION_HTTP_READ_TIMEOUT_MS:3000}
+  scheduler:
+    enabled: ${NOTIFICATION_SCHEDULER_ENABLED:true}
+    delay-ms: ${NOTIFICATION_SCHEDULER_DELAY_MS:1000}
+    batch-size: ${NOTIFICATION_BATCH_SIZE:50}
+  retry:
+    max-attempts: ${NOTIFICATION_MAX_ATTEMPTS:6}
+    base-delay-ms: ${NOTIFICATION_RETRY_BASE_DELAY_MS:2000}
+    max-delay-ms: ${NOTIFICATION_RETRY_MAX_DELAY_MS:60000}
+    lease-seconds: ${NOTIFICATION_LEASE_SECONDS:60}
+  provider:
+    # SIMULATED: registra el envío en el log ticketya.delivery. FAILING: simula
+    # una pasarela caída para probar reintentos y el estado FAILED.
+    mode: ${NOTIFICATION_PROVIDER_MODE:SIMULATED}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+
+logging:
+  pattern:
+    level: "%5p [${spring.application.name:},%X{correlationId:-}]"

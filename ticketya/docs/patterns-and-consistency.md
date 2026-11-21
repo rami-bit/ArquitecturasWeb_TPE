@@ -30,7 +30,7 @@ Documento único de decisiones de arquitectura de TicketYa. Es la fuente de verd
 | Cobro y confirmación de tickets | **Fuerte en la saga** con estados explícitos | `PAYMENT_PENDING`, `PAID_PENDING_TICKETS` y `COMPENSATED` permiten reanudar sin cobrar dos veces |
 | Publicación del catálogo | **Eventual acotada** | Catalog publica un snapshot inmutable que Inventory y Purchase leen por contrato; la caché puede servirlo hasta el TTL sin afectar la venta |
 | Bitácora y trazas | **Eventual, fire-and-forget** | La operación de negocio nunca espera a Audit; el evento queda en el log local y se reintenta con `eventId` idempotente |
-| Notificaciones | **Eventual con fallback local** | El evento se escribe siempre en `ticketya.notification`; si el adaptador falla, la compra continúa. F11 (entrega real) sigue pendiente y delegada |
+| Notificaciones | **Eventual, con inbox/outbox y reintentos** | Purchase y Catalog envían fire-and-forget (Catalog después del commit). `notification-service` deduplica por clave de negocio, resuelve destinatarios con contratos internos y entrega con reintentos exponenciales; agotados, queda `FAILED`. Nunca revierte una compra ni un cambio de evento |
 | Disponibilidad de inventario | **Siempre fresca** | Nunca se cachea como verdad autoritativa: la recomendación no afirma disponibilidad y la compra la recalcula |
 | Recomendaciones | **Bajo demanda** | Sin caché: una compra nueva o un evento cancelado se refleja en la siguiente consulta |
 

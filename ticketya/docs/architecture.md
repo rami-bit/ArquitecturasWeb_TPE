@@ -22,8 +22,9 @@ y [`openspec/changes/add-virtual-queue/design.md`](../openspec/changes/add-virtu
 | `purchase-service` | 8084 | `ticketya_purchase` | `POST/GET /api/orders`, `GET /api/orders/{orderId}`, `POST /api/orders/{orderId}/reconcile`; `POST /api/refunds/tickets/{ticketId}`, `GET /api/refunds/{refundId}`, `POST /api/refunds/{refundId}/decision`; `POST/GET /api/events/{eventId}/cancellation`; reportes (E2-04): `GET /api/reports/events/{eventId}` | — |
 | `payment-mock` | 8085 | `ticketya_payment` | — | `POST /internal/payments`, `GET /internal/payments/{paymentId}`, `GET /internal/payments/by-order/{orderId}`, `POST /internal/payments/{paymentId}/refund` (total), `POST /internal/payments/{paymentId}/refunds` (parcial) |
 | `audit-service` (E2-02) | 8086 | `ticketya_audit` | `GET /api/audit/events`, `GET /api/audit/traces/{correlationId}` (sólo ADMIN) | `POST /internal/audit-events` (ingesta idempotente) |
-| `queue-service` (E2-02) | 8086 | `ticketya_queue` | `POST /api/queue/events/{eventId}/entries`, `GET/DELETE /api/queue/events/{eventId}/entries/me` | `POST /internal/admissions/validate` |
+| `queue-service` (PDF-F6) | 8086 | `ticketya_queue` | `POST /api/queue/events/{eventId}/entries`, `GET/DELETE /api/queue/events/{eventId}/entries/me` | `POST /internal/admissions/validate` |
 | `preferences-service` (PDF-F10) | 8087 | `ticketya_preferences` (**MongoDB 7**) | `PUT/GET /api/customers/me/preferences`, `GET /api/customers/me/recommendations?limit=10` (sólo `CLIENT`) | Consume `GET /internal/customers/{customerId}/recommendation-signals` (Purchase) y `GET /internal/events/recommendation-candidates?limit=200` (Catalog) |
+| `notification-service` (PDF-F11) | 8088 | `ticketya_notification` | `GET /api/notifications/me` (sólo `CLIENT`) | `POST /internal/notifications`, `POST /internal/notifications/event-changes` (ingesta idempotente); consume `GET /internal/events/{eventId}/buyers` (Purchase) y `GET /internal/preferences/matches` (Preferences) |
 
 Las rutas de cancelación tienen propósitos distintos. Catalog expone
 `POST /api/management/events/{id}/cancel`: cambia el estado a `CANCELLED` y
@@ -34,29 +35,44 @@ Cada ticket se revoca, se reintegra por su importe y libera su unidad vendida.
 
 ```mermaid
 flowchart LR
+    Client[Clientes / Postman] -->|HTTP :8080 + JWT| GW[api-gateway]
     GW -->|/api/** excepto rutas dedicadas| CAT[catalog-service :8081]
     GW -->|/api/inventory| INV[inventory-service :8082]
     GW -->|/api/orders, /api/refunds, cancelación, /api/reports| PUR[purchase-service :8084]
     GW -->|/api/access| TKT[ticket-service :8083]
     GW -->|/api/audit| AUD[audit-service :8086]
-    GW -->|/api/customers (sólo CLIENT)| PREF[preferences-service :8087]
+    GW -->|/api/queue| QUE[queue-service :8086]
+    GW -->|/api/customers| PREF[preferences-service :8087]
+    GW -->|/api/notifications| NOT[notification-service :8088]
     PREF -->|señales de historial| PUR
     PREF -->|candidatos publicados| CAT
-    PREF --- DB7[(ticketya_preferences · MongoDB 7)]
-    PUR -->|snapshot / fecha / cancelación lógica (F7)| CAT
-    PUR -->|validar y consumir admisión (F6)| QUE[queue-service :8086]
+    PUR -->|snapshot / fecha / cancelación lógica| CAT
+    PUR -->|validar y consumir admisión| QUE
     QUE -->|snapshot publicado: highDemand| CAT
     CAT -->|bloquear ventas de evento cancelado| INV
-    PUR -->|reservar / confirmar / liberar unidad vendida (F7)| INV
-    PUR -->|cobrar / reintegrar total o parcialmente (F7)| PAY[payment-mock :8085]
+    PUR -->|reservar / confirmar / liberar| INV
+    PUR -->|cobrar / reintegrar| PAY[payment-mock :8085]
+    PUR -->|emitir / revocar tickets| TKT
+    PUR -.->|ORDER_CONFIRMED / ORDER_CANCELLED| NOT
+    CAT -.->|EVENT_PUBLISHED / SUSPENDED / RESUMED / CANCELLED| NOT
+    NOT -->|compradores del evento| PUR
+    NOT -->|fans del artista en la ciudad| PREF
+    CAT -.->|auditoría| AUD
+    TKT -.->|auditoría| AUD
+    PUR -.->|auditoría| AUD
+    CAT --- DB1[(ticketya_catalog)]
+    INV --- DB2[(ticketya_inventory)]
     TKT --- DB3[(ticketya_ticket)]
     PUR --- DB4[(ticketya_purchase)]
     PAY --- DB5[(ticketya_payment)]
     AUD --- DB6[(ticketya_audit)]
-    QUE --- DB6[(ticketya_queue)]
+    QUE --- DB7[(ticketya_queue)]
+    PREF --- DB8[(ticketya_preferences · MongoDB 7)]
+    NOT --- DB9[(ticketya_notification)]
+```
 
-Las flechas punteadas son envíos asíncronos *fire-and-forget* (E2-02): la
-operación de negocio nunca espera a Audit Service.
+Las flechas punteadas son envíos asíncronos *fire-and-forget*: la operación de
+negocio nunca espera a Audit Service ni a Notification Service.
 
 Cada servicio es un proyecto Spring Boot independiente, con su propio `pom.xml`,
 su `Dockerfile`, su esquema y su proceso. El POM raíz sólo agrega los módulos
@@ -326,32 +342,73 @@ La ruta `/api/customers/**` se declara antes del comodín de catálogo y exige `
 - **Notificaciones:** `NotificationDispatcher` escribe primero en el log local `ticketya.notification` y, si `NOTIFICATION_SERVICE_URL` está configurada, envía fuera del hilo de la solicitud protegido por el mismo circuito. Ante fallo o circuito abierto, el evento queda en el log y la compra no se ve afectada. No se publican montos ni payloads QR.
 - **Configuración:** `PURCHASE_CIRCUIT_FAILURE_THRESHOLD` (5) y `PURCHASE_CIRCUIT_OPEN_SECONDS` (30). No hay persistencia del estado del circuito ni coordinación entre réplicas: el Compose didáctico ejecuta una sola instancia de Purchase.
 
-## 8. Contrato y documentación
+## 9. Notificaciones al cliente (PDF-F11)
 
-- Contrato consolidado: [`docs/openapi.yaml`](openapi.yaml) — 47 operaciones
-  sobre 42 rutas, con ejemplos, errores `problem+json` y esquemas de Purchase,
-  Payment, Catalog, Inventory, Ticket (acceso) y Audit.
-- OpenAPI en runtime: `/v3/api-docs` en los puertos internos de Catalog (8081),
-  Inventory (8082), Ticket (8083), Purchase (8084), Payment (8085) y Audit (8086).
-- Colección de pruebas: `postman/ticketya.postman_collection.json`.
+`notification-service` (Spring Boot + PostgreSQL propio) implementa F11 con una
+bandeja de entrada y una de salida:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant P as purchase-service
+    participant C as catalog-service
+    participant N as notification-service
+    participant PR as preferences-service
+    participant G as Pasarela email/push (simulada)
+    P--)N: POST /internal/notifications ORDER_CONFIRMED (fire-and-forget)
+    C--)N: POST /internal/notifications/event-changes EVENT_CANCELLED (tras el commit)
+    N->>N: INSERT notification_triggers (dedupe_key único) → 202
+    loop cada 1 s (FOR UPDATE SKIP LOCKED)
+        N->>P: GET /internal/events/{id}/buyers (cambio o cancelación)
+        N->>PR: GET /internal/preferences/matches?city&artist (publicación)
+        N->>N: INSERT notifications (cliente × EMAIL/PUSH)
+        N->>G: entregar
+        alt falla
+            N->>N: reintento con espera exponencial; agotado → FAILED
+        end
+    end
+```
+
+| Hecho | Productor | Destinatarios | Deduplicación |
+|---|---|---|---|
+| `ORDER_CONFIRMED` (compra o reconciliación) | Purchase | el comprador | `tipo:orderId` |
+| `ORDER_CANCELLED` (orden compensada) | Purchase | el comprador | `tipo:orderId` |
+| `EVENT_SUSPENDED` / `EVENT_RESUMED` (cambio del evento) | Catalog | compradores con órdenes pagadas | `tipo:eventId:changeId` |
+| `EVENT_CANCELLED` | Catalog | compradores con órdenes pagadas | `tipo:eventId` |
+| `EVENT_PUBLISHED` | Catalog | clientes con un artista del evento como favorito y la misma ciudad | `tipo:eventId` |
+
+- **Asíncrono y desacoplado:** los productores responden sin esperar. Catalog
+  arma el cambio dentro de su transacción y lo envía en `afterCommit`, así una
+  transición revertida nunca notifica.
+- **Sin acceso a bases ajenas:** los destinatarios se resuelven con dos
+  contratos internos de solo lectura: compradores en Purchase y fans en la
+  colección MongoDB de Preferences.
+- **Resiliencia:** si Purchase o Preferences no responden, el disparador se
+  reintenta con espera exponencial (2 s, 4 s, 8 s… hasta 60 s) y, agotados los
+  intentos, queda `FAILED` con el último error. La pasarela tiene la misma
+  política por notificación. Del lado de Purchase sigue activo el circuit breaker.
+- **Multi-instancia:** los reclamos usan arrendamiento y `FOR UPDATE SKIP LOCKED`,
+  y las restricciones únicas `(dedupe_key)` y `(trigger_id, customer_id, channel)`
+  impiden avisos duplicados aunque haya reintentos o varias instancias.
+- **Pasarela simulada:** como Payment Mock, la entrega de email y push se
+  registra en el log `ticketya.delivery`. `NOTIFICATION_PROVIDER_MODE=FAILING`
+  simula una caída. El cliente consulta su bandeja en `GET /api/notifications/me`.
+
+## 10. Contrato y documentación
+
+- Contrato consolidado: [`docs/openapi.yaml`](openapi.yaml) — 61 operaciones
+  sobre 54 rutas y 90 esquemas, con ejemplos, errores `problem+json` y la
+  seguridad Bearer por operación.
+- OpenAPI en runtime: `/v3/api-docs` en los puertos internos de cada servicio
+  (8081–8088).
+- Colección de pruebas: `postman/ticketya.postman_collection.json` (106 requests).
 - Evidencia de ejecución: [`docs/verification.md`](verification.md).
 
-## 9. Ejecución local
+## 11. Ejecución local
 
-docker compose up -d --build levanta el Gateway en `http://localhost:8080`, los
-seis servicios (Catalog, Inventory, Ticket, Purchase, Payment Mock y Audit) y
-sus seis bases: 13 contenedores. Los puertos `8081`–`8086` no se publican al
-host; el `docker-compose.yml` y `.env` documentan las variables de cada servicio.
-El detalle paso a paso está en el [README](../README.md).
-
-## 10. Trazabilidad y bitácora centralizada (E2-02)
-
-(Ver sección 9 para el registro HTTP y la bitácora audit-service).
-
-## 11. Control de acceso con QR (E2-03)
-
-(Ver sección 7 para el flujo de validación QR).
-
-## 12. Reportes del organizador (E2-04)
-
-(Ver sección 8 para el cálculo de reportes).
+`docker compose up -d --build` levanta el Gateway en `http://localhost:8080`,
+los nueve servicios (Catalog, Inventory, Ticket, Purchase, Payment Mock, Audit,
+Queue, Preferences y Notification) y sus nueve bases (ocho PostgreSQL y un
+MongoDB): 19 contenedores. Sólo el Gateway publica un puerto al host; el
+`docker-compose.yml` y el `.env` documentan las variables de cada servicio. El
+paso a paso está en el [README](../README.md).

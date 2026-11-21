@@ -4,11 +4,12 @@ import com.ticketya.catalog.infrastructure.persistence.event.EventRepository; im
 import org.springframework.http.HttpStatus; import org.springframework.stereotype.Service; import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization; import org.springframework.transaction.support.TransactionSynchronizationManager;
 import com.ticketya.catalog.infrastructure.cache.EventDiscoveryCache;
+import com.ticketya.catalog.infrastructure.notification.EventChange; import com.ticketya.catalog.infrastructure.notification.EventNotificationPublisher;
 import java.math.BigDecimal; import java.util.*;
 @Service @Transactional
 public class EventManagementService {
- private final EventRepository events; private final VenueRepository venues; private final VenueSectorRepository sectors; private final InventoryCancellationClient inventory; private final EventDiscoveryCache cache;
- public EventManagementService(EventRepository e,VenueRepository v,VenueSectorRepository s,InventoryCancellationClient i,EventDiscoveryCache c){events=e;venues=v;sectors=s;inventory=i;cache=c;}
+ private final EventRepository events; private final VenueRepository venues; private final VenueSectorRepository sectors; private final InventoryCancellationClient inventory; private final EventDiscoveryCache cache; private final EventNotificationPublisher notifications;
+ public EventManagementService(EventRepository e,VenueRepository v,VenueSectorRepository s,InventoryCancellationClient i,EventDiscoveryCache c,EventNotificationPublisher n){events=e;venues=v;sectors=s;inventory=i;cache=c;notifications=n;}
  public Event create(String user,String role,String name,String description,String type,java.time.OffsetDateTime startsAt,UUID organizer,UUID venueId,List<String> participants,Map<UUID,BigDecimal> offerings,Boolean highDemand){
   UUID actor=identity(user,role); UUID owner;
   if("ADMIN".equals(role)){if(organizer==null)throw bad("ADMIN must provide organizerId");owner=organizer;}else if("ORGANIZER".equals(role)){owner=actor;if(organizer!=null&&!organizer.equals(actor))throw forbidden();}else throw forbidden();
@@ -27,10 +28,10 @@ public class EventManagementService {
   if(e.getParticipants().isEmpty())throw bad("At least one participant is required");
   if(e.getOfferings().isEmpty())throw bad("At least one priced sector is required");
   validateOfferings(e.getVenue(),e.getOfferings().stream().collect(java.util.stream.Collectors.toMap(EventSectorOffering::getVenueSectorId,EventSectorOffering::getPrice)));
-  e.setSnapshot(EventSnapshot.copyOf(e)); e.setStatus(EventStatus.PUBLISHED); Event saved=events.saveAndFlush(e); invalidateAfterCommit(); return saved;
+  e.setSnapshot(EventSnapshot.copyOf(e)); e.setStatus(EventStatus.PUBLISHED); Event saved=events.saveAndFlush(e); invalidateAfterCommit(); notifyAfterCommit("EVENT_PUBLISHED",saved); return saved;
  }
- public Event suspend(String user,String role,UUID id){identity(user,role);if(!"ADMIN".equals(role))throw forbidden();Event e=events.findById(id).orElseThrow(()->notFound("Event not found"));if(e.getStatus()!=EventStatus.PUBLISHED)throw conflict("Only PUBLISHED events can be suspended");e.getOfferings().size();e.getVenue().getId();e.setStatus(EventStatus.SUSPENDED);invalidateAfterCommit();return e;}
- public Event resume(String user,String role,UUID id){identity(user,role);if(!"ADMIN".equals(role))throw forbidden();Event e=events.findById(id).orElseThrow(()->notFound("Event not found"));if(e.getStatus()!=EventStatus.SUSPENDED)throw conflict("Only SUSPENDED events can be resumed");e.getOfferings().size();e.getVenue().getId();e.setStatus(EventStatus.PUBLISHED);invalidateAfterCommit();return e;}
+ public Event suspend(String user,String role,UUID id){identity(user,role);if(!"ADMIN".equals(role))throw forbidden();Event e=events.findById(id).orElseThrow(()->notFound("Event not found"));if(e.getStatus()!=EventStatus.PUBLISHED)throw conflict("Only PUBLISHED events can be suspended");e.getOfferings().size();e.getVenue().getId();e.setStatus(EventStatus.SUSPENDED);invalidateAfterCommit();notifyAfterCommit("EVENT_SUSPENDED",e);return e;}
+ public Event resume(String user,String role,UUID id){identity(user,role);if(!"ADMIN".equals(role))throw forbidden();Event e=events.findById(id).orElseThrow(()->notFound("Event not found"));if(e.getStatus()!=EventStatus.SUSPENDED)throw conflict("Only SUSPENDED events can be resumed");e.getOfferings().size();e.getVenue().getId();e.setStatus(EventStatus.PUBLISHED);invalidateAfterCommit();notifyAfterCommit("EVENT_RESUMED",e);return e;}
  public Event cancel(String user,String role,UUID id){
   identity(user,role);
   if(!"ADMIN".equals(role))throw forbidden();
@@ -41,11 +42,25 @@ public class EventManagementService {
   e.setStatus(EventStatus.CANCELLED);
   inventory.notifyCancelled(e.getId());
   invalidateAfterCommit();
+  notifyAfterCommit("EVENT_CANCELLED",e);
   return e;
  }
  @Transactional(readOnly=true) public List<Event> list(String user,String role){UUID actor=identity(user,role);List<Event> result;if("ADMIN".equals(role))result=events.findAllByOrderByNameAscIdAsc();else if("ORGANIZER".equals(role))result=events.findAllByOrganizerIdOrderByNameAscIdAsc(actor);else throw forbidden();result.forEach(e->e.getOfferings().size());return result;}
  @Transactional(readOnly=true) public Event get(String user,String role,UUID id){Event e=authorized(user,role,id);e.getOfferings().size();return e;}
  private Event authorized(String user,String role,UUID id){UUID actor=identity(user,role);if(!"ADMIN".equals(role)&&!"ORGANIZER".equals(role))throw forbidden();Event e=events.findById(id).orElseThrow(()->notFound("Event not found"));if("ORGANIZER".equals(role)&&!e.getOrganizerId().equals(actor))throw forbidden();e.getOfferings().size();return e;}
+ /**
+  * PDF-F11: arma el cambio dentro de la transacción (lugar y participantes
+  * cargados) y lo envía a Notification Service sólo si la transacción confirma.
+  */
+ private void notifyAfterCommit(String type,Event e){
+  EventChange change=EventChange.of(type,e.getId(),e.getName(),e.getStartsAt(),e.getVenue().getCity(),
+    e.getParticipants().stream().map(EventParticipant::getName).toList());
+  if(TransactionSynchronizationManager.isSynchronizationActive()){
+   TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization(){
+    @Override public void afterCommit(){notifications.publish(change);}
+   });
+  } else notifications.publish(change);
+ }
  private void invalidateAfterCommit(){
   if(TransactionSynchronizationManager.isSynchronizationActive()){
    TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization(){

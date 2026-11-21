@@ -25,6 +25,7 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       INVENTORY_SERVICE_URL: ${CATALOG_INVENTORY_SERVICE_URL}
       AUDIT_SERVICE_URL: ${AUDIT_SERVICE_URL}
+      NOTIFICATION_SERVICE_URL: ${NOTIFICATION_SERVICE_URL}
       CATALOG_CACHE_TTL_SECONDS: ${CATALOG_CACHE_TTL_SECONDS}
       CATALOG_CACHE_MAX_ENTRIES: ${CATALOG_CACHE_MAX_ENTRIES}
     depends_on:
@@ -334,6 +335,52 @@ services:
     networks:
       - ticketya
 
+  # PDF-F11: notificaciones. Purchase y Catalog envían fire-and-forget y
+  # Notification Service resuelve destinatarios con reintentos, por eso no hay
+  # dependencias de arranque entre ellos.
+  notification-db:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_DB: ${NOTIFICATION_POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - notification-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - ticketya
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: services/notification-service/Dockerfile
+    environment:
+      SERVER_PORT: ${NOTIFICATION_SERVER_PORT}
+      DB_URL: ${NOTIFICATION_DB_URL}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      NOTIFICATION_PURCHASE_SERVICE_URL: ${NOTIFICATION_PURCHASE_SERVICE_URL}
+      NOTIFICATION_PREFERENCES_SERVICE_URL: ${NOTIFICATION_PREFERENCES_SERVICE_URL}
+      NOTIFICATION_CHANNELS: ${NOTIFICATION_CHANNELS}
+      NOTIFICATION_PROVIDER_MODE: ${NOTIFICATION_PROVIDER_MODE}
+      NOTIFICATION_MAX_ATTEMPTS: ${NOTIFICATION_MAX_ATTEMPTS}
+      NOTIFICATION_RETRY_BASE_DELAY_MS: ${NOTIFICATION_RETRY_BASE_DELAY_MS}
+    depends_on:
+      notification-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${NOTIFICATION_SERVER_PORT}/actuator/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 15s
+    networks:
+      - ticketya
+
   api-gateway:
     build:
       context: ./services/api-gateway
@@ -346,6 +393,7 @@ services:
       TICKET_SERVICE_URL: ${GATEWAY_TICKET_SERVICE_URL}
       AUDIT_SERVICE_URL: ${GATEWAY_AUDIT_SERVICE_URL}
       GATEWAY_PREFERENCES_SERVICE_URL: ${GATEWAY_PREFERENCES_SERVICE_URL}
+      NOTIFICATION_SERVICE_URL: ${GATEWAY_NOTIFICATION_SERVICE_URL}
       JWT_ISSUER_URI: ${JWT_ISSUER_URI}
       JWT_JWK_SET_URI: ${JWT_JWK_SET_URI}
     depends_on:
@@ -362,6 +410,8 @@ services:
       audit-service:
         condition: service_healthy
       preferences-service:
+        condition: service_healthy
+      notification-service:
         condition: service_healthy
     # Permite que el Gateway alcance un IdP de prueba en el host (tools/local-test-idp)
     # también en Docker Engine para Linux; Docker Desktop ya resuelve este nombre.
@@ -390,3 +440,4 @@ volumes:
   queue-postgres-data:
   audit-postgres-data:
   preferences-mongo-data:
+  notification-postgres-data:

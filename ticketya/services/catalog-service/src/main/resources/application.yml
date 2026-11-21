@@ -42,3 +42,6 @@ logging:
 ticketya:
   audit:
     url: ${AUDIT_SERVICE_URL:}
+  # PDF-F11: cambios de evento hacia Notification Service. Vacío = sólo log local.
+  notifications:
+    url: ${NOTIFICATION_SERVICE_URL:}

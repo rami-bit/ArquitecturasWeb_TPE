@@ -43,6 +43,8 @@ public class SecurityConfig {
                         .pathMatchers("/api/audit/**").hasRole("ADMIN")
                         // PDF-F10: preferencias y recomendaciones son sólo del cliente autenticado.
                         .pathMatchers("/api/customers/**").hasRole("CLIENT")
+                        // PDF-F11: cada cliente consulta sólo sus notificaciones.
+                        .pathMatchers("/api/notifications/**").hasRole("CLIENT")
                         .pathMatchers("/api/**").authenticated()
                         .anyExchange().permitAll())
                 .oauth2ResourceServer(oauth2 -> oauth2

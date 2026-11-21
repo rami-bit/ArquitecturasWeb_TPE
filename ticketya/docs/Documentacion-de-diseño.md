@@ -201,13 +201,19 @@
 
 **Como** cliente, **quiero** recibir notificaciones sobre mis compras y eventos de mi interés, **para** estar informado de cambios relevantes.
 
-**Trazabilidad:** PDF-F11. **Estado:** **CRITERIOS DE ACEPTACIÓN VIGENTES PARA LA ENTREGA 2; IMPLEMENTACIÓN PENDIENTE.** Depende del contrato de eventos de F4/F7.3 y de las preferencias de F10.
+**Trazabilidad:** PDF-F11, PDF-NF-RESILIENCE, PDF-NF-SECURITY. **Estado:** **IMPLEMENTADO** (cambio OpenSpec `add-customer-notifications`, `notification-service`).
 
 **Criterios de aceptación (revisados y completados en Entrega 2)**
 
 - **Dado** que una compra se confirma, **cuando** se completa la confirmación, **entonces** se envía una notificación por email o push.
 - **Dado** un evento que cambia o se cancela, **cuando** ocurre el cambio, **entonces** se notifica a sus compradores.
 - **Dado** un artista favorito de un cliente que publica un evento en su ciudad, **cuando** se publica el evento, **entonces** el cliente recibe una notificación.
+- **Dada** una orden que se confirma al reconciliarse o que termina compensada, **cuando** cambia su estado, **entonces** el comprador recibe el aviso correspondiente.
+- **Dado** un evento suspendido y luego reanudado, **cuando** ocurre cada transición, **entonces** los compradores reciben un aviso por cada una, sin duplicados ante reintentos.
+- **Dado** que el productor reenvía el mismo hecho, **cuando** Notification Service lo recibe, **entonces** responde `202` con `duplicate: true` y no duplica avisos.
+- **Dado** que Purchase, Preferences o la pasarela de entrega fallan, **cuando** se procesa la notificación, **entonces** se reintenta con espera exponencial y, agotados los intentos, queda `FAILED`; la compra o el cambio del evento nunca fallan por esto.
+- **Dada** una transición de evento rechazada (por ejemplo, reanudar un evento no suspendido), **cuando** se intenta, **entonces** no se notifica.
+- **Dado** un cliente, **cuando** consulta `GET /api/notifications/me`, **entonces** sólo ve sus notificaciones con canal y estado; otros roles reciben `403` y sin token `401`.
 
 ### Feature F12 — Reportes para organizadores (Entrega 2)
 

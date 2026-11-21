@@ -10,8 +10,9 @@
 > (trazabilidad HTTP y bitácora centralizada), E2-03 (control de acceso con QR),
 > E2-04 (reportes del organizador), F6 (fila virtual), F10 (preferencias y
 > recomendaciones con MongoDB 7) y los controles transversales de caché,
-> circuit breaker, pruebas de integración y carga. Falta F11 (notificaciones),
-> delegado a otro compañero. Ver
+> circuit breaker, pruebas de integración y carga, y F11 (notificaciones por
+> email y push simulados). Ver
+> [Notificaciones](#notificaciones-al-cliente-pdf-f11),
 > [Trazabilidad y bitácora](#trazabilidad-y-bitácora-centralizada-e2-02),
 > [Control de acceso QR](#control-de-acceso-con-qr-us-f8-e2-03),
 > [Reportes del organizador](#reportes-del-organizador-us-f12-e2-04),
@@ -208,7 +209,9 @@ Docker Compose carga automáticamente el archivo `.env` de esta carpeta. Mantenl
 | `PREFERENCES_HTTP_READ_TIMEOUT_MS` | `5000` | Timeout de lectura hacia Catalog y Purchase |
 | `PURCHASE_CIRCUIT_FAILURE_THRESHOLD` | `5` | Fallas consecutivas que abren el circuito de Payment y notificaciones |
 | `PURCHASE_CIRCUIT_OPEN_SECONDS` | `30` | Duración de la apertura antes de permitir una llamada de prueba |
-| `NOTIFICATION_SERVICE_URL` | vacía | Adaptador remoto de notificaciones; vacío = fallback local |
+| `NOTIFICATION_SERVICE_URL` | `http://notification-service:8088` | Notification Service al que Purchase y Catalog envían sus hechos; vacío = sólo log local |
+| `NOTIFICATION_PROVIDER_MODE` | `SIMULATED` | Pasarela simulada de email/push; `FAILING` simula la caída para probar reintentos |
+| `NOTIFICATION_MAX_ATTEMPTS` / `NOTIFICATION_RETRY_BASE_DELAY_MS` | `6` / `2000` | Intentos y espera base (exponencial, tope 60 s) de destinatarios y entregas |
 | `TICKET_QR_SIGNING_SECRET` | Clave local definida en `.env` | Clave estable de al menos 32 bytes para firmar los QR |
 
 Ticket Service requiere `TICKET_QR_SIGNING_SECRET`; el `.env` incluye una clave local de desarrollo para arrancar el stack directamente. Conserva el mismo valor entre reinicios si quieres validar QR ya emitidos. Al cambiarlo, los QR existentes dejarán de validarse. No reutilices esta clave fuera del entorno didáctico local.
@@ -291,6 +294,12 @@ Los servicios internos reciben su configuración a través de variables de Compo
 | queue-service | `QUEUE_BATCH_INTERVAL_SECONDS` | `15` (duración de cada tanda) |
 | queue-service | `QUEUE_ADMISSION_TTL_SECONDS` | `120` (vigencia del token de admisión) |
 | queue-service | `QUEUE_ADMISSION_SECRET` | Obligatoria; clave HMAC estable del token de admisión |
+| notification-service | `SERVER_PORT` | `8088` |
+| notification-service | `DB_URL` | `jdbc:postgresql://notification-db:5432/ticketya_notification` |
+| notification-service | `NOTIFICATION_PURCHASE_SERVICE_URL` | `http://purchase-service:8084` (compradores del evento) |
+| notification-service | `NOTIFICATION_PREFERENCES_SERVICE_URL` | `http://preferences-service:8087` (fans por artista y ciudad) |
+| notification-service | `NOTIFICATION_CHANNELS` | `EMAIL,PUSH` |
+| catalog-service, purchase-service | `NOTIFICATION_SERVICE_URL` | `http://notification-service:8088` |
 | audit-service | `SERVER_PORT` | `8086` |
 | audit-service | `DB_URL` | `jdbc:postgresql://audit-db:5432/ticketya_audit` |
 | preferences-service | `SERVER_PORT` | `8087` |
@@ -344,11 +353,17 @@ mvn verify -pl services/purchase-service -am
 mvn verify -pl services/queue-service -am
 mvn verify -pl services/payment-mock -am
 mvn verify -pl services/audit-service -am
+mvn verify -pl services/preferences-service -am
+mvn verify -pl services/notification-service -am
 ```
 
-Pruebas específicas de las épicas E2-02, E2-03 y E2-04 (requieren Docker para Testcontainers):
+Pruebas específicas de las épicas E2-02, E2-03, E2-04 y PDF-F11 (requieren Docker para Testcontainers):
 
 ```bash
+# PDF-F11: notificaciones (servicio, productores y destinatarios)
+mvn -pl services/notification-service -am verify
+mvn -pl services/catalog-service,services/purchase-service,services/preferences-service -am verify -Dtest='EventChangeNotificationIntegrationTest,EventNotificationPublisherTest,EventBuyersIntegrationTest,NotificationDispatcher*Test,PreferenceMatchesMongoIntegrationTest' -Dsurefire.failIfNoSpecifiedTests=false
+
 # E2-03: control de acceso QR (incluye 25 escaneos simultáneos del mismo QR)
 mvn -pl services/ticket-service -am verify -Dtest='AccessControlContractTest,TicketQrVerificationTest' -Dsurefire.failIfNoSpecifiedTests=false
 
@@ -420,7 +435,7 @@ Cada servicio tiene una comprobación de estado basada en `wget` contra su endpo
 - Audit Service: `http://localhost:8086/actuator/health`
 - API Gateway: `http://localhost:8080/actuator/health`
 
-Espera a que los 17 contenedores informen `healthy` antes de ejecutar la colección Postman.
+Espera a que los 19 contenedores informen `healthy` antes de ejecutar la colección Postman.
 
 ## Ejecutar la colección Postman (vía Gateway)
 
@@ -547,7 +562,32 @@ Purchase protege sus dependencias con un circuito de tres estados (`CLOSED`, `OP
 - **Payment:** tras `PURCHASE_CIRCUIT_FAILURE_THRESHOLD` fallas consecutivas de transporte o respuestas `5xx`, el circuito se abre y `charge` responde `503` sin invocar a Payment. Purchase libera la reserva y no marca la orden como pagada. Un `402` (pago rechazado) **no** abre el circuito porque es una respuesta de negocio. Vencidos `PURCHASE_CIRCUIT_OPEN_SECONDS`, se permite una sola llamada de prueba; si falla, el circuito se reabre.
 - **Notificaciones:** cada evento (`ORDER_CONFIRMED`, `ORDER_CANCELLED`) se escribe siempre en el log local `ticketya.notification` con `correlationId`, `orderId` y `customerId`. Con `NOTIFICATION_SERVICE_URL` vacía no hay envío remoto (fallback local). Si hay URL, el envío es asíncrono y usa el mismo circuito: ante fallo, el evento queda en el log y la compra continúa. Este componente nunca lanza excepciones al flujo de negocio.
 
-Los cambios de estado y los eventos en fallback se registran con SLF4J. F11 (entrega por email/push) sigue pendiente: hoy sólo existe el despacho con degradación controlada.
+Los cambios de estado y los eventos en fallback se registran con SLF4J. La entrega por email y push la hace `notification-service` (ver [Notificaciones](#notificaciones-al-cliente-pdf-f11)).
+
+## Notificaciones al cliente (PDF-F11)
+
+`notification-service` (puerto interno 8088, base `ticketya_notification`) envía un email y un push (simulados) por cada hecho:
+
+| Hecho | Origen | Quién recibe |
+|---|---|---|
+| Compra confirmada (`ORDER_CONFIRMED`), también al reconciliar | Purchase | El comprador |
+| Orden compensada (`ORDER_CANCELLED`) | Purchase | El comprador |
+| Evento suspendido / reanudado (`EVENT_SUSPENDED`, `EVENT_RESUMED`) | Catalog | Compradores con órdenes pagadas |
+| Evento cancelado (`EVENT_CANCELLED`) | Catalog | Compradores con órdenes pagadas |
+| Evento publicado (`EVENT_PUBLISHED`) | Catalog | Clientes con un artista del evento como favorito y la misma ciudad (preferencias F10) |
+
+El cliente consulta su bandeja por el Gateway:
+
+```http
+GET http://localhost:8080/api/notifications/me?type=ORDER_CONFIRMED&page=0&size=20
+Authorization: Bearer <JWT con roles=["CLIENT"]>
+```
+
+Cada notificación informa `channel` (`EMAIL`/`PUSH`) y `status` (`PENDING`, `SENT`, `FAILED`). La entrega es asíncrona: Purchase y Catalog responden sin esperar, y el servicio procesa cada segundo. Los reenvíos del mismo hecho no duplican avisos. Si Purchase, Preferences o la pasarela fallan, reintenta con espera exponencial. Para ver las entregas simuladas:
+
+```bash
+docker compose logs -f notification-service | grep ticketya.delivery
+```
 
 ## Pasarela de pagos simulada (interna)
 

@@ -225,8 +225,18 @@ Evidencia: `OrganizerReportCalculatorTest` (4), `OrganizerReportIntegrationTest`
 
 - [x] [x] US-F6 Fila virtual (implementada con PostgreSQL; ver «Entrega 2: Fila virtual y alta demanda»).
 - [x] [x] US-F10 Preferencias y recomendaciones (MongoDB 7, con justificación; ver «PDF-F10: preferencias y recomendaciones»).
-- [ ] [ ] US-F11 Notificaciones (asíncronas).
+- [x] [x] US-F11 Notificaciones (asíncronas; `notification-service`, ver «PDF-F11: notificaciones»).
 - [x] [x] Cache del catálogo y de las búsquedas (TTL, invalidación y justificación de lo no cacheado; ver «Caché del catálogo» en README).
 - [x] [x] Circuit breaker y fallback hacia Payment y Notificaciones (cambio archivado `2026-11-20-add-circuit-breaker-and-fallback`; timeouts + circuito de tres estados + fallback local).
 - [x] [x] Pruebas de integración entre microservicios reales (`postman/integration-harness.py`) y prueba de carga con informe (`docs/load-test-report.md`).
 - [x] [x] Justificación de patrones (Gateway, Circuit Breaker, BFF, Saga, Service Discovery) y estrategias de consistencia en `docs/patterns-and-consistency.md`.
+
+## PDF-F11: notificaciones
+
+- [x] [x] Avisar por email y push (simulados) al confirmar una compra, también al reconciliarla, y al compensar una orden (cambio archivado `add-customer-notifications`).
+- [x] [x] Avisar a los compradores la suspensión, la reanudación y la cancelación de un evento (Catalog publica después del commit; Purchase informa los compradores).
+- [x] [x] Avisar a los clientes cuyo artista favorito publica un evento en su ciudad (consulta interna sobre MongoDB de Preferences).
+- [x] [x] Ingesta idempotente, inbox/outbox con `FOR UPDATE SKIP LOCKED`, reintentos exponenciales y estado `FAILED`; los flujos de negocio nunca fallan por las notificaciones.
+- [x] [x] Bandeja `GET /api/notifications/me` sólo para `CLIENT`, ruta del Gateway, OpenAPI, Compose (19 contenedores) y Postman `F11-01`…`F11-12`.
+
+Evidencia: `NotificationServiceContractTest` (10, incluye procesamiento concurrente sin duplicados), `NotificationRulesTest` (3), `EventChangeNotificationIntegrationTest` (3), `EventNotificationPublisherTest` (3), `EventBuyersIntegrationTest` (2), `NotificationDispatcherPayloadTest` (1), `PreferenceMatchesMongoIntegrationTest` (4) y `GatewayEntrega2RoleAuthorizationTest`.
