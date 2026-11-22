@@ -66,7 +66,7 @@ public class EventDiscoveryService {
         String base = " FROM events e JOIN event_snapshots s ON s.event_id=e.id " + where;
         long total = jdbc.queryForObject("SELECT COUNT(DISTINCT e.id)" + base, Long.class, args.toArray());
         String relevance = query == null ? "0" : "(CASE WHEN LOWER(s.name)=LOWER(?) THEN 100 ELSE 0 END + CASE WHEN POSITION(LOWER(?) IN LOWER(s.name))=1 THEN 50 ELSE 0 END + CASE WHEN POSITION(LOWER(?) IN LOWER(s.description))>0 THEN 10 ELSE 0 END + CASE WHEN EXISTS (SELECT 1 FROM snapshot_participants spr WHERE spr.snapshot_id=s.id AND POSITION(LOWER(?) IN LOWER(spr.name))>0) THEN 20 ELSE 0 END)";
-        String select = "SELECT e.id,s.name,s.event_type,s.starts_at,e.high_demand,s.venue_city,(SELECT MIN(ss.price) FROM snapshot_sectors ss WHERE ss.snapshot_id=s.id) AS minimum_price," + relevance + " AS relevance_score" + base + " ORDER BY " + order + " LIMIT ? OFFSET ?";
+        String select = "SELECT e.id,s.name,s.event_type,e.starts_at,e.high_demand,s.venue_city,(SELECT MIN(ss.price) FROM snapshot_sectors ss WHERE ss.snapshot_id=s.id) AS minimum_price," + relevance + " AS relevance_score" + base + " ORDER BY " + order + " LIMIT ? OFFSET ?";
         List<Object> queryArgs = new ArrayList<>();
         if (query != null) { queryArgs.add(query); queryArgs.add(query); queryArgs.add(query); queryArgs.add(query); }
         queryArgs.addAll(args); queryArgs.add(c.size()); queryArgs.add((long)c.page() * c.size());
@@ -81,7 +81,7 @@ public class EventDiscoveryService {
     }
 
     private EventDetail detailUncached(UUID id) {
-        List<EventDetail> found = jdbc.query("SELECT e.id,e.organizer_id,s.name,s.description,s.event_type,s.starts_at,e.high_demand,s.venue_name,s.venue_address,s.venue_city,s.venue_latitude,s.venue_longitude FROM events e JOIN event_snapshots s ON s.event_id=e.id WHERE e.id=? AND e.status='PUBLISHED'", (rs, row) -> new EventDetail(rs.getObject("id", UUID.class), rs.getObject("organizer_id", UUID.class), rs.getString("name"), rs.getString("description"), rs.getString("event_type"), rs.getObject("starts_at", OffsetDateTime.class), rs.getBoolean("high_demand"), rs.getString("venue_name"), rs.getString("venue_address"), rs.getString("venue_city"), rs.getBigDecimal("venue_latitude"), rs.getBigDecimal("venue_longitude"), List.of(), List.of()), id);
+        List<EventDetail> found = jdbc.query("SELECT e.id,e.organizer_id,s.name,s.description,s.event_type,e.starts_at,e.high_demand,s.venue_name,s.venue_address,s.venue_city,s.venue_latitude,s.venue_longitude FROM events e JOIN event_snapshots s ON s.event_id=e.id WHERE e.id=? AND e.status='PUBLISHED'", (rs, row) -> new EventDetail(rs.getObject("id", UUID.class), rs.getObject("organizer_id", UUID.class), rs.getString("name"), rs.getString("description"), rs.getString("event_type"), rs.getObject("starts_at", OffsetDateTime.class), rs.getBoolean("high_demand"), rs.getString("venue_name"), rs.getString("venue_address"), rs.getString("venue_city"), rs.getBigDecimal("venue_latitude"), rs.getBigDecimal("venue_longitude"), List.of(), List.of()), id);
         if (found.isEmpty()) throw new ApiProblemException(HttpStatus.NOT_FOUND, "Not found", "Published event not found");
         EventDetail base = found.get(0);
         List<String> participants = jdbc.query("SELECT name FROM snapshot_participants WHERE snapshot_id=(SELECT id FROM event_snapshots WHERE event_id=?) ORDER BY name", (rs, row) -> rs.getString(1), id);

@@ -35,13 +35,13 @@ public class RecommendationCandidateService {
     public EventCandidatePageResponse candidates(int limit) {
         String sql = """
                 SELECT s.id AS snapshot_id, s.event_id AS event_id, s.name AS name,
-                       s.event_type AS event_type, s.starts_at AS starts_at,
+                       s.event_type AS event_type, e.starts_at AS starts_at,
                        s.venue_city AS city,
                        (SELECT MIN(ss.price) FROM snapshot_sectors ss
                          WHERE ss.snapshot_id = s.id) AS min_price
                 FROM events e JOIN event_snapshots s ON s.event_id = e.id
-                WHERE e.status = 'PUBLISHED' AND s.starts_at > ?
-                ORDER BY s.starts_at ASC, s.event_id ASC
+                WHERE e.status = 'PUBLISHED' AND e.starts_at > ?
+                ORDER BY e.starts_at ASC, s.event_id ASC
                 LIMIT ?
                 """;
         List<CandidateRow> rows = jdbc.query(sql,

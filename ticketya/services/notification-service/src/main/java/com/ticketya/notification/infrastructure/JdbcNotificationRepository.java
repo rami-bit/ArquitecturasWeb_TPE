@@ -134,6 +134,22 @@ public class JdbcNotificationRepository {
                 """, id);
     }
 
+    public void markSkippedNoContact(UUID id) {
+        jdbc.update("UPDATE notifications SET status = 'SKIPPED_NO_CONTACT', last_error = 'No email contact registered' WHERE id = ?", id);
+    }
+
+    public Optional<String> emailForCustomer(UUID customerId) {
+        return jdbc.query("SELECT email FROM customer_email_contacts WHERE customer_id = ?",
+                (rs, n) -> rs.getString("email"), customerId).stream().findFirst();
+    }
+
+    public void upsertEmail(UUID customerId, String email) {
+        jdbc.update("""
+                INSERT INTO customer_email_contacts (customer_id, email) VALUES (?, ?)
+                ON CONFLICT (customer_id) DO UPDATE SET email = EXCLUDED.email, updated_at = CURRENT_TIMESTAMP
+                """, customerId, email);
+    }
+
     public void retryNotification(UUID id, long delayMs, String error) {
         jdbc.update("""
                 UPDATE notifications SET next_attempt_at = CURRENT_TIMESTAMP + make_interval(secs => ?), last_error = ?

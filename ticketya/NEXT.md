@@ -1,5 +1,13 @@
 # Progreso del proyecto
 
+## Ampliación PDF-F11 — email SMTP y postergación (2026-11-22)
+
+**Estado:** implementación en curso; cambio OpenSpec activo `complete-f11-notifications-and-event-postponement` con 5/11 tareas comprobadas. Los módulos Notification, Catalog, Gateway y Purchase pasaron 19, 78, 66 y 97 pruebas recientes respectivamente, sin fallos ni omisiones. El reactor limpio se interrumpió a pedido del usuario tras validar los caminos críticos; Compose, Postman y Mailpit no se ejecutaron en esta etapa. Ver `docs/verification.md`.
+
+- Implementados: contacto `PUT/GET /api/notifications/me/email`, SMTP para `EMAIL`, `SKIPPED_NO_CONTACT`, Mailpit en Compose, postergación autorizada e idempotente con revisión/historial, fecha vigente en descubrimiento y `EVENT_POSTPONED` para compradores.
+- Pendiente para cerrar: `mvn clean verify` completo y XML recientes; stack aislado `healthy`; Postman por Gateway; correo real capturado y comprobado por API de Mailpit; caída/recuperación SMTP real; validación estricta final de OpenSpec y `git diff --check`.
+- Riesgo vigente: el publicador de Purchase/Catalog no tiene outbox durable; si Notification Service sigue caído tras los reintentos, el hecho queda sólo en el log local. Mailpit captura correo local y no prueba entrega externa.
+
 ## PDF-F11 - Notificaciones al cliente (2026-11-20)
 
 **Estado:** cerrada. El cambio OpenSpec quedó archivado como `openspec/changes/archive/2026-11-20-add-customer-notifications/`; capacidad nueva `customer-notifications` y agregado en `api-gateway`, sincronizados en `openspec/specs/`.

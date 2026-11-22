@@ -16,15 +16,16 @@ public enum TriggerType {
     /** Catalog: evento reanudado (cambio). Destinatarios: compradores. */
     EVENT_RESUMED,
     /** Catalog: evento cancelado. Destinatarios: compradores. */
-    EVENT_CANCELLED;
+    EVENT_CANCELLED,
+    EVENT_POSTPONED;
 
     public static final Set<TriggerType> ORDER_TYPES = EnumSet.of(ORDER_CONFIRMED, ORDER_CANCELLED);
     public static final Set<TriggerType> EVENT_TYPES =
-            EnumSet.of(EVENT_PUBLISHED, EVENT_SUSPENDED, EVENT_RESUMED, EVENT_CANCELLED);
+            EnumSet.of(EVENT_PUBLISHED, EVENT_SUSPENDED, EVENT_RESUMED, EVENT_CANCELLED, EVENT_POSTPONED);
 
     /** Los cambios repetibles (suspender/reanudar) se deduplican por cambio y no por evento. */
     public boolean repeatable() {
-        return this == EVENT_SUSPENDED || this == EVENT_RESUMED;
+        return this == EVENT_SUSPENDED || this == EVENT_RESUMED || this == EVENT_POSTPONED;
     }
 
     public static TriggerType parse(String value, Set<TriggerType> allowed) {

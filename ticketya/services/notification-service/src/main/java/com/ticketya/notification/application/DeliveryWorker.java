@@ -1,6 +1,7 @@
 package com.ticketya.notification.application;
 
 import com.ticketya.notification.infrastructure.DeliveryProvider;
+import com.ticketya.notification.infrastructure.MissingContactException;
 import com.ticketya.notification.infrastructure.JdbcNotificationRepository;
 import com.ticketya.notification.infrastructure.JdbcNotificationRepository.ClaimedNotification;
 import org.slf4j.Logger;
@@ -38,6 +39,8 @@ public class DeliveryWorker {
             try {
                 provider.send(notification);
                 repository.markSent(notification.id());
+            } catch (MissingContactException missing) {
+                repository.markSkippedNoContact(notification.id());
             } catch (RuntimeException failure) {
                 if (notification.attempts() >= properties.retry().maxAttempts()) {
                     repository.failNotification(notification.id(), failure.getMessage());

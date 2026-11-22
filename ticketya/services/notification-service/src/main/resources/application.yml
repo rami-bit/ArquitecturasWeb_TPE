@@ -12,11 +12,22 @@ spring:
     init:
       mode: always
       schema-locations: classpath:schema.sql
+  mail:
+    host: ${NOTIFICATION_SMTP_HOST:localhost}
+    port: ${NOTIFICATION_SMTP_PORT:1025}
+    username: ${NOTIFICATION_SMTP_USERNAME:}
+    password: ${NOTIFICATION_SMTP_PASSWORD:}
+    properties:
+      mail.smtp.connectiontimeout: ${NOTIFICATION_SMTP_CONNECT_TIMEOUT_MS:1000}
+      mail.smtp.timeout: ${NOTIFICATION_SMTP_READ_TIMEOUT_MS:3000}
+      mail.smtp.writetimeout: ${NOTIFICATION_SMTP_READ_TIMEOUT_MS:3000}
 
 # PDF-F11: notificaciones al cliente.
 notifications:
-  # Canales simulados por cada destinatario (email y push).
+  # EMAIL usa SMTP; PUSH conserva el proveedor simulado.
   channels: ${NOTIFICATION_CHANNELS:EMAIL,PUSH}
+  smtp:
+    from: ${NOTIFICATION_SMTP_FROM:ticketya@localhost}
   purchase:
     url: ${NOTIFICATION_PURCHASE_SERVICE_URL:http://localhost:8084}
   preferences:
@@ -39,6 +50,9 @@ notifications:
     mode: ${NOTIFICATION_PROVIDER_MODE:SIMULATED}
 
 management:
+  health:
+    mail:
+      enabled: false
   endpoints:
     web:
       exposure:

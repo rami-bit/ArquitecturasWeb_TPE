@@ -1,5 +1,12 @@
 # Checklist — Entrega 1: Core del sistema
 
+## Ampliación PDF-F11 activa (2026-11-22)
+
+- [ ] [x] Registrar email propio de `CLIENT` y validar acceso por Gateway con PostgreSQL real; el cambio OpenSpec sigue activo.
+- [ ] [ ] Entregar `EMAIL` por SMTP: código y pruebas de módulo listos; falta correo real en Mailpit y caída/recuperación SMTP en Compose.
+- [ ] [ ] Postergar eventos publicados y avisar a compradores: Catalog y Notification pasan pruebas de módulo; falta el flujo completo por Gateway/Postman.
+- [ ] [ ] Cerrar verificación integral: reactor limpio interrumpido a pedido del usuario; faltan Compose, Postman, Mailpit y controles finales de OpenSpec. Detalle en `openspec/changes/complete-f11-notifications-and-event-postponement/tasks.md` y `docs/verification.md`.
+
 > **Doble checklist:** el primer casillero indica cobertura por una especificacion OpenSpec completada; el segundo indica implementacion completada en el codigo.
 > - [x] [ ]: especificado, implementacion pendiente.
 > - [ ] [x]: implementado, sin especificacion OpenSpec completada.

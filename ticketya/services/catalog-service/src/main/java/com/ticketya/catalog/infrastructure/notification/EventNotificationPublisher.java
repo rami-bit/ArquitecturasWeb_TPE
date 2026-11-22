@@ -128,6 +128,9 @@ public class EventNotificationPublisher {
         payload.put("changeId", change.changeId().toString());
         payload.put("eventName", change.eventName());
         payload.put("startsAt", change.startsAt() == null ? null : change.startsAt().toString());
+        if (change.previousStartsAt() != null) {
+            payload.put("previousStartsAt", change.previousStartsAt().toString());
+        }
         payload.put("city", change.city());
         payload.put("participants", change.participants());
         payload.put("correlationId", correlationId);

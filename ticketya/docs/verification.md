@@ -1,5 +1,20 @@
 # Verificación de Entrega 1 y Entrega 2
 
+## Ampliación F11: email SMTP y postergación (2026-11-22)
+
+El cambio activo `complete-f11-notifications-and-event-postponement` implementa contacto de email propio, entrega SMTP, Mailpit en Compose, postergación de eventos publicados, fecha vigente en Catalog y aviso `EVENT_POSTPONED`. La validación adicional se detuvo a pedido del usuario después de comprobar los módulos y los caminos críticos.
+
+| Verificación | Resultado |
+|---|---|
+| Notification, Java 21 + PostgreSQL 16.4 con Testcontainers | 19 pruebas recientes, 0 fallos, 0 errores, 0 omitidas; contacto, SMTP mediante remitente simulado, reintentos y aviso idempotente. |
+| Catalog, Java 21 + PostgreSQL 16.4 con Testcontainers | 78 pruebas recientes, 0 fallos, 0 errores, 0 omitidas; historial, concurrencia, fecha vigente y publicación tras commit. |
+| Gateway, Java 21 | 66 pruebas recientes, 0 fallos, 0 errores, 0 omitidas; roles y propagación de cuerpo/clave. |
+| Purchase, Java 21 + PostgreSQL 16.4 con Testcontainers | 97 pruebas recientes, 0 fallos, 0 errores, 0 omitidas; devolución rechazada en el límite original de 72 horas y admitida con la fecha vigente postergada. |
+| Reactor `mvn clean verify` | Interrumpido a pedido del usuario; no se atribuye un resultado global. |
+| Compose, Postman por Gateway, API de Mailpit y caída/recuperación SMTP real | Pendientes; no se comprobó aún la entrega SMTP a Mailpit ni el flujo completo entre servicios. |
+
+`SENT` en el canal `EMAIL` significa aceptación SMTP, no recepción en una casilla externa. Si Notification Service está caído cuando Purchase o Catalog publican, el productor conserva sólo el log local después de sus reintentos acotados; no hay recuperación durable del hecho. Estas limitaciones siguen abiertas en la verificación integral.
+
 ## Verificación de PDF-F11 — notificaciones (2026-11-20)
 
 Entorno: Linux, Docker Engine 29.9.2, OpenJDK 21 (`release=19`), Maven 3.9.11, Testcontainers con PostgreSQL 16.4 y MongoDB 7.0 reales.

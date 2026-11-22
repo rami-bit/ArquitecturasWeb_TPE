@@ -45,6 +45,8 @@ public class SecurityConfig {
                         .pathMatchers("/api/customers/**").hasRole("CLIENT")
                         // PDF-F11: cada cliente consulta sólo sus notificaciones.
                         .pathMatchers("/api/notifications/**").hasRole("CLIENT")
+                        .pathMatchers(HttpMethod.PATCH, "/api/management/events/{id}/schedule")
+                        .hasAnyRole("ORGANIZER", "ADMIN")
                         .pathMatchers("/api/**").authenticated()
                         .anyExchange().permitAll())
                 .oauth2ResourceServer(oauth2 -> oauth2

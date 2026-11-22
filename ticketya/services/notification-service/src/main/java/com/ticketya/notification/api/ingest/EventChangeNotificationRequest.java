@@ -20,6 +20,7 @@ public record EventChangeNotificationRequest(
         UUID changeId,
         @NotBlank @Size(max = 200) String eventName,
         OffsetDateTime startsAt,
+        OffsetDateTime previousStartsAt,
         @Size(max = 120) String city,
         @Size(max = 50) List<@Size(max = 200) String> participants,
         @Size(max = 120) String correlationId) {

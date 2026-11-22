@@ -1,11 +1,57 @@
 openapi: 3.0.3
 info:
-  title: TicketYa Catalog Event Cancellation API
-  version: 1.0.0
-  description: Administrative event cancellation through the Gateway. Purchase owns ticket refunds.
+  title: TicketYa Catalog Event Management API
+  version: 1.1.0
+  description: Event postponement and administrative cancellation through the Gateway. Purchase owns ticket refunds.
 servers:
   - url: http://localhost:8080
 paths:
+  /api/management/events/{eventId}/schedule:
+    patch:
+      summary: Postpone a published event as its ORGANIZER or ADMIN
+      description: >
+        Changes only the live start instant. New start must be strictly later than
+        both the current start and the request instant plus 72 hours. The
+        immutable publication snapshot, tickets, and QR do not change.
+        Replaying the same key and request returns the original result.
+      parameters:
+        - in: path
+          name: eventId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 200 }
+        - in: header
+          name: X-User-Id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: X-User-Role
+          required: true
+          schema: { type: string, enum: [ORGANIZER, ADMIN] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [startsAt, expectedScheduleRevision]
+              properties:
+                startsAt: { type: string, format: date-time }
+                expectedScheduleRevision: { type: integer, format: int64, minimum: 0 }
+            example: { startsAt: "2030-02-01T20:00:00-03:00", expectedScheduleRevision: 0 }
+      responses:
+        "200":
+          description: Confirmed schedule change or identical replay
+          content:
+            application/json:
+              example: { eventId: "e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b", changeId: "cc479b12-3c4d-4d65-b07f-f86c82869221", previousStartsAt: "2030-01-01T23:00:00Z", startsAt: "2030-02-01T23:00:00Z", scheduleRevision: 1 }
+        "400": { description: Malformed body, revision, or missing Idempotency-Key; application/problem+json }
+        "403": { description: Actor lacks role or ownership; application/problem+json }
+        "404": { description: Event not found; application/problem+json }
+        "409": { description: State, date, revision, or idempotency conflict; application/problem+json }
   /api/management/events/{eventId}/cancel:
     post:
       summary: Cancel a published or suspended event as ADMIN

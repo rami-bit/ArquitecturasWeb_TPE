@@ -50,8 +50,10 @@ class RefundRequestIntegrationTest {
     private HttpServer server;
     private JdbcTemplate jdbc;
     private DriverManagerDataSource dataSource;
+    private volatile String catalogStartsAt = "2027-01-01T20:00:00Z";
 
     @BeforeEach void setup() throws IOException {
+        catalogStartsAt = "2027-01-01T20:00:00Z";
         dataSource = new DriverManagerDataSource(postgres.getJdbcUrl(), postgres.getUsername(),
                 postgres.getPassword());
         new ResourceDatabasePopulator(new ClassPathResource("schema.sql")).execute(dataSource);
@@ -111,13 +113,18 @@ class RefundRequestIntegrationTest {
                 new ObjectMapper(), boundary, base)).build();
         jdbc.update("DELETE FROM refund_requests");
         late.perform(post(path).header("X-User-Id", CUSTOMER)).andExpect(status().isConflict());
+        // Catalog's live schedule has moved; Purchase keeps its original order snapshot.
+        catalogStartsAt = "2027-01-02T20:00:00Z";
+        late.perform(post(path).header("X-User-Id", CUSTOMER)).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("PENDING"));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM refund_requests", Integer.class));
     }
 
     private void respond(HttpExchange exchange) throws IOException {
         String path = exchange.getRequestURI().getPath();
         String body;
         if (path.equals("/api/events/" + EVENT)) {
-            body = "{\"id\":\"" + EVENT + "\",\"startsAt\":\"2027-01-01T20:00:00Z\"}";
+            body = "{\"id\":\"" + EVENT + "\",\"startsAt\":\"" + catalogStartsAt + "\"}";
         } else {
             exchange.sendResponseHeaders(404, -1);
             exchange.close();

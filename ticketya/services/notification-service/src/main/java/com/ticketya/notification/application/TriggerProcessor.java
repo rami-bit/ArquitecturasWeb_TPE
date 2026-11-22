@@ -87,7 +87,7 @@ public class TriggerProcessor {
             case ORDER_CONFIRMED, ORDER_CANCELLED -> List.of(UUID.fromString(payload.path("customerId").asText()));
             case EVENT_PUBLISHED -> directory.fansInCity(payload.path("city").asText(null),
                     MessageTemplates.participants(payload), trigger.correlationId());
-            case EVENT_SUSPENDED, EVENT_RESUMED, EVENT_CANCELLED ->
+            case EVENT_SUSPENDED, EVENT_RESUMED, EVENT_CANCELLED, EVENT_POSTPONED ->
                     directory.buyersOf(UUID.fromString(payload.path("eventId").asText()), trigger.correlationId());
         };
     }

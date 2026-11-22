@@ -210,7 +210,10 @@ Docker Compose carga automáticamente el archivo `.env` de esta carpeta. Mantenl
 | `PURCHASE_CIRCUIT_FAILURE_THRESHOLD` | `5` | Fallas consecutivas que abren el circuito de Payment y notificaciones |
 | `PURCHASE_CIRCUIT_OPEN_SECONDS` | `30` | Duración de la apertura antes de permitir una llamada de prueba |
 | `NOTIFICATION_SERVICE_URL` | `http://notification-service:8088` | Notification Service al que Purchase y Catalog envían sus hechos; vacío = sólo log local |
-| `NOTIFICATION_PROVIDER_MODE` | `SIMULATED` | Pasarela simulada de email/push; `FAILING` simula la caída para probar reintentos |
+| `NOTIFICATION_PROVIDER_MODE` | `SIMULATED` | Conserva el modo de fallo didáctico para el proveedor simulado de PUSH; EMAIL usa SMTP |
+| `NOTIFICATION_SMTP_HOST` / `NOTIFICATION_SMTP_PORT` | `mailpit` / `1025` | SMTP interno de Mailpit para EMAIL |
+| `NOTIFICATION_SMTP_FROM` | `ticketya@localhost` | Remitente de los correos locales |
+| `NOTIFICATION_SMTP_CONNECT_TIMEOUT_MS` / `NOTIFICATION_SMTP_READ_TIMEOUT_MS` | `2000` / `5000` | Límites de espera SMTP antes del reintento |
 | `NOTIFICATION_MAX_ATTEMPTS` / `NOTIFICATION_RETRY_BASE_DELAY_MS` | `6` / `2000` | Intentos y espera base (exponencial, tope 60 s) de destinatarios y entregas |
 | `TICKET_QR_SIGNING_SECRET` | Clave local definida en `.env` | Clave estable de al menos 32 bytes para firmar los QR |
 
@@ -566,7 +569,7 @@ Los cambios de estado y los eventos en fallback se registran con SLF4J. La entre
 
 ## Notificaciones al cliente (PDF-F11)
 
-`notification-service` (puerto interno 8088, base `ticketya_notification`) envía un email y un push (simulados) por cada hecho:
+`notification-service` (puerto interno 8088, base `ticketya_notification`) genera EMAIL por SMTP y PUSH simulado por cada hecho. Mailpit captura los correos en `http://127.0.0.1:8025`; su API `GET http://127.0.0.1:8025/api/v1/messages` permite comprobar destinatario y asunto, y `GET /api/v1/message/{ID}` permite consultar el cuerpo. SMTP (`mailpit:1025`) sólo está disponible dentro de Compose.
 
 | Hecho | Origen | Quién recibe |
 |---|---|---|
@@ -574,6 +577,7 @@ Los cambios de estado y los eventos en fallback se registran con SLF4J. La entre
 | Orden compensada (`ORDER_CANCELLED`) | Purchase | El comprador |
 | Evento suspendido / reanudado (`EVENT_SUSPENDED`, `EVENT_RESUMED`) | Catalog | Compradores con órdenes pagadas |
 | Evento cancelado (`EVENT_CANCELLED`) | Catalog | Compradores con órdenes pagadas |
+| Evento postergado (`EVENT_POSTPONED`) | Catalog | Compradores con órdenes pagadas; aviso con fecha anterior y nueva |
 | Evento publicado (`EVENT_PUBLISHED`) | Catalog | Clientes con un artista del evento como favorito y la misma ciudad (preferencias F10) |
 
 El cliente consulta su bandeja por el Gateway:
@@ -583,7 +587,11 @@ GET http://localhost:8080/api/notifications/me?type=ORDER_CONFIRMED&page=0&size=
 Authorization: Bearer <JWT con roles=["CLIENT"]>
 ```
 
-Cada notificación informa `channel` (`EMAIL`/`PUSH`) y `status` (`PENDING`, `SENT`, `FAILED`). La entrega es asíncrona: Purchase y Catalog responden sin esperar, y el servicio procesa cada segundo. Los reenvíos del mismo hecho no duplican avisos. Si Purchase, Preferences o la pasarela fallan, reintenta con espera exponencial. Para ver las entregas simuladas:
+Antes de recibir un email, el cliente registra su dirección propia con `PUT /api/notifications/me/email` y `{"email":"cliente@example.com"}`. `GET` en esa misma ruta devuelve `{"email":null}` cuando aún no tiene contacto. La identidad sale del JWT; no se admite `customerId` en el cuerpo. Si no hay contacto al procesar un aviso, el canal EMAIL queda `SKIPPED_NO_CONTACT` y no se reenvía retroactivamente al registrar uno.
+
+El organizador dueño o ADMIN posterga un evento publicado aún no iniciado con `PATCH /api/management/events/{id}/schedule`, encabezado `Idempotency-Key` y cuerpo `{"startsAt":"2030-02-01T20:00:00-03:00","expectedScheduleRevision":0}`. La nueva fecha debe ser posterior a la vigente y al instante de gestión más 72 horas. Un replay idéntico devuelve el mismo `changeId`; una revisión obsoleta o clave reutilizada con otro cuerpo devuelve `409`. Búsqueda, detalle y recomendaciones muestran la fecha vigente; el snapshot, entradas y QR conservan la fecha histórica. La regla de devolución de Purchase usa la nueva fecha pública.
+
+Cada notificación informa `channel` (`EMAIL`/`PUSH`) y `status` (`PENDING`, `SENT`, `FAILED`, `SKIPPED_NO_CONTACT`). Para EMAIL, `SENT` significa que Mailpit aceptó el mensaje por SMTP; no demuestra recepción en una casilla externa. La entrega es asíncrona: Purchase y Catalog responden sin esperar, y el servicio procesa cada segundo. Los reenvíos del mismo hecho no duplican avisos lógicos. Si Purchase, Preferences o SMTP fallan, Notification reintenta con espera exponencial. El publicador de Purchase y Catalog conserva un límite: tras fallos acotados del envío a Notification deja sólo un log local, sin recuperación durable automática. Para ver las entregas simuladas de PUSH:
 
 ```bash
 docker compose logs -f notification-service | grep ticketya.delivery

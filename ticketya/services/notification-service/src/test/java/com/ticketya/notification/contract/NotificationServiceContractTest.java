@@ -12,6 +12,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpEntity;
@@ -21,6 +22,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -45,6 +48,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.clearInvocations;
+import org.mockito.ArgumentCaptor;
 
 /**
  * Contrato de PDF-F11 contra PostgreSQL real: ingesta idempotente, resolución
@@ -93,12 +103,17 @@ class NotificationServiceContractTest {
     @Autowired
     private SimulatedDeliveryProvider provider;
 
+    @MockBean
+    private JavaMailSender mailSender;
+
     private final ObjectMapper json = new ObjectMapper();
 
     @BeforeEach
     void clean() {
         jdbc.update("DELETE FROM notifications");
         jdbc.update("DELETE FROM notification_triggers");
+        jdbc.update("DELETE FROM customer_email_contacts");
+        reset(mailSender);
         BUYERS.clear();
         FANS.clear();
         PREFERENCE_QUERIES.clear();
@@ -118,6 +133,8 @@ class NotificationServiceContractTest {
     @Test
     void confirmedPurchaseIsIngestedOnceAndDeliveredByEmailAndPushToTheBuyer() throws Exception {
         UUID customer = UUID.randomUUID();
+        jdbc.update("INSERT INTO customer_email_contacts (customer_id, email) VALUES (?, ?)", customer,
+                "buyer@example.com");
         UUID order = UUID.randomUUID();
         Map<String, Object> body = order("ORDER_CONFIRMED", order, customer);
 
@@ -145,6 +162,7 @@ class NotificationServiceContractTest {
         assertThat(item.path("orderId").asText()).isEqualTo(order.toString());
         assertThat(item.path("correlationId").asText()).isEqualTo("trace-order-1");
         assertThat(item.path("sentAt").asText()).isNotBlank();
+        verify(mailSender).send(any(SimpleMailMessage.class));
 
         assertThat(inbox(UUID.randomUUID(), "CLIENT", "").path("totalItems").asLong())
                 .as("otro cliente no ve notificaciones ajenas").isZero();
@@ -156,6 +174,8 @@ class NotificationServiceContractTest {
         UUID first = UUID.randomUUID();
         UUID second = UUID.randomUUID();
         BUYERS.addAll(List.of(first, second, first));
+        jdbc.update("INSERT INTO customer_email_contacts (customer_id, email) VALUES (?, ?), (?, ?)",
+                first, "first@example.com", second, "second@example.com");
 
         Map<String, Object> change = eventChange("EVENT_CANCELLED", event, null);
         post("/internal/notifications/event-changes", change, "trace-cancel");
@@ -199,6 +219,8 @@ class NotificationServiceContractTest {
     void publishedEventNotifiesClientsWithAFavoriteArtistInTheEventCity() throws Exception {
         UUID fan = UUID.randomUUID();
         FANS.add(fan);
+        jdbc.update("INSERT INTO customer_email_contacts (customer_id, email) VALUES (?, ?)", fan,
+                "fan@example.com");
         UUID event = UUID.randomUUID();
 
         post("/internal/notifications/event-changes", eventChange("EVENT_PUBLISHED", event, null), "trace-pub");
@@ -221,6 +243,8 @@ class NotificationServiceContractTest {
     void unavailableDirectoryIsRetriedWithoutLosingTheNotification() throws Exception {
         UUID buyer = UUID.randomUUID();
         BUYERS.add(buyer);
+        jdbc.update("INSERT INTO customer_email_contacts (customer_id, email) VALUES (?, ?)", buyer,
+                "buyer@example.com");
         PURCHASE_FAILURES.set(1);
         post("/internal/notifications/event-changes", eventChange("EVENT_CANCELLED", UUID.randomUUID(), null), null);
 
@@ -250,6 +274,10 @@ class NotificationServiceContractTest {
     @Test
     void failingGatewayRetriesDeliveryAndFinallyMarksItFailed() throws Exception {
         UUID customer = UUID.randomUUID();
+        jdbc.update("INSERT INTO customer_email_contacts (customer_id, email) VALUES (?, ?)", customer,
+                "buyer@example.com");
+        doThrow(new org.springframework.mail.MailSendException("SMTP no disponible"))
+                .when(mailSender).send(any(SimpleMailMessage.class));
         post("/internal/notifications", order("ORDER_CONFIRMED", UUID.randomUUID(), customer), null);
         processor.processDue();
         provider.setFailing(true);
@@ -269,6 +297,8 @@ class NotificationServiceContractTest {
     @Test
     void recoveredGatewayDeliversPendingNotifications() throws Exception {
         UUID customer = UUID.randomUUID();
+        jdbc.update("INSERT INTO customer_email_contacts (customer_id, email) VALUES (?, ?)", customer,
+                "buyer@example.com");
         post("/internal/notifications", order("ORDER_CANCELLED", UUID.randomUUID(), customer), null);
         processor.processDue();
         provider.setFailing(true);
@@ -334,6 +364,96 @@ class NotificationServiceContractTest {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM notification_triggers", Integer.class)).isZero();
     }
 
+    @Test
+    void emailContactIsOwnedByAuthenticatedClientAndRejectsInvalidPayload() throws Exception {
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        assertThat(emailContact(first, "CLIENT", HttpMethod.GET, null).getBody()).isEqualTo("{\"email\":null}");
+        assertThat(emailContact(first, "CLIENT", HttpMethod.PUT, Map.of("email", "first@example.com"))
+                .getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(json.readTree(emailContact(first, "CLIENT", HttpMethod.GET, null).getBody())
+                .path("email").asText()).isEqualTo("first@example.com");
+        assertThat(json.readTree(emailContact(second, "CLIENT", HttpMethod.GET, null).getBody())
+                .path("email").isNull()).isTrue();
+        assertThat(emailContact(first, "CLIENT", HttpMethod.PUT,
+                Map.of("email", "other@example.com", "customerId", second.toString())).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(emailContact(first, "CLIENT", HttpMethod.PUT, Map.of("email", "invalid"))
+                .getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        for (String role : List.of("ADMIN", "ORGANIZER", "ACCESS_STAFF")) {
+            assertThat(emailContact(first, role, HttpMethod.PUT, Map.of("email", "other@example.com"))
+                    .getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        }
+        assertThat(jdbc.queryForObject("SELECT email FROM customer_email_contacts WHERE customer_id = ?",
+                String.class, first)).isEqualTo("first@example.com");
+    }
+
+    @Test
+    void missingContactIsSkippedAndNewContactDoesNotReopenOldNotification() throws Exception {
+        UUID customer = UUID.randomUUID();
+        post("/internal/notifications", order("ORDER_CONFIRMED", UUID.randomUUID(), customer), null);
+        processor.processDue();
+        worker.deliverDue();
+        assertThat(jdbc.queryForObject("SELECT status FROM notifications WHERE channel = 'EMAIL'", String.class))
+                .isEqualTo("SKIPPED_NO_CONTACT");
+        assertThat(jdbc.queryForObject("SELECT sent_at FROM notifications WHERE channel = 'EMAIL'",
+                java.time.OffsetDateTime.class)).isNull();
+        emailContact(customer, "CLIENT", HttpMethod.PUT, Map.of("email", "later@example.com"));
+        assertThat(worker.deliverDue()).isZero();
+        assertThat(jdbc.queryForObject("SELECT status FROM notifications WHERE channel = 'EMAIL'", String.class))
+                .isEqualTo("SKIPPED_NO_CONTACT");
+    }
+
+    @Test
+    void postponedEventNotifiesBuyersOnceWithBothDates() throws Exception {
+        UUID event = UUID.randomUUID();
+        UUID buyer = UUID.randomUUID();
+        BUYERS.add(buyer);
+        emailContact(buyer, "CLIENT", HttpMethod.PUT, Map.of("email", "buyer@example.com"));
+        Map<String, Object> change = eventChange("EVENT_POSTPONED", event, UUID.randomUUID());
+        change.put("previousStartsAt", "2027-03-09T21:00:00Z");
+        assertThat(post("/internal/notifications/event-changes", change, "trace-postpone")
+                .getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        assertThat(json.readTree(post("/internal/notifications/event-changes", change, "trace-postpone")
+                .getBody()).path("duplicate").asBoolean()).isTrue();
+        processor.processDue();
+        worker.deliverDue();
+        JsonNode inbox = inbox(buyer, "CLIENT", "?type=EVENT_POSTPONED");
+        assertThat(inbox.path("totalItems").asInt()).isEqualTo(2);
+        assertThat(inbox.path("items").get(0).path("body").asText())
+                .contains("2027-03-09T21:00:00Z", "2027-03-10T21:00:00Z");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM notification_triggers", Integer.class)).isEqualTo(1);
+        ArgumentCaptor<SimpleMailMessage> sent = ArgumentCaptor.forClass(SimpleMailMessage.class);
+        verify(mailSender).send(sent.capture());
+        assertThat(sent.getValue().getTo()).containsExactly("buyer@example.com");
+        assertThat(sent.getValue().getSubject()).contains("Evento postergado");
+        assertThat(sent.getValue().getText()).contains("2027-03-09T21:00:00Z", "2027-03-10T21:00:00Z");
+    }
+
+    @Test
+    void smtpFailureRetriesThenAcceptsWithoutChangingPush() throws Exception {
+        UUID customer = UUID.randomUUID();
+        emailContact(customer, "CLIENT", HttpMethod.PUT, Map.of("email", "buyer@example.com"));
+        post("/internal/notifications", order("ORDER_CONFIRMED", UUID.randomUUID(), customer), "trace-mail");
+        processor.processDue();
+        doThrow(new org.springframework.mail.MailSendException("SMTP down"))
+                .when(mailSender).send(any(SimpleMailMessage.class));
+        worker.deliverDue();
+        assertThat(jdbc.queryForObject("SELECT status FROM notifications WHERE channel = 'EMAIL'", String.class))
+                .isEqualTo("PENDING");
+        assertThat(jdbc.queryForObject("SELECT last_error FROM notifications WHERE channel = 'EMAIL'", String.class))
+                .contains("SMTP down");
+        assertThat(jdbc.queryForObject("SELECT status FROM notifications WHERE channel = 'PUSH'", String.class))
+                .isEqualTo("SENT");
+        reset(mailSender);
+        worker.deliverDue();
+        assertThat(jdbc.queryForObject("SELECT status FROM notifications WHERE channel = 'EMAIL'", String.class))
+                .isEqualTo("SENT");
+        assertThat(jdbc.queryForObject("SELECT sent_at FROM notifications WHERE channel = 'EMAIL'",
+                java.time.OffsetDateTime.class)).isNotNull();
+        verify(mailSender).send(any(SimpleMailMessage.class));
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private Map<String, Object> order(String type, UUID order, UUID customer) {
@@ -368,6 +488,14 @@ class NotificationServiceContractTest {
             headers.set("X-Correlation-Id", correlationId);
         }
         return http.exchange(path, HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
+    }
+
+    private ResponseEntity<String> emailContact(UUID customer, String role, HttpMethod method, Map<String, Object> body) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-User-Id", customer.toString());
+        headers.set("X-User-Role", role);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        return http.exchange("/api/notifications/me/email", method, new HttpEntity<>(body, headers), String.class);
     }
 
     private JsonNode inbox(UUID customer, String role, String query) throws Exception {

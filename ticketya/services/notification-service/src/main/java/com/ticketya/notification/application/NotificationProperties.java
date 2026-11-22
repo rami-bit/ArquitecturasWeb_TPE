@@ -8,6 +8,7 @@ import java.util.List;
 @ConfigurationProperties("notifications")
 public record NotificationProperties(
         List<String> channels,
+        Smtp smtp,
         Endpoint purchase,
         Endpoint preferences,
         Http http,
@@ -16,6 +17,9 @@ public record NotificationProperties(
         Provider provider) {
 
     public record Endpoint(String url) {
+    }
+
+    public record Smtp(String from) {
     }
 
     public record Http(int connectTimeoutMs, int readTimeoutMs) {

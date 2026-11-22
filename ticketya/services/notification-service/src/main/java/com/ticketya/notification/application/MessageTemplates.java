@@ -41,6 +41,11 @@ public final class MessageTemplates {
             case EVENT_CANCELLED -> new Message(
                     limit("Evento cancelado: " + eventName),
                     eventName + " fue cancelado. El reintegro de tus entradas se procesa automáticamente.");
+            case EVENT_POSTPONED -> new Message(
+                    limit("Evento postergado: " + eventName),
+                    eventName + " fue postergado. Fecha anterior: " + text(payload, "previousStartsAt", "")
+                            + ". Nueva fecha: " + text(payload, "startsAt", "")
+                            + ". Tus entradas siguen vigentes.");
         };
     }
 

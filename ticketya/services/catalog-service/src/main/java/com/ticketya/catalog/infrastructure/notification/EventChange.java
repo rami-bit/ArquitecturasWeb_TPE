@@ -9,12 +9,18 @@ import java.util.UUID;
  * de la transacción (con lugar y participantes cargados) y se envía después
  * del commit. {@code changeId} identifica la transición para deduplicarla.
  */
-public record EventChange(String type, UUID eventId, UUID changeId, String eventName, OffsetDateTime startsAt,
+public record EventChange(String type, UUID eventId, UUID changeId, String eventName, OffsetDateTime startsAt, OffsetDateTime previousStartsAt,
                           String city, List<String> participants) {
 
     public static EventChange of(String type, UUID eventId, String eventName, OffsetDateTime startsAt, String city,
                                  List<String> participants) {
-        return new EventChange(type, eventId, UUID.randomUUID(), eventName, startsAt, city,
+        return new EventChange(type, eventId, UUID.randomUUID(), eventName, startsAt, null, city,
                 participants == null ? List.of() : List.copyOf(participants));
+    }
+    public static EventChange postponed(UUID eventId, UUID changeId, String eventName,
+                                        OffsetDateTime previousStartsAt, OffsetDateTime startsAt,
+                                        String city, List<String> participants) {
+        return new EventChange("EVENT_POSTPONED", eventId, changeId, eventName, startsAt,
+                previousStartsAt, city, participants == null ? List.of() : List.copyOf(participants));
     }
 }

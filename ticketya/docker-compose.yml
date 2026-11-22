@@ -354,6 +354,18 @@ services:
     networks:
       - ticketya
 
+  mailpit:
+    image: axllent/mailpit:v1.34.0
+    ports:
+      - "127.0.0.1:8025:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    networks:
+      - ticketya
+
   notification-service:
     build:
       context: .
@@ -366,11 +378,19 @@ services:
       NOTIFICATION_PURCHASE_SERVICE_URL: ${NOTIFICATION_PURCHASE_SERVICE_URL}
       NOTIFICATION_PREFERENCES_SERVICE_URL: ${NOTIFICATION_PREFERENCES_SERVICE_URL}
       NOTIFICATION_CHANNELS: ${NOTIFICATION_CHANNELS}
+      # El modo de fallo didáctico aplica sólo a PUSH; EMAIL usa SMTP.
       NOTIFICATION_PROVIDER_MODE: ${NOTIFICATION_PROVIDER_MODE}
       NOTIFICATION_MAX_ATTEMPTS: ${NOTIFICATION_MAX_ATTEMPTS}
       NOTIFICATION_RETRY_BASE_DELAY_MS: ${NOTIFICATION_RETRY_BASE_DELAY_MS}
+      NOTIFICATION_SMTP_HOST: ${NOTIFICATION_SMTP_HOST:-mailpit}
+      NOTIFICATION_SMTP_PORT: ${NOTIFICATION_SMTP_PORT:-1025}
+      NOTIFICATION_SMTP_FROM: ${NOTIFICATION_SMTP_FROM:-ticketya@localhost}
+      NOTIFICATION_SMTP_CONNECT_TIMEOUT_MS: ${NOTIFICATION_SMTP_CONNECT_TIMEOUT_MS:-2000}
+      NOTIFICATION_SMTP_READ_TIMEOUT_MS: ${NOTIFICATION_SMTP_READ_TIMEOUT_MS:-5000}
     depends_on:
       notification-db:
+        condition: service_healthy
+      mailpit:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${NOTIFICATION_SERVER_PORT}/actuator/health"]

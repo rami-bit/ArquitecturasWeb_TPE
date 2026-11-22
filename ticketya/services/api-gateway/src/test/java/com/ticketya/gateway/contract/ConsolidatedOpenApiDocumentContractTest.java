@@ -168,6 +168,9 @@ class ConsolidatedOpenApiDocumentContractTest {
      */
     private static final List<Operation> NOTIFICATION_OPERATIONS = List.of(
             new Operation("/api/notifications/me", "get", "listMyNotifications", NOTIFICATION),
+            new Operation("/api/notifications/me/email", "get", "getMyNotificationEmail", NOTIFICATION),
+            new Operation("/api/notifications/me/email", "put", "putMyNotificationEmail", NOTIFICATION),
+            new Operation("/api/management/events/{id}/schedule", "patch", "postponeEventSchedule", CATALOG),
             new Operation("/internal/notifications", "post", "recordOrderNotification", NOTIFICATION),
             new Operation("/internal/notifications/event-changes", "post",
                     "recordEventChangeNotification", NOTIFICATION),
@@ -176,6 +179,9 @@ class ConsolidatedOpenApiDocumentContractTest {
 
     private static final Map<String, Set<Integer>> NOTIFICATION_STATUS_CODES = Map.of(
             "/api/notifications/me:get", Set.of(200, 400, 401, 403),
+            "/api/notifications/me/email:get", Set.of(200, 401, 403),
+            "/api/notifications/me/email:put", Set.of(200, 400, 401, 403),
+            "/api/management/events/{id}/schedule:patch", Set.of(200, 400, 401, 403, 404, 409),
             "/internal/notifications:post", Set.of(202, 400),
             "/internal/notifications/event-changes:post", Set.of(202, 400),
             "/internal/events/{eventId}/buyers:get", Set.of(200),
@@ -851,7 +857,9 @@ class ConsolidatedOpenApiDocumentContractTest {
     void notificationSchemasAreDeclared() {
         assertThat(schemas().keySet()).contains(
                 "OrderNotificationRequest", "EventChangeNotificationRequest", "NotificationIngestResponse",
-                "CustomerNotification", "CustomerNotificationPage", "EventBuyers", "PreferenceMatches");
+                "CustomerNotification", "CustomerNotificationPage", "EventBuyers", "PreferenceMatches",
+                "CustomerEmailContactRequest", "CustomerEmailContact", "EventScheduleChangeRequest",
+                "EventScheduleChangeResponse");
         @SuppressWarnings("unchecked")
         Map<String, Object> properties = (Map<String, Object>) schema("CustomerNotification").get("properties");
         @SuppressWarnings("unchecked")

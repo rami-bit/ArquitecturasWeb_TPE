@@ -64,7 +64,12 @@ public class NotificationIngestController {
         TriggerType type = TriggerType.parse(request.type(), TriggerType.EVENT_TYPES);
         if (type == null) {
             throw ApiProblemException.badRequest(
-                    "type must be EVENT_PUBLISHED, EVENT_SUSPENDED, EVENT_RESUMED or EVENT_CANCELLED");
+                    "type must be EVENT_PUBLISHED, EVENT_SUSPENDED, EVENT_RESUMED, EVENT_CANCELLED or EVENT_POSTPONED");
+        }
+        if (type == TriggerType.EVENT_POSTPONED && (request.changeId() == null
+                || request.previousStartsAt() == null || request.startsAt() == null
+                || !request.startsAt().toInstant().isAfter(request.previousStartsAt().toInstant()))) {
+            throw ApiProblemException.badRequest("EVENT_POSTPONED requires changeId and increasing previousStartsAt/startsAt");
         }
         String correlationId = correlation(request.correlationId(), http);
         ObjectNode payload = mapper.valueToTree(request);

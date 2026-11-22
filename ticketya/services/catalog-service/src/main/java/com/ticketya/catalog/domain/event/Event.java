@@ -17,6 +17,7 @@ public class Event {
     @ManyToOne(fetch=FetchType.LAZY,optional=false) @JoinColumn(name="venue_id",nullable=false) private Venue venue;
     @Enumerated(EnumType.STRING) @Column(nullable=false,length=24) private EventStatus status=EventStatus.DRAFT;
     @Column(name="high_demand",nullable=false) private boolean highDemand=false;
+    @Column(name="schedule_revision",nullable=false) private long scheduleRevision=0;
     @OneToMany(mappedBy="event",cascade=CascadeType.ALL,orphanRemoval=true) @OrderBy("name ASC") private List<EventParticipant> participants=new ArrayList<>();
     @OneToMany(mappedBy="event",cascade=CascadeType.ALL,orphanRemoval=true) private List<EventSectorOffering> offerings=new ArrayList<>();
     @OneToOne(mappedBy="event", fetch=FetchType.LAZY, cascade=CascadeType.ALL, orphanRemoval=true) private EventSnapshot snapshot;
@@ -42,6 +43,8 @@ public class Event {
     }
     public void setStatus(EventStatus status){this.status=Objects.requireNonNull(status);}
     public void setHighDemand(boolean highDemand){this.highDemand=highDemand;}
+    public void postpone(OffsetDateTime startsAt){this.startsAt=Objects.requireNonNull(startsAt);this.scheduleRevision++;}
+    public long getScheduleRevision(){return scheduleRevision;}
     public void setSnapshot(EventSnapshot snapshot){this.snapshot=Objects.requireNonNull(snapshot);}
     private static String required(String s,String field){if(s==null||s.isBlank())throw new IllegalArgumentException(field+" is required");return s.trim();}
     public UUID getId(){return id;} public String getName(){return name;} public String getDescription(){return description;}

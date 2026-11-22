@@ -194,6 +194,76 @@
   ],
   "item": [
     {
+      "name": "F11-13 - Cliente registra email propio antes de comprar",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{clientToken}}", "type": "text" },
+          { "key": "Content-Type", "value": "application/json", "type": "text" }
+        ],
+        "body": { "mode": "raw", "raw": "{\"email\":\"cliente-{{runId}}@example.test\"}" },
+        "url": { "raw": "{{baseUrl}}/api/notifications/me/email", "host": ["{{baseUrl}}"], "path": ["api", "notifications", "me", "email"] }
+      },
+      "response": [],
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('Contacto propio guardado', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().email).to.eql('cliente-' + pm.collectionVariables.get('runId') + '@example.test'); });"
+      ] } }]
+    },
+    {
+      "name": "F11-14 - Comprador numerado registra email propio",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{numberedBuyerToken}}", "type": "text" },
+          { "key": "Content-Type", "value": "application/json", "type": "text" }
+        ],
+        "body": { "mode": "raw", "raw": "{\"email\":\"numerado-{{runId}}@example.test\"}" },
+        "url": { "raw": "{{baseUrl}}/api/notifications/me/email", "host": ["{{baseUrl}}"], "path": ["api", "notifications", "me", "email"] }
+      },
+      "response": [],
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('Contacto del segundo comprador guardado', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().email).to.eql('numerado-' + pm.collectionVariables.get('runId') + '@example.test'); });"
+      ] } }]
+    },
+    {
+      "name": "F11-19 - Cliente consulta su email propio",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{clientToken}}", "type": "text" }],
+        "url": { "raw": "{{baseUrl}}/api/notifications/me/email", "host": ["{{baseUrl}}"], "path": ["api", "notifications", "me", "email"] }
+      },
+      "response": [],
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('GET devuelve el contacto propio', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().email).to.eql('cliente-' + pm.collectionVariables.get('runId') + '@example.test'); });"
+      ] } }]
+    },
+    {
+      "name": "F11-20 - Email inválido no se registra",
+      "request": {
+        "method": "PUT",
+        "header": [{ "key": "Authorization", "value": "Bearer {{clientToken}}", "type": "text" }, { "key": "Content-Type", "value": "application/json", "type": "text" }],
+        "body": { "mode": "raw", "raw": "{\"email\":\"direccion-invalida\"}" },
+        "url": { "raw": "{{baseUrl}}/api/notifications/me/email", "host": ["{{baseUrl}}"], "path": ["api", "notifications", "me", "email"] }
+      },
+      "response": [],
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('Email inválido responde 400', () => pm.response.to.have.status(400));"
+      ] } }]
+    },
+    {
+      "name": "F11-21 - Organizador no puede registrar email de cliente",
+      "request": {
+        "method": "PUT",
+        "header": [{ "key": "Authorization", "value": "Bearer {{organizerToken}}", "type": "text" }, { "key": "Content-Type", "value": "application/json", "type": "text" }],
+        "body": { "mode": "raw", "raw": "{\"email\":\"ajeno@example.test\"}" },
+        "url": { "raw": "{{baseUrl}}/api/notifications/me/email", "host": ["{{baseUrl}}"], "path": ["api", "notifications", "me", "email"] }
+      },
+      "response": [],
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('ORGANIZER recibe 403 del Gateway', () => pm.response.to.have.status(403));"
+      ] } }]
+    },
+    {
       "name": "00 - ACCESS_STAFF no puede crear lugares",
       "request": {
         "method": "POST",
@@ -1076,6 +1146,142 @@
           }
         }
       ]
+    },
+    {
+      "name": "F11-15 - Postergar evento comprado (ORGANIZER)",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{organizerToken}}", "type": "text" },
+          { "key": "Content-Type", "value": "application/json", "type": "text" },
+          { "key": "Idempotency-Key", "value": "postpone-{{runId}}", "type": "text" }
+        ],
+        "body": { "mode": "raw", "raw": "{\"startsAt\":\"2030-07-01T20:00:00-03:00\",\"expectedScheduleRevision\":0}" },
+        "url": { "raw": "{{baseUrl}}/api/management/events/{{eventId}}/schedule", "host": ["{{baseUrl}}"], "path": ["api", "management", "events", "{{eventId}}", "schedule"] }
+      },
+      "response": [],
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('Postergación 200', () => pm.response.to.have.status(200));",
+        "const p = pm.response.json();",
+        "pm.test('Revisión y fechas del cambio', () => { pm.expect(p.eventId).to.eql(pm.collectionVariables.get('eventId')); pm.expect(p.scheduleRevision).to.eql(1); pm.expect(new Date(p.startsAt).getTime()).to.be.above(new Date(p.previousStartsAt).getTime()); pm.expect(p.changeId).to.be.a('string'); });",
+        "pm.collectionVariables.set('postponeChangeId', p.changeId);"
+      ] } }]
+    },
+    {
+      "name": "F11-16 - Replay de postergación conserva el cambio",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{organizerToken}}", "type": "text" },
+          { "key": "Content-Type", "value": "application/json", "type": "text" },
+          { "key": "Idempotency-Key", "value": "postpone-{{runId}}", "type": "text" }
+        ],
+        "body": { "mode": "raw", "raw": "{\"startsAt\":\"2030-07-01T20:00:00-03:00\",\"expectedScheduleRevision\":0}" },
+        "url": { "raw": "{{baseUrl}}/api/management/events/{{eventId}}/schedule", "host": ["{{baseUrl}}"], "path": ["api", "management", "events", "{{eventId}}", "schedule"] }
+      },
+      "response": [],
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('Replay idéntico 200 y mismo changeId', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().changeId).to.eql(pm.collectionVariables.get('postponeChangeId')); });"
+      ] } }]
+    },
+    {
+      "name": "F11-26 - Clave de postergación con otro cuerpo da conflicto",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{organizerToken}}", "type": "text" },
+          { "key": "Content-Type", "value": "application/json", "type": "text" },
+          { "key": "Idempotency-Key", "value": "postpone-{{runId}}", "type": "text" }
+        ],
+        "body": { "mode": "raw", "raw": "{\"startsAt\":\"2030-08-01T20:00:00-03:00\",\"expectedScheduleRevision\":0}" },
+        "url": { "raw": "{{baseUrl}}/api/management/events/{{eventId}}/schedule", "host": ["{{baseUrl}}"], "path": ["api", "management", "events", "{{eventId}}", "schedule"] }
+      },
+      "response": [],
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('Misma clave con otra fecha responde 409', () => pm.response.to.have.status(409));"
+      ] } }]
+    },
+    {
+      "name": "F11-22 - Revisión obsoleta no vuelve a postergar",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{organizerToken}}", "type": "text" },
+          { "key": "Content-Type", "value": "application/json", "type": "text" },
+          { "key": "Idempotency-Key", "value": "postpone-stale-{{runId}}", "type": "text" }
+        ],
+        "body": { "mode": "raw", "raw": "{\"startsAt\":\"2030-08-01T20:00:00-03:00\",\"expectedScheduleRevision\":0}" },
+        "url": { "raw": "{{baseUrl}}/api/management/events/{{eventId}}/schedule", "host": ["{{baseUrl}}"], "path": ["api", "management", "events", "{{eventId}}", "schedule"] }
+      },
+      "response": [],
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('Revisión obsoleta responde 409', () => pm.response.to.have.status(409));"
+      ] } }]
+    },
+    {
+      "name": "F11-23 - CLIENT no puede postergar",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{clientToken}}", "type": "text" },
+          { "key": "Content-Type", "value": "application/json", "type": "text" },
+          { "key": "Idempotency-Key", "value": "postpone-client-{{runId}}", "type": "text" }
+        ],
+        "body": { "mode": "raw", "raw": "{\"startsAt\":\"2030-08-01T20:00:00-03:00\",\"expectedScheduleRevision\":1}" },
+        "url": { "raw": "{{baseUrl}}/api/management/events/{{eventId}}/schedule", "host": ["{{baseUrl}}"], "path": ["api", "management", "events", "{{eventId}}", "schedule"] }
+      },
+      "response": [],
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('CLIENT recibe 403 del Gateway', () => pm.response.to.have.status(403));"
+      ] } }]
+    },
+    {
+      "name": "F11-17 - Detalle muestra fecha vigente",
+      "request": {
+        "method": "GET", "header": [],
+        "url": { "raw": "{{baseUrl}}/api/events/{{eventId}}", "host": ["{{baseUrl}}"], "path": ["api", "events", "{{eventId}}"] }
+      },
+      "response": [],
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('Detalle público usa la fecha postergada', () => { pm.response.to.have.status(200); pm.expect(new Date(pm.response.json().startsAt).toISOString()).to.eql(new Date('2030-07-01T20:00:00-03:00').toISOString()); });"
+      ] } }]
+    },
+    {
+      "name": "F11-24 - Búsqueda usa la fecha postergada",
+      "request": {
+        "method": "GET", "header": [],
+        "url": { "raw": "{{baseUrl}}/api/events?from=2030-07-01T00%3A00%3A00Z&to=2030-08-01T00%3A00%3A00Z", "host": ["{{baseUrl}}"], "path": ["api", "events"], "query": [{ "key": "from", "value": "2030-07-01T00:00:00Z" }, { "key": "to", "value": "2030-08-01T00:00:00Z" }] }
+      },
+      "response": [],
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('Evento aparece en rango nuevo', () => { pm.response.to.have.status(200); const hit = pm.response.json().items.find(e => e.id === pm.collectionVariables.get('eventId')); pm.expect(hit).to.not.be.undefined; pm.expect(new Date(hit.startsAt).toISOString()).to.eql(new Date('2030-07-01T20:00:00-03:00').toISOString()); });"
+      ] } }]
+    },
+    {
+      "name": "F11-25 - Búsqueda excluye la fecha original",
+      "request": {
+        "method": "GET", "header": [],
+        "url": { "raw": "{{baseUrl}}/api/events?from=2030-06-01T00%3A00%3A00Z&to=2030-07-01T00%3A00%3A00Z", "host": ["{{baseUrl}}"], "path": ["api", "events"], "query": [{ "key": "from", "value": "2030-06-01T00:00:00Z" }, { "key": "to", "value": "2030-07-01T00:00:00Z" }] }
+      },
+      "response": [],
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('Evento no aparece en rango original', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().items.some(e => e.id === pm.collectionVariables.get('eventId'))).to.be.false; });"
+      ] } }]
+    },
+    {
+      "name": "F11-18 - Comprador recibe aviso de postergación",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{clientToken}}", "type": "text" }],
+        "url": { "raw": "{{baseUrl}}/api/notifications/me?type=EVENT_POSTPONED&size=50", "host": ["{{baseUrl}}"], "path": ["api", "notifications", "me"], "query": [{ "key": "type", "value": "EVENT_POSTPONED" }, { "key": "size", "value": "50" }] }
+      },
+      "response": [],
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('Bandeja disponible', () => pm.response.to.have.status(200));",
+        "const check = items => { const found = items.filter(n => n.eventId === pm.collectionVariables.get('eventId')); pm.test('Un aviso por canal con ambas fechas', () => { pm.expect(found).to.have.length(2); pm.expect(found.map(n => n.channel)).to.include.members(['EMAIL','PUSH']); found.forEach(n => { pm.expect(n.body).to.include('2030-06-01'); pm.expect(n.body).to.include('2030-07-01'); }); }); };",
+        "const first = pm.response.json().items;",
+        "if (first.filter(n => n.eventId === pm.collectionVariables.get('eventId')).length >= 2) { check(first); } else { let attempts = 0; const again = () => pm.sendRequest({ url: pm.variables.get('baseUrl') + '/api/notifications/me?type=EVENT_POSTPONED&size=50', method: 'GET', header: [{ key: 'Authorization', value: 'Bearer ' + pm.variables.get('clientToken') }] }, (err, res) => { const items = !err && res.code === 200 ? res.json().items : []; if (items.filter(n => n.eventId === pm.collectionVariables.get('eventId')).length >= 2 || attempts >= 20) { check(items); } else { attempts += 1; setTimeout(again, 2000); } }); again(); }"
+      ] } }]
     },
     {
       "name": "10 - Solicitar devolución del ticket comprado",
@@ -5442,6 +5648,35 @@
           }
         }
       ]
+    },
+    {
+      "name": "F11-27 - Postergar evento de artista favorito",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{organizerToken}}", "type": "text" },
+          { "key": "Content-Type", "value": "application/json", "type": "text" },
+          { "key": "Idempotency-Key", "value": "postpone-favorite-{{runId}}", "type": "text" }
+        ],
+        "body": { "mode": "raw", "raw": "{\"startsAt\":\"2030-09-01T21:00:00-03:00\",\"expectedScheduleRevision\":0}" },
+        "url": { "raw": "{{baseUrl}}/api/management/events/{{f11EventId}}/schedule", "host": ["{{baseUrl}}"], "path": ["api", "management", "events", "{{f11EventId}}", "schedule"] }
+      },
+      "response": [],
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('Postergación de evento favorito 200', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().scheduleRevision).to.eql(1); });"
+      ] } }]
+    },
+    {
+      "name": "F11-28 - Recomendación muestra fecha postergada",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{numberedBuyerToken}}", "type": "text" }],
+        "url": { "raw": "{{baseUrl}}/api/customers/me/recommendations?limit=20", "host": ["{{baseUrl}}"], "path": ["api", "customers", "me", "recommendations"], "query": [{ "key": "limit", "value": "20" }] }
+      },
+      "response": [],
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('Recomendación usa fecha vigente', () => { pm.response.to.have.status(200); const item = pm.response.json().items.find(i => i.eventId === pm.collectionVariables.get('f11EventId')); pm.expect(item).to.not.be.undefined; pm.expect(new Date(item.startsAt).toISOString()).to.eql(new Date('2030-09-01T21:00:00-03:00').toISOString()); });"
+      ] } }]
     },
     {
       "name": "F11-11 - ORGANIZER no puede leer notificaciones",

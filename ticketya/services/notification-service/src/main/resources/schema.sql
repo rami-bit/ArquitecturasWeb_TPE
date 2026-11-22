@@ -7,6 +7,13 @@
 -- notifications es la bandeja de salida (outbox): un registro por destinatario
 -- y canal. Ambos procesos usan arrendamiento (next_attempt_at) y
 -- FOR UPDATE SKIP LOCKED, por lo que varias instancias no procesan lo mismo.
+CREATE TABLE IF NOT EXISTS customer_email_contacts (
+    customer_id UUID PRIMARY KEY,
+    email VARCHAR(254) NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT ck_customer_email_format CHECK (email ~ '^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$')
+);
+
 CREATE TABLE IF NOT EXISTS notification_triggers (
     id UUID PRIMARY KEY,
     dedupe_key VARCHAR(200) NOT NULL,
@@ -23,8 +30,14 @@ CREATE TABLE IF NOT EXISTS notification_triggers (
     CONSTRAINT uk_notification_trigger_dedupe UNIQUE (dedupe_key),
     CONSTRAINT ck_notification_trigger_status CHECK (status IN ('PENDING', 'PROCESSED', 'FAILED')),
     CONSTRAINT ck_notification_trigger_type CHECK (type IN ('ORDER_CONFIRMED', 'ORDER_CANCELLED',
-        'EVENT_PUBLISHED', 'EVENT_SUSPENDED', 'EVENT_RESUMED', 'EVENT_CANCELLED'))
+        'EVENT_PUBLISHED', 'EVENT_SUSPENDED', 'EVENT_RESUMED', 'EVENT_CANCELLED', 'EVENT_POSTPONED'))
 );
+
+-- La base puede contener datos previos; CREATE TABLE IF NOT EXISTS no actualiza checks.
+ALTER TABLE notification_triggers DROP CONSTRAINT IF EXISTS ck_notification_trigger_type;
+ALTER TABLE notification_triggers ADD CONSTRAINT ck_notification_trigger_type CHECK (type IN
+    ('ORDER_CONFIRMED', 'ORDER_CANCELLED', 'EVENT_PUBLISHED', 'EVENT_SUSPENDED',
+     'EVENT_RESUMED', 'EVENT_CANCELLED', 'EVENT_POSTPONED'));
 
 CREATE INDEX IF NOT EXISTS idx_notification_triggers_due
     ON notification_triggers (next_attempt_at) WHERE status = 'PENDING';
@@ -47,9 +60,13 @@ CREATE TABLE IF NOT EXISTS notifications (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     sent_at TIMESTAMPTZ,
     CONSTRAINT uk_notification_recipient_channel UNIQUE (trigger_id, customer_id, channel),
-    CONSTRAINT ck_notification_status CHECK (status IN ('PENDING', 'SENT', 'FAILED')),
+    CONSTRAINT ck_notification_status CHECK (status IN ('PENDING', 'SENT', 'FAILED', 'SKIPPED_NO_CONTACT')),
     CONSTRAINT ck_notification_channel CHECK (channel IN ('EMAIL', 'PUSH'))
 );
+
+ALTER TABLE notifications DROP CONSTRAINT IF EXISTS ck_notification_status;
+ALTER TABLE notifications ADD CONSTRAINT ck_notification_status CHECK
+    (status IN ('PENDING', 'SENT', 'FAILED', 'SKIPPED_NO_CONTACT'));
 
 CREATE INDEX IF NOT EXISTS idx_notifications_due
     ON notifications (next_attempt_at) WHERE status = 'PENDING';

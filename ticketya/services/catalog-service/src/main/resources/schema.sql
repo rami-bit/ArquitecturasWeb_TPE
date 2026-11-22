@@ -84,6 +84,21 @@ CREATE TABLE IF NOT EXISTS event_sector_offerings (
 -- The high-demand mark is editable only while the event is a draft. It is read live
 -- from `events` because the draft guard makes it immutable once the event is published.
 ALTER TABLE events ADD COLUMN IF NOT EXISTS high_demand BOOLEAN NOT NULL DEFAULT FALSE;
+-- The live schedule may change without rewriting the immutable publication snapshot.
+ALTER TABLE events ADD COLUMN IF NOT EXISTS schedule_revision BIGINT NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS event_schedule_changes (
+    change_id UUID PRIMARY KEY,
+    event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    idempotency_key VARCHAR(200) NOT NULL,
+    actor_id UUID NOT NULL,
+    expected_schedule_revision BIGINT NOT NULL CHECK (expected_schedule_revision >= 0),
+    previous_starts_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    starts_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    schedule_revision BIGINT NOT NULL CHECK (schedule_revision > 0),
+    CONSTRAINT uk_event_schedule_key UNIQUE (event_id, idempotency_key),
+    CONSTRAINT uk_event_schedule_revision UNIQUE (event_id, schedule_revision),
+    CONSTRAINT ck_event_schedule_postponed CHECK (starts_at > previous_starts_at)
+);
 
 -- Immutable, normalized publication copy. The unique event_id makes publish idempotent.
 CREATE TABLE IF NOT EXISTS event_snapshots (

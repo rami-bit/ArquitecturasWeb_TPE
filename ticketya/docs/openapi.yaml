@@ -20,18 +20,17 @@ info:
     `ADMIN` y `ACCESS_STAFF`), validación en el Gateway y propagación de
     identidad derivada a los servicios.
 
-    - **PDF-F11 (`add-customer-notifications`):** notificaciones por email y
-      push simulados al confirmar o cancelar una compra, ante la suspensión,
-      reanudación o cancelación de un evento y cuando un artista favorito publica
-      un evento en la ciudad del cliente. Bandeja del cliente en
-      `/api/notifications/me` (Notification Service).
+    - **PDF-F11:** EMAIL entregado por SMTP local y PUSH simulado para compras,
+      cambios de evento y publicaciones de artistas favoritos. El cliente registra
+      su email en `/api/notifications/me/email`; Catalog admite postergaciones
+      en `/api/management/events/{id}/schedule` y avisa a los compradores.
 
     Superficie pública a través del API Gateway (`http://localhost:8080`):
     - **Catalog público:** `GET /api/events`, `GET /api/events/{id}`.
     - **Catalog gestión (con Bearer JWT):** `POST/PUT/GET /api/venues`,
       `POST/GET /api/management/events`, `GET/PUT /api/management/events/{id}`,
       `PUT /api/management/events/{id}/offerings`, y los comandos
-      `publish`, `suspend`, `cancel` y `resume`.
+      `publish`, `suspend`, `cancel`, `resume` y `PATCH .../{id}/schedule`.
     - **Inventory público:** `GET /api/inventory/events/{eventId}/availability`.
     - **Purchase:** `POST /api/orders`, `GET /api/orders`,
       `GET /api/orders/{orderId}`, `POST /api/orders/{orderId}/reconcile`.
@@ -248,11 +247,13 @@ tags:
     description: |
       Contratos internos de senales de historial (Purchase) y de candidatos
       (Catalog), consumidos solo por Preferences Service dentro de la red de
-      servicios. El Gateway no publica ninguna de estas rutas.  - name: Customer notifications
+      servicios. El Gateway no publica ninguna de estas rutas.
+  - name: Customer notifications
     description: |
       PDF-F11. Bandeja del cliente autenticado (`CLIENT`): notificaciones de
       compra, de cambios del evento y de artistas favoritos, con su canal
-      (`EMAIL` o `PUSH`) y estado de entrega (`PENDING`, `SENT`, `FAILED`).
+      (`EMAIL` o `PUSH`) y estado de entrega (`PENDING`, `SENT`, `FAILED`,
+      `SKIPPED_NO_CONTACT`). EMAIL `SENT` indica aceptación SMTP.
   - name: Notification ingestion (internal)
     description: |
       PDF-F11. Hechos de negocio que Purchase y Catalog envían de forma
@@ -968,6 +969,62 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
 
   # ─── CATALOG EVENT DISCOVERY (PUBLIC) ──────────────────────────────────────
+
+  /api/management/events/{id}/schedule:
+    patch:
+      tags: [Catalog event management]
+      operationId: postponeEventSchedule
+      summary: Postergar la fecha y hora de un evento publicado
+      description: |
+        Sólo el ORGANIZER dueño o ADMIN. La nueva fecha debe ser posterior a la
+        vigente y estrictamente posterior al momento de gestión más 72 horas.
+        La revisión esperada evita cambios concurrentes; repetir la misma clave
+        con el mismo cuerpo devuelve el resultado original. El snapshot publicado
+        y las entradas no cambian. La regla de reintegro usa la fecha vigente.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 200 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EventScheduleChangeRequest' }
+            example: { startsAt: '2030-02-01T20:00:00-03:00', expectedScheduleRevision: 0 }
+      responses:
+        '200':
+          description: Postergación confirmada o replay idéntico.
+          headers: { X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EventScheduleChangeResponse' }
+              example: { eventId: 'e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b', changeId: '1b2c3d4e-5f60-4718-9a2b-3c4d5e6f7a8b', previousStartsAt: '2030-01-01T20:00:00-03:00', startsAt: '2030-02-01T20:00:00-03:00', scheduleRevision: 1 }
+        '400':
+          description: Cuerpo, ID o clave de idempotencia inválidos.
+          headers: { X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '401':
+          description: JWT ausente o inválido.
+          headers: { X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '403':
+          description: Rol u ownership inválido.
+          headers: { X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '404':
+          description: Evento inexistente.
+          headers: { X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '409':
+          description: Estado, fecha, revisión o clave de idempotencia en conflicto.
+          headers: { X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Conflict, status: 409, detail: 'schedule revision mismatch' }
 
   /api/events:
     get:
@@ -3970,6 +4027,67 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
   # ─── PDF-F11 NOTIFICACIONES ────────────────────────────────────────────────
 
+  /api/notifications/me/email:
+    get:
+      tags: [Customer notifications]
+      operationId: getMyNotificationEmail
+      summary: Consultar el email del cliente autenticado
+      description: Sólo CLIENT; la identidad se deriva del JWT. Sin contacto devuelve email nulo.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Contacto propio o ausencia de contacto.
+          headers: { X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerEmailContact' }
+              example: { email: null }
+        '401':
+          description: JWT ausente o inválido.
+          headers: { X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '403':
+          description: Rol distinto de CLIENT.
+          headers: { X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    put:
+      tags: [Customer notifications]
+      operationId: putMyNotificationEmail
+      summary: Registrar o reemplazar el email del cliente autenticado
+      description: Sólo CLIENT; el cuerpo admite únicamente email. La identidad se deriva del JWT.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerEmailContactRequest' }
+            example: { email: 'cliente@example.com' }
+      responses:
+        '200':
+          description: Contacto guardado.
+          headers: { X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerEmailContact' }
+              example: { email: 'cliente@example.com' }
+        '400':
+          description: Email inválido o cuerpo con campos ajenos.
+          headers: { X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: 'about:blank', title: Bad Request, status: 400, detail: 'email is invalid' }
+        '401':
+          description: JWT ausente o inválido.
+          headers: { X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '403':
+          description: Rol distinto de CLIENT.
+          headers: { X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
   /api/notifications/me:
     get:
       tags: [Customer notifications]
@@ -3979,9 +4097,11 @@ paths:
         Sólo `CLIENT`; la identidad sale del `sub` del JWT. Más recientes
         primero. Cada hecho genera una notificación por canal (`EMAIL` y `PUSH`).
         La entrega es asíncrona: una notificación recién creada puede figurar
-        `PENDING` unos segundos antes de pasar a `SENT`.
+        `PENDING` unos segundos antes de pasar a `SENT`. En EMAIL, `SENT` indica
+        aceptación por SMTP, no recepción externa. Sin contacto, EMAIL queda
+        `SKIPPED_NO_CONTACT`; PUSH conserva la simulación.
       parameters:
-        - { name: type, in: query, required: false, schema: { type: string, enum: [ORDER_CONFIRMED, ORDER_CANCELLED, EVENT_PUBLISHED, EVENT_SUSPENDED, EVENT_RESUMED, EVENT_CANCELLED] } }
+        - { name: type, in: query, required: false, schema: { type: string, enum: [ORDER_CONFIRMED, ORDER_CANCELLED, EVENT_PUBLISHED, EVENT_SUSPENDED, EVENT_RESUMED, EVENT_CANCELLED, EVENT_POSTPONED] } }
         - $ref: '#/components/parameters/PageNumber'
         - $ref: '#/components/parameters/PageSize'
         - $ref: '#/components/parameters/CorrelationId'
@@ -4078,11 +4198,12 @@ paths:
       tags: [Notification ingestion (internal)]
       operationId: recordEventChangeNotification
       security: []
-      summary: Registrar la publicación, suspensión, reanudación o cancelación de un evento
+      summary: Registrar un cambio confirmado de un evento
       description: |
         Lo invoca Catalog después del commit de la transición. Publicación y
         cancelación se deduplican por `type` + `eventId`; suspensión y
-        reanudación, que pueden repetirse, por `type` + `eventId` + `changeId`.
+        reanudación y postergación, que pueden repetirse, por `type` + `eventId`
+        + `changeId`. En EVENT_POSTPONED se informan `previousStartsAt` y `startsAt`.
       parameters:
         - $ref: '#/components/parameters/CorrelationId'
       requestBody:
@@ -5784,13 +5905,14 @@ components:
 
     EventResponse:
       type: object
-      required: [id, name, description, eventType, startsAt, organizerId, venueId, status, participants, offerings, highDemand]
+      required: [id, name, description, eventType, startsAt, organizerId, venueId, status, participants, offerings, highDemand, scheduleRevision]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
         description: { type: string }
         eventType: { type: string }
         startsAt: { type: string, format: date-time }
+        scheduleRevision: { type: integer, minimum: 0, description: Revisión de fecha vigente para PATCH schedule. }
         organizerId: { type: string, format: uuid }
         venueId: { type: string, format: uuid }
         highDemand:
@@ -6409,15 +6531,48 @@ components:
         eventStartsAt: { type: string, format: date-time, nullable: true }
         totalAmount: { type: number, nullable: true }
 
+    CustomerEmailContactRequest:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email: { type: string, format: email, maxLength: 254 }
+
+    CustomerEmailContact:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email: { type: string, format: email, maxLength: 254, nullable: true }
+
+    EventScheduleChangeRequest:
+      type: object
+      additionalProperties: false
+      required: [startsAt, expectedScheduleRevision]
+      properties:
+        startsAt: { type: string, format: date-time }
+        expectedScheduleRevision: { type: integer, minimum: 0 }
+
+    EventScheduleChangeResponse:
+      type: object
+      required: [eventId, changeId, previousStartsAt, startsAt, scheduleRevision]
+      properties:
+        eventId: { type: string, format: uuid }
+        changeId: { type: string, format: uuid }
+        previousStartsAt: { type: string, format: date-time }
+        startsAt: { type: string, format: date-time }
+        scheduleRevision: { type: integer, minimum: 1 }
+
     EventChangeNotificationRequest:
       type: object
       required: [type, eventId, eventName]
       properties:
-        type: { type: string, enum: [EVENT_PUBLISHED, EVENT_SUSPENDED, EVENT_RESUMED, EVENT_CANCELLED] }
+        type: { type: string, enum: [EVENT_PUBLISHED, EVENT_SUSPENDED, EVENT_RESUMED, EVENT_CANCELLED, EVENT_POSTPONED] }
         eventId: { type: string, format: uuid }
         changeId: { type: string, format: uuid, nullable: true }
         eventName: { type: string, maxLength: 200 }
         startsAt: { type: string, format: date-time, nullable: true }
+        previousStartsAt: { type: string, format: date-time, nullable: true }
         city: { type: string, maxLength: 120, nullable: true }
         participants:
           type: array
@@ -6438,11 +6593,11 @@ components:
       required: [notificationId, type, channel, subject, body, status, attempts, createdAt]
       properties:
         notificationId: { type: string, format: uuid }
-        type: { type: string, enum: [ORDER_CONFIRMED, ORDER_CANCELLED, EVENT_PUBLISHED, EVENT_SUSPENDED, EVENT_RESUMED, EVENT_CANCELLED] }
+        type: { type: string, enum: [ORDER_CONFIRMED, ORDER_CANCELLED, EVENT_PUBLISHED, EVENT_SUSPENDED, EVENT_RESUMED, EVENT_CANCELLED, EVENT_POSTPONED] }
         channel: { type: string, enum: [EMAIL, PUSH] }
         subject: { type: string, maxLength: 200 }
         body: { type: string }
-        status: { type: string, enum: [PENDING, SENT, FAILED] }
+        status: { type: string, enum: [PENDING, SENT, FAILED, SKIPPED_NO_CONTACT], description: 'EMAIL SENT significa aceptación SMTP; PUSH SENT corresponde a simulación.' }
         eventId: { type: string, format: uuid, nullable: true }
         orderId: { type: string, format: uuid, nullable: true }
         correlationId: { type: string, nullable: true }

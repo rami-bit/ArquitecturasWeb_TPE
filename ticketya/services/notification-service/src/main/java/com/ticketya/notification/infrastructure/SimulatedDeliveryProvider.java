@@ -6,7 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
- * Pasarela simulada de email y push, análoga a Payment Mock: no envía correos
+ * Pasarela simulada de PUSH, análoga a Payment Mock: no envía correos
  * reales, registra cada entrega en el log {@value #LOGGER_NAME}. Con modo
  * {@code FAILING} simula una pasarela caída para ejercitar reintentos.
  */

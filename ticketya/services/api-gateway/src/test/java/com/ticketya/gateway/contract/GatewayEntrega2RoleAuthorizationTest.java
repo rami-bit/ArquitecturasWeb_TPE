@@ -72,7 +72,11 @@ class GatewayEntrega2RoleAuthorizationTest {
                     Set.of("ORGANIZER", "ADMIN")),
             new Route(HttpMethod.GET, "/api/audit/events", "audit", Set.of("ADMIN")),
             new Route(HttpMethod.GET, "/api/audit/traces/trace-1", "audit", Set.of("ADMIN")),
-            new Route(HttpMethod.GET, "/api/notifications/me", "notification", Set.of("CLIENT")));
+            new Route(HttpMethod.GET, "/api/notifications/me", "notification", Set.of("CLIENT")),
+            new Route(HttpMethod.PUT, "/api/notifications/me/email", "notification", Set.of("CLIENT")),
+            new Route(HttpMethod.GET, "/api/notifications/me/email", "notification", Set.of("CLIENT")),
+            new Route(HttpMethod.PATCH, "/api/management/events/" + EVENT_ID + "/schedule", "catalog",
+                    Set.of("ORGANIZER", "ADMIN")));
 
     @LocalServerPort
     private int port;
@@ -129,6 +133,22 @@ class GatewayEntrega2RoleAuthorizationTest {
                         });
             }
         }
+    }
+
+    @Test
+    void schedulePatchPreservesIdempotencyKeyAndBody() {
+        String eventId = UUID.randomUUID().toString();
+        String body = "{\"startsAt\":\"2030-07-01T20:00:00-03:00\",\"expectedScheduleRevision\":0}";
+        client.patch().uri("/api/management/events/" + eventId + "/schedule")
+                .header("Authorization", "Bearer " + IDP.bearerToken(ISSUER, UUID.randomUUID().toString(), "ORGANIZER"))
+                .header("Idempotency-Key", "schedule-key-1")
+                .contentType(MediaType.APPLICATION_JSON).bodyValue(body).exchange()
+                .expectStatus().isOk();
+        assertThat(REQUESTS).singleElement().satisfies(request -> {
+            assertThat(request.upstream()).isEqualTo("catalog");
+            assertThat(request.idempotencyKey()).isEqualTo("schedule-key-1");
+            assertThat(request.body()).isEqualTo(body);
+        });
     }
 
     @Test
@@ -200,7 +220,8 @@ class GatewayEntrega2RoleAuthorizationTest {
         if (token != null) {
             spec = spec.header("Authorization", "Bearer " + token);
         }
-        if (route.method() == HttpMethod.POST) {
+        if (route.method() == HttpMethod.POST || route.method() == HttpMethod.PUT
+                || route.method() == HttpMethod.PATCH) {
             return spec.contentType(MediaType.APPLICATION_JSON).bodyValue(Map.of("qrPayload", "v1.x.y")).exchange();
         }
         return spec.exchange();
@@ -228,12 +249,13 @@ class GatewayEntrega2RoleAuthorizationTest {
 
     private static void handle(String name, HttpExchange exchange) throws IOException {
         try (exchange) {
-            exchange.getRequestBody().readAllBytes();
+            String requestBody = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             REQUESTS.add(new Recorded(name, exchange.getRequestURI().getRawPath(),
                     exchange.getRequestHeaders().getFirst("X-User-Id"),
                     exchange.getRequestHeaders().getFirst("X-User-Role"),
                     exchange.getRequestHeaders().getFirst("Authorization"),
-                    exchange.getRequestHeaders().getFirst("X-Correlation-Id")));
+                    exchange.getRequestHeaders().getFirst("X-Correlation-Id"),
+                    exchange.getRequestHeaders().getFirst("Idempotency-Key"), requestBody));
             byte[] body = ("{\"upstream\":\"" + name + "\"}").getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", MediaType.APPLICATION_JSON_VALUE);
             exchange.sendResponseHeaders(200, body.length);
@@ -244,6 +266,6 @@ class GatewayEntrega2RoleAuthorizationTest {
     }
 
     private record Recorded(String upstream, String path, String userId, String role, String authorization,
-                            String correlationId) {
+                            String correlationId, String idempotencyKey, String body) {
     }
 }
