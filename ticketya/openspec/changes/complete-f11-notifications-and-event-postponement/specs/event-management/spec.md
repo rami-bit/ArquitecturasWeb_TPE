@@ -4,63 +4,46 @@
 
 ### Requirement: Postergar la fecha y hora de un evento publicado
 
-Catalog SHALL exponer `PATCH /api/management/events/{id}/schedule` para que el `ORGANIZER` dueño o `ADMIN` cambie sólo `startsAt` de un evento `PUBLISHED` que aún no comenzó. La nueva fecha, comparada como instante, SHALL ser posterior a la fecha vigente y al instante de gestión más 72 horas. El request SHALL incluir revisión esperada y clave de idempotencia. El resto de la configuración SHALL conservarse. Trazabilidad: PDF-F11.
+Catalog SHALL exponer `PATCH /api/management/events/{id}/schedule` para el `ORGANIZER` dueño o `ADMIN`, con `startsAt`, `expectedScheduleRevision` e `Idempotency-Key`. Sólo SHALL cambiar la fecha de un evento `PUBLISHED` no iniciado. La nueva fecha SHALL ser posterior a la vigente y al instante de gestión más 72 horas. Trazabilidad: PDF-F11.
 
-#### Scenario: Postergación válida del organizador
+#### Scenario: Postergación válida
 
-- **GIVEN** un evento `PUBLISHED` cuya fecha vigente es posterior al momento actual
-- **WHEN** el organizador dueño propone una fecha posterior a la vigente y a `now + 72h`
-- **THEN** Catalog confirma la nueva fecha, incrementa la revisión de programación y devuelve fecha anterior, fecha vigente y revisión
+- **WHEN** el dueño o `ADMIN` propone una fecha que cumple ambos límites
+- **THEN** Catalog confirma la nueva fecha, incrementa la revisión y devuelve fechas anterior y nueva
 
-#### Scenario: Administrador posterga un evento ajeno
+#### Scenario: Fecha inválida
 
-- **WHEN** `ADMIN` posterga válidamente un evento publicado de cualquier organizador
-- **THEN** Catalog confirma el cambio con el mismo contrato de respuesta
+- **WHEN** la fecha nueva adelanta o iguala la vigente, o no supera estrictamente el instante de gestión más 72 horas
+- **THEN** Catalog responde `409` sin modificar el evento
 
-#### Scenario: Fecha adelantada, igual o dentro de las 72 horas
+#### Scenario: Estado o actor inválido
 
-- **WHEN** la fecha propuesta es anterior o igual a la vigente, o no supera estrictamente `now + 72h`
-- **THEN** Catalog responde `409` y conserva la fecha y revisión vigentes
+- **WHEN** el evento no está `PUBLISHED`, ya comenzó o lo solicita un organizador ajeno
+- **THEN** Catalog responde `409` o `403`, según corresponda, sin emitir aviso
 
-#### Scenario: Estado o actor no permitido
+#### Scenario: Revisión obsoleta o reintento
 
-- **WHEN** se intenta postergar un evento `DRAFT`, `SUSPENDED`, `CANCELLED` o `FINISHED`, o lo solicita un organizador ajeno
-- **THEN** Catalog rechaza con `409` o `403` según corresponda y no cambia ningún dato
+- **WHEN** dos solicitudes compiten sobre la misma revisión, o el actor repite la misma clave de idempotencia
+- **THEN** sólo una modificación crea revisión y aviso; el replay idéntico devuelve el resultado original y una clave reutilizada con otro cuerpo recibe `409`
 
-#### Scenario: El evento ya comenzó
+### Requirement: Preservar la configuración y comunicar el cambio confirmado
 
-- **WHEN** un actor autorizado intenta postergar un evento cuya fecha vigente ya llegó
-- **THEN** Catalog responde `409` sin cambiar la fecha ni crear un aviso
+Catalog SHALL conservar el snapshot de publicación y SHALL enviar `EVENT_POSTPONED` con un identificador estable y ambas fechas después del commit. La regla de devolución SHALL seguir usando la fecha vigente de Catalog sin excepción nueva. Trazabilidad: PDF-F7 y PDF-F11.
 
-#### Scenario: Dos postergaciones concurrentes
+#### Scenario: Cambio confirmado
 
-- **GIVEN** dos solicitudes basadas en la misma revisión vigente
-- **WHEN** ambas intentan confirmar fechas distintas
-- **THEN** sólo una incrementa la revisión y la otra recibe `409` por revisión obsoleta
+- **WHEN** se confirma una postergación
+- **THEN** lugar, participantes, sectores, asientos, capacidad, precios y QR conservan sus valores, y Notification Service recibe el cambio con fechas anterior y nueva
 
-#### Scenario: Reintento de la misma operación
+#### Scenario: Cambio rechazado
 
-- **WHEN** el mismo actor reintenta una postergación ya confirmada con la misma clave de idempotencia y el mismo cuerpo
-- **THEN** recibe el resultado original sin crear otra revisión ni otro aviso
+- **WHEN** Catalog rechaza la postergación
+- **THEN** no envía el hecho ni modifica la fecha vigente
 
-### Requirement: Mantener fecha vigente y configuración publicada consistentes
+#### Scenario: Devolución posterior
 
-Catalog SHALL conservar la configuración original de lugar, sectores, asientos, capacidad, participantes y precios, y SHALL ofrecer la fecha vigente y la revisión de programación a los consumidores del evento tras una postergación. La fecha de publicación original SHALL permanecer disponible como dato histórico. Trazabilidad: PDF-F11 y PDF-NF-CONSISTENCY.
-
-#### Scenario: Lecturas después de postergar
-
-- **WHEN** Catalog confirma una postergación
-- **THEN** gestión y contratos internos de compra y recomendación informan la fecha vigente y conservan los mismos identificadores, lugar y precios
-
-#### Scenario: Programación de un evento cancelado para consumidores internos
-
-- **WHEN** Purchase consulta internamente la programación de un evento cancelado con entradas vendidas
-- **THEN** Catalog informa su última fecha vigente, revisión y estado sin publicar el detalle del evento a clientes anónimos
-
-#### Scenario: La regla de devolución sigue vigente
-
-- **WHEN** un cliente solicita devolver una entrada después de una postergación
-- **THEN** Purchase aplica la regla existente de 72 horas antes de la fecha vigente obtenida de Catalog, sin excepción nueva por reprogramación
+- **WHEN** un comprador solicita una devolución después de la postergación
+- **THEN** Purchase aplica la regla existente de 72 horas respecto de la fecha vigente de Catalog
 
 ## MODIFIED Requirements
 
@@ -82,6 +65,5 @@ El sistema MUST rechazar modificaciones de datos o configuración cuando el even
 
 #### Scenario: Postergar por el comando específico
 
-- **GIVEN** un evento `PUBLISHED` con configuración de venta publicada
-- **WHEN** su dueño o `ADMIN` usa el comando de programación con una fecha válida
-- **THEN** sólo cambia la fecha vigente, mientras el snapshot original de venta se conserva
+- **WHEN** el dueño o `ADMIN` usa el comando de programación sobre un evento `PUBLISHED` con fecha válida
+- **THEN** sólo cambia la fecha vigente y se conserva el snapshot original

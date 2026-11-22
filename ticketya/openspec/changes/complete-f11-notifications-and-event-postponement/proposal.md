@@ -2,32 +2,27 @@
 
 ## Why
 
-F11 es la única funcionalidad obligatoria de Entrega 2 sin entrega real: Purchase registra eventos de notificación, pero ningún servicio envía avisos al cliente. El enunciado también exige avisar ante cambios de evento y Catalog sólo permite editar borradores; hace falta una postergación acotada que no altere asientos, precios ni la regla de devoluciones.
+La implementación actual de PDF-F11 ya registra avisos de compra, cancelación, suspensión, reanudación y publicación relevante, pero el canal `EMAIL` sólo escribe en un log y queda marcado `SENT`. Catalog tampoco permite modificar la fecha u horario de un evento publicado, por lo que no puede avisar ese cambio. Son las dos brechas que aborda este cambio.
 
 ## What Changes
 
-- Incorporar email al cliente mediante un servicio de notificaciones y Mailpit como receptor SMTP verificable en Compose. El cliente registra su propia dirección; el servicio conserva estado de entrega y evita duplicados.
-- Enviar avisos por compra confirmada, cancelación del evento y publicación de un artista favorito en la ciudad del cliente. La compensación de una orden conserva su evento `ORDER_CANCELLED`, distinto de la cancelación de un evento.
-- Permitir que el organizador dueño o ADMIN postergue sólo la fecha/hora de un evento `PUBLISHED`. La nueva fecha debe ser posterior tanto a la vigente como al instante de gestión más 72 horas. Mantener intacta la regla actual de devolución, que consulta la fecha vigente en Catalog.
-- Mostrar la fecha vigente en catálogo, recomendaciones y consulta de entradas compradas, preservando la fecha original como dato histórico. El QR, lugar, sectores, asientos, capacidad y precios permanecen estables.
-- Añadir contratos, seguridad, trazabilidad, despliegue y casos de prueba para los nuevos flujos. La entrega de emails no bloquea compra, publicación, postergación ni cancelación.
+- Permitir que cada `CLIENT` registre y consulte su email. Entregar las notificaciones `EMAIL` existentes por SMTP a Mailpit en Compose; `SENT` significará aceptación SMTP. Conservar la bandeja y el canal `PUSH` simulado actuales.
+- Permitir al dueño `ORGANIZER` o a `ADMIN` postergar sólo `startsAt` de un evento `PUBLISHED` aún no iniciado. La fecha nueva debe ser estrictamente posterior a la vigente y al instante de gestión más 72 horas. La operación será idempotente y rechazará revisiones obsoletas.
+- Emitir `EVENT_POSTPONED` después del commit hacia la ingesta F11 existente. Cada comprador recibirá el aviso con fecha anterior y nueva, sin repetirlo por el mismo cambio.
+- Mostrar y usar la fecha vigente en búsqueda, detalle y candidatos de recomendaciones, invalidando la caché tras el commit. Mantener el snapshot publicado, las entradas y QR, y la regla actual de reintegro.
+- Actualizar contratos y pruebas de estos dos flujos, incluido Mailpit y el paso por Gateway.
 
 ## Capabilities
 
-### New Capabilities
-
-- `customer-notifications`: registro de email propio, avisos de F11, deduplicación, estados de entrega y degradación ante fallo SMTP.
-
 ### Modified Capabilities
 
-- `event-management`: excepción específica a la inmutabilidad para postergar fecha/hora de un evento publicado, con autorización y límites temporales.
-- `event-discovery`: fecha vigente en búsquedas, detalle y candidatos de recomendaciones tras una postergación.
-- `customer-preferences`: búsqueda interna y acotada de clientes que siguen a un artista en la ciudad de un evento publicado.
-- `purchased-tickets`: fecha vigente visible al titular junto al dato histórico de compra, sin modificar el QR.
-- `caching-strategy`: invalidación de búsqueda y detalle luego de confirmar una postergación.
-- `api-gateway`: ruta protegida de email propio y preservación de los contratos internos fuera del Gateway.
-- `containerized-deployment`: servicio de notificaciones, base propia y Mailpit en el Compose central.
+- `customer-notifications`: contacto propio, entrega SMTP del canal `EMAIL` y aviso por postergación, reutilizando la ingesta, deduplicación, reintentos, bandeja y consulta de compradores actuales.
+- `event-management`: postergación autorizada e idempotente de fecha/hora de un evento publicado.
+- `event-discovery`: fecha vigente en búsqueda, detalle y recomendaciones.
+- `caching-strategy`: invalidación de búsqueda y detalle después de una postergación confirmada.
+- `api-gateway`: autorización explícita de la nueva operación de postergación; la ruta de notificaciones ya existe.
+- `containerized-deployment`: Mailpit como receptor SMTP local; Notification Service y su PostgreSQL ya existen.
 
 ## Impact
 
-Catalog, Purchase, Preferences, API Gateway y un nuevo `notification-service`; PostgreSQL de Catalog/Purchase/Notification y MongoDB de Preferences. Se amplían `docs/openapi.yaml`, la colección Postman, Compose, README, diagramas y pruebas de contrato/integración. Mailpit captura correo en el entorno local; un SMTP externo puede configurarse en otro entorno sin cambiar los contratos de F11.
+Se modifican Catalog, Notification Service y Gateway; Purchase y Preferences conservan sus contratos internos actuales. Se agregan datos de contacto y revisión/historial de fecha, además de Mailpit en Compose. OpenAPI, Postman y documentación se actualizan sólo para los endpoints y comportamientos nuevos. No se implementa una interfaz gráfica ni se reemplaza el canal `PUSH` simulado.
