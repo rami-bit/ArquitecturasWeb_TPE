@@ -1,5 +1,24 @@
 # Verificación de Entrega 1 y Entrega 2
 
+## Verificación de PDF-F11 — notificaciones (2026-11-20)
+
+Entorno: Linux, Docker Engine 29.9.2, OpenJDK 21 (`release=19`), Maven 3.9.11, Testcontainers con PostgreSQL 16.4 y MongoDB 7.0 reales.
+
+| Verificación | Comando / entorno | Resultado |
+|---|---|---|
+| Línea base | `mvn -q clean verify` antes de los cambios | 436 pruebas, 0 fallos, 0 errores, 0 omitidos. |
+| Reactor completo | `mvn -q clean verify` | **466 pruebas, 0 fallos, 0 errores, 0 omitidos**: Gateway 65, Audit 9, Catalog 75, Inventory 75, Notification 15, Payment 26, Preferences 25, Purchase 97, Queue 47, Ticket 32. |
+| Notification Service | `NotificationServiceContractTest` (10), `NotificationRulesTest` (3), `RequestLoggingFilterTest` (2) | Ingesta idempotente; email y push al comprador; cancelación a cada comprador una vez; suspensión/reanudación deduplicadas por `changeId`; fans por ciudad y artista; Purchase caído → reintento y recuperación; caído más allá del presupuesto → `FAILED`; pasarela caída → reintentos y `FAILED`; pasarela recuperada → `SENT`; **4 procesadores concurrentes sobre 20 hechos → 20 reclamos y 40 notificaciones, sin duplicados**; validación y roles. |
+| Productores y destinatarios | `EventChangeNotificationIntegrationTest` (3), `EventNotificationPublisherTest` (3), `EventBuyersIntegrationTest` (2), `NotificationDispatcherPayloadTest` (1), `PreferenceMatchesMongoIntegrationTest` (4) | Catalog notifica sólo transiciones confirmadas, con ciudad y participantes; Purchase informa compradores pagados y envía los datos públicos del evento; Preferences encuentra fans sin distinguir mayúsculas y trata los nombres literalmente (no como regex). |
+| Gateway | `GatewayEntrega2RoleAuthorizationTest`, `ConsolidatedOpenApiDocumentContractTest` | `/api/notifications/me` llega a Notification Service sólo con `CLIENT`; el resto `403`, sin token `401`. Contrato: 54 paths, 61 operaciones, 90 esquemas. |
+| Compose aislado | `docker compose -p ticketya_f11_verification up --build -d --wait` | **19/19 contenedores healthy**. |
+| Postman por el Gateway | Newman 6.2.1 con tokens del IdP local | **117 requests, 196 aserciones, 0 fallos**; los pasos `F11-01`…`F11-12` verifican email y push `SENT` de la compra, la suspensión, la reanudación, la cancelación (dos compradores) y el aviso por artista favorito, además de los rechazos por rol y sin token. En la base: 30 notificaciones `SENT` (ORDER_CONFIRMED 12, EVENT_SUSPENDED 8, EVENT_RESUMED 4, EVENT_CANCELLED 4, EVENT_PUBLISHED 2). |
+| Compras simultáneas | `python postman/concurrent-purchases.py` | PASS: 12 compras, 1 confirmada, 11 conflictos, 1 asiento vendido. |
+| Resiliencia | `docker compose stop notification-service` y repetir la prueba anterior | PASS igual; Purchase y Catalog registran el fallback local. Al reiniciar, el servicio vuelve a quedar `healthy`. |
+| OpenSpec | `openspec validate --all --strict` | 24/24 specs válidas; `add-customer-notifications` válido en modo estricto antes de archivarse. |
+
+**Limitación del entorno de verificación (no del repositorio):** en el sandbox, la etapa `maven` de los Dockerfiles no pudo descargar dependencias por el proxy TLS del entorno. Las imágenes se construyeron con un override local, fuera del repositorio, que copia los JAR de `mvn verify` sobre `amazoncorretto:19-alpine`. `services/notification-service/Dockerfile` replica el patrón de Audit, Purchase y Payment Mock.
+
 ## Verificación de las épicas E2-02, E2-03 y E2-04 (2026-11-17)
 
 Estado: **cerradas**. Entorno: Linux, Docker Engine 29.9.2, OpenJDK 21 (compilación con `release=19`), Maven 3.9.11, Testcontainers con PostgreSQL 16.4 real.

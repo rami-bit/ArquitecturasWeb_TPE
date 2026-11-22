@@ -2,7 +2,7 @@ openapi: 3.0.3
 
 info:
   title: TicketYa API - Consolidated contracts
-  version: '0.5.0'
+  version: '0.6.0'
   description: |
     Contrato versionado consolidado de TicketYa. Incluye el core de la Entrega 1
     (Catalog, Inventory, Purchase, Ticket y Payment Mock), la seguridad JWT de
@@ -20,8 +20,11 @@ info:
     `ADMIN` y `ACCESS_STAFF`), validación en el Gateway y propagación de
     identidad derivada a los servicios.
 
-    No declara funcionalidades aún no implementadas (preferencias de cliente,
-    recomendaciones, notificaciones).
+    - **PDF-F11 (`add-customer-notifications`):** notificaciones por email y
+      push simulados al confirmar o cancelar una compra, ante la suspensión,
+      reanudación o cancelación de un evento y cuando un artista favorito publica
+      un evento en la ciudad del cliente. Bandeja del cliente en
+      `/api/notifications/me` (Notification Service).
 
     Superficie pública a través del API Gateway (`http://localhost:8080`):
     - **Catalog público:** `GET /api/events`, `GET /api/events/{id}`.
@@ -245,7 +248,20 @@ tags:
     description: |
       Contratos internos de senales de historial (Purchase) y de candidatos
       (Catalog), consumidos solo por Preferences Service dentro de la red de
-      servicios. El Gateway no publica ninguna de estas rutas.
+      servicios. El Gateway no publica ninguna de estas rutas.  - name: Customer notifications
+    description: |
+      PDF-F11. Bandeja del cliente autenticado (`CLIENT`): notificaciones de
+      compra, de cambios del evento y de artistas favoritos, con su canal
+      (`EMAIL` o `PUSH`) y estado de entrega (`PENDING`, `SENT`, `FAILED`).
+  - name: Notification ingestion (internal)
+    description: |
+      PDF-F11. Hechos de negocio que Purchase y Catalog envían de forma
+      asíncrona (fire-and-forget) a Notification Service. Idempotentes.
+  - name: Notification recipients (internal)
+    description: |
+      PDF-F11. Contratos de sólo lectura que Notification Service usa para
+      resolver destinatarios sin acceder a bases ajenas.
+
 paths:
 
   # ─── CATALOG VENUES ────────────────────────────────────────────────────────
@@ -3952,6 +3968,203 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+  # ─── PDF-F11 NOTIFICACIONES ────────────────────────────────────────────────
+
+  /api/notifications/me:
+    get:
+      tags: [Customer notifications]
+      operationId: listMyNotifications
+      summary: Listar las notificaciones del cliente autenticado
+      description: |
+        Sólo `CLIENT`; la identidad sale del `sub` del JWT. Más recientes
+        primero. Cada hecho genera una notificación por canal (`EMAIL` y `PUSH`).
+        La entrega es asíncrona: una notificación recién creada puede figurar
+        `PENDING` unos segundos antes de pasar a `SENT`.
+      parameters:
+        - { name: type, in: query, required: false, schema: { type: string, enum: [ORDER_CONFIRMED, ORDER_CANCELLED, EVENT_PUBLISHED, EVENT_SUSPENDED, EVENT_RESUMED, EVENT_CANCELLED] } }
+        - $ref: '#/components/parameters/PageNumber'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Página de notificaciones.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerNotificationPage' }
+              example:
+                items:
+                  - notificationId: 7c1e2d3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f
+                    type: ORDER_CONFIRMED
+                    channel: EMAIL
+                    subject: 'Compra confirmada: Recital Rosario'
+                    body: Tu orden 0a9b8c7d-6e5f-4a3b-9c2d-1e0f9a8b7c6d fue confirmada (2027-03-10T21:00Z). Tus entradas con QR ya están disponibles en la app.
+                    status: SENT
+                    eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+                    orderId: 0a9b8c7d-6e5f-4a3b-9c2d-1e0f9a8b7c6d
+                    correlationId: purchase-7b1f
+                    attempts: 1
+                    createdAt: '2026-11-20T18:00:00.120Z'
+                    sentAt: '2026-11-20T18:00:01.010Z'
+                page: 0
+                size: 20
+                totalItems: 1
+        '400':
+          description: 'Paginación o tipo inválidos.'
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '401':
+          description: 'Token Bearer ausente, inválido o vencido; lo responde el Gateway.'
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403':
+          description: 'El rol no es CLIENT.'
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /internal/notifications:
+    post:
+      tags: [Notification ingestion (internal)]
+      operationId: recordOrderNotification
+      security: []
+      summary: Registrar una compra confirmada o cancelada
+      description: |
+        Lo invoca Purchase sin bloquear la compra (pool acotado, timeouts y
+        circuit breaker; ante falla queda el log local). Idempotente por
+        `type` + `orderId`: reenviar responde `202` con `duplicate: true`.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrderNotificationRequest' }
+            example:
+              type: ORDER_CONFIRMED
+              orderId: 0a9b8c7d-6e5f-4a3b-9c2d-1e0f9a8b7c6d
+              customerId: 66bd0a43-1baa-4f7b-8316-930593b84d7c
+              correlationId: purchase-7b1f
+              eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+              eventName: Recital Rosario
+              eventStartsAt: '2027-03-10T21:00:00Z'
+      responses:
+        '202':
+          description: Registrado, o reintento ya registrado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationIngestResponse' }
+        '400':
+          description: 'Hecho inválido (tipo no permitido o campos faltantes).'
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /internal/notifications/event-changes:
+    post:
+      tags: [Notification ingestion (internal)]
+      operationId: recordEventChangeNotification
+      security: []
+      summary: Registrar la publicación, suspensión, reanudación o cancelación de un evento
+      description: |
+        Lo invoca Catalog después del commit de la transición. Publicación y
+        cancelación se deduplican por `type` + `eventId`; suspensión y
+        reanudación, que pueden repetirse, por `type` + `eventId` + `changeId`.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EventChangeNotificationRequest' }
+            example:
+              type: EVENT_PUBLISHED
+              eventId: e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b
+              changeId: 1b2c3d4e-5f60-4718-9a2b-3c4d5e6f7a8b
+              eventName: Recital Rosario
+              startsAt: '2027-03-10T21:00:00-03:00'
+              city: Rosario
+              participants: [Banda Uno]
+      responses:
+        '202':
+          description: Registrado, o reintento ya registrado.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationIngestResponse' }
+        '400':
+          description: 'Hecho inválido (tipo no permitido o campos faltantes).'
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /internal/events/{eventId}/buyers:
+    get:
+      tags: [Notification recipients (internal)]
+      operationId: listEventBuyers
+      security: []
+      summary: Clientes con compras pagadas de un evento (Purchase)
+      description: |
+        Sólo identificadores de cliente distintos con órdenes `CONFIRMED` o
+        `PAID_PENDING_TICKETS`; sin órdenes, montos ni tickets.
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Compradores del evento (lista vacía si no hay ventas).
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EventBuyers' }
+
+  /internal/preferences/matches:
+    get:
+      tags: [Notification recipients (internal)]
+      operationId: findPreferenceMatches
+      security: []
+      summary: Clientes con algún artista favorito en una ciudad (Preferences)
+      description: |
+        Coincidencia exacta, sin distinguir mayúsculas ni espacios extremos, de
+        la ciudad y de al menos un artista favorito. Sin `city` o sin `artist`
+        responde una lista vacía. Hasta 50 artistas.
+      parameters:
+        - { name: city, in: query, required: false, schema: { type: string, maxLength: 120 } }
+        - { name: artist, in: query, required: false, schema: { type: array, items: { type: string, maxLength: 200 } }, style: form, explode: true }
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Clientes que coinciden.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PreferenceMatches' }
+        '400':
+          description: 'Parámetros fuera de rango.'
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
 components:
   securitySchemes:
     BearerJWT:
@@ -6182,6 +6395,88 @@ components:
           maxItems: 200
           items: { $ref: '#/components/schemas/EventCandidate' }
         generatedAt: { type: string, format: date-time, example: '2026-11-20T12:00:00Z' }
+
+    OrderNotificationRequest:
+      type: object
+      required: [type, orderId, customerId]
+      properties:
+        type: { type: string, enum: [ORDER_CONFIRMED, ORDER_CANCELLED] }
+        orderId: { type: string, format: uuid }
+        customerId: { type: string, format: uuid }
+        correlationId: { type: string, maxLength: 120, nullable: true }
+        eventId: { type: string, format: uuid, nullable: true }
+        eventName: { type: string, maxLength: 200, nullable: true }
+        eventStartsAt: { type: string, format: date-time, nullable: true }
+        totalAmount: { type: number, nullable: true }
+
+    EventChangeNotificationRequest:
+      type: object
+      required: [type, eventId, eventName]
+      properties:
+        type: { type: string, enum: [EVENT_PUBLISHED, EVENT_SUSPENDED, EVENT_RESUMED, EVENT_CANCELLED] }
+        eventId: { type: string, format: uuid }
+        changeId: { type: string, format: uuid, nullable: true }
+        eventName: { type: string, maxLength: 200 }
+        startsAt: { type: string, format: date-time, nullable: true }
+        city: { type: string, maxLength: 120, nullable: true }
+        participants:
+          type: array
+          maxItems: 50
+          items: { type: string, maxLength: 200 }
+        correlationId: { type: string, maxLength: 120, nullable: true }
+
+    NotificationIngestResponse:
+      type: object
+      required: [triggerId, type, duplicate]
+      properties:
+        triggerId: { type: string, format: uuid }
+        type: { type: string }
+        duplicate: { type: boolean }
+
+    CustomerNotification:
+      type: object
+      required: [notificationId, type, channel, subject, body, status, attempts, createdAt]
+      properties:
+        notificationId: { type: string, format: uuid }
+        type: { type: string, enum: [ORDER_CONFIRMED, ORDER_CANCELLED, EVENT_PUBLISHED, EVENT_SUSPENDED, EVENT_RESUMED, EVENT_CANCELLED] }
+        channel: { type: string, enum: [EMAIL, PUSH] }
+        subject: { type: string, maxLength: 200 }
+        body: { type: string }
+        status: { type: string, enum: [PENDING, SENT, FAILED] }
+        eventId: { type: string, format: uuid, nullable: true }
+        orderId: { type: string, format: uuid, nullable: true }
+        correlationId: { type: string, nullable: true }
+        attempts: { type: integer }
+        createdAt: { type: string, format: date-time }
+        sentAt: { type: string, format: date-time, nullable: true }
+
+    CustomerNotificationPage:
+      type: object
+      required: [items, page, size, totalItems]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CustomerNotification' }
+        page: { type: integer }
+        size: { type: integer }
+        totalItems: { type: integer, format: int64 }
+
+    EventBuyers:
+      type: object
+      required: [eventId, customerIds]
+      properties:
+        eventId: { type: string, format: uuid }
+        customerIds:
+          type: array
+          items: { type: string, format: uuid }
+
+    PreferenceMatches:
+      type: object
+      required: [customerIds]
+      properties:
+        customerIds:
+          type: array
+          items: { type: string, format: uuid }
 
   examples:
     QueueEntryWaiting:

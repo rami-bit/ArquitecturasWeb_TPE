@@ -51,6 +51,7 @@ class ConsolidatedOpenApiDocumentContractTest {
     private static final String TICKET = "Ticket";
     private static final String PAYMENT = "Payment";
     private static final String PREFERENCES = "Preferences";
+    private static final String NOTIFICATION = "Notification";
 
     private static final List<Operation> ENTREGA1_OPERATIONS = List.of(
             // ---------------------------------------------------------------- Catalog
@@ -161,6 +162,25 @@ class ConsolidatedOpenApiDocumentContractTest {
             "/api/audit/traces/{correlationId}:get", Set.of(200, 401, 403, 404),
             "/internal/audit-events:post", Set.of(202, 400));
 
+    /**
+     * Operaciones de PDF-F11 (notificaciones): la bandeja pública del cliente,
+     * la ingesta interna de hechos y los dos contratos internos de destinatarios.
+     */
+    private static final List<Operation> NOTIFICATION_OPERATIONS = List.of(
+            new Operation("/api/notifications/me", "get", "listMyNotifications", NOTIFICATION),
+            new Operation("/internal/notifications", "post", "recordOrderNotification", NOTIFICATION),
+            new Operation("/internal/notifications/event-changes", "post",
+                    "recordEventChangeNotification", NOTIFICATION),
+            new Operation("/internal/events/{eventId}/buyers", "get", "listEventBuyers", PURCHASE),
+            new Operation("/internal/preferences/matches", "get", "findPreferenceMatches", PREFERENCES));
+
+    private static final Map<String, Set<Integer>> NOTIFICATION_STATUS_CODES = Map.of(
+            "/api/notifications/me:get", Set.of(200, 400, 401, 403),
+            "/internal/notifications:post", Set.of(202, 400),
+            "/internal/notifications/event-changes:post", Set.of(202, 400),
+            "/internal/events/{eventId}/buyers:get", Set.of(200),
+            "/internal/preferences/matches:get", Set.of(200, 400));
+
     private static final Map<String, Set<Integer>> PREFERENCES_STATUS_CODES = Map.of(
             "/api/customers/me/preferences:put", Set.of(200, 400, 401, 403),
             "/api/customers/me/preferences:get", Set.of(200, 401, 403),
@@ -256,14 +276,12 @@ class ConsolidatedOpenApiDocumentContractTest {
     private static final Map<String, List<String>> BEARER_REQUIREMENT = Map.of("BearerJWT", List.of());
 
     /**
-     * Fragmentos de capacidades todavía fuera del alcance del contrato. Las
-     * épicas E2-01 a E2-04 y la fila virtual (PDF-F6) ya están implementadas y
-     * declaradas, por lo que sólo queda excluir lo que aún no existe: las
-     * notificaciones (PDF-F11). Este guard impide documentar como disponible
-     * una capacidad que ningún servicio implementa.
+     * Fragmentos de capacidades todavía fuera del alcance del contrato. Con
+     * PDF-F11 (notificaciones) implementada, todas las funcionalidades del PDF
+     * están declaradas y la lista queda vacía; el guard se conserva para
+     * impedir documentar en el futuro una capacidad que ningún servicio implementa.
      */
-    private static final List<String> NOT_YET_IMPLEMENTED_CAPABILITY_FRAGMENTS = List.of(
-            "notification");
+    private static final List<String> NOT_YET_IMPLEMENTED_CAPABILITY_FRAGMENTS = List.of();
 
     private static Map<String, Object> contract;
 
@@ -800,6 +818,45 @@ class ConsolidatedOpenApiDocumentContractTest {
                 assertThat(security).containsExactly((Object) BEARER_REQUIREMENT);
             }
         }
+    }
+
+    @Test
+    void contractDeclaresTheNotificationOperationsWithStatusCodesAndSecurity() {
+        for (Operation operation : NOTIFICATION_OPERATIONS) {
+            Map<String, Object> op = operation(operation);
+            assertThat(op.get("operationId"))
+                    .as("operationId de %s %s", operation.method(), operation.path())
+                    .isEqualTo(operation.operationId());
+            String key = operation.path() + ":" + operation.method();
+            Set<Integer> documented = responses(operation).keySet().stream()
+                    .filter(code -> code.matches("\\d{3}"))
+                    .map(Integer::parseInt)
+                    .collect(java.util.stream.Collectors.toSet());
+            assertThat(documented).as("codigos minimos de %s", key)
+                    .containsAll(NOTIFICATION_STATUS_CODES.get(key));
+            if (operation.path().startsWith("/internal/")) {
+                assertThat(op.get("security")).as("%s es interna: security []", key)
+                        .isEqualTo(List.of());
+            } else {
+                assertThat(op.get("security"))
+                        .as("%s hereda el requisito BearerJWT global", key).isNull();
+                @SuppressWarnings("unchecked")
+                List<Object> security = (List<Object>) effectiveSecurity(op);
+                assertThat(security).containsExactly((Object) BEARER_REQUIREMENT);
+            }
+        }
+    }
+
+    @Test
+    void notificationSchemasAreDeclared() {
+        assertThat(schemas().keySet()).contains(
+                "OrderNotificationRequest", "EventChangeNotificationRequest", "NotificationIngestResponse",
+                "CustomerNotification", "CustomerNotificationPage", "EventBuyers", "PreferenceMatches");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> properties = (Map<String, Object>) schema("CustomerNotification").get("properties");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> channel = (Map<String, Object>) properties.get("channel");
+        assertThat((List<String>) channel.get("enum")).containsExactlyInAnyOrder("EMAIL", "PUSH");
     }
 
     @Test

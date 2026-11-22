@@ -90,6 +90,15 @@ public class NotificationDispatcher {
             body.put("orderId", event.orderId().toString());
             body.put("customerId", event.customerId().toString());
             body.put("correlationId", event.correlationId());
+            if (event.eventId() != null) {
+                body.put("eventId", event.eventId().toString());
+            }
+            if (event.eventName() != null) {
+                body.put("eventName", event.eventName());
+            }
+            if (event.eventStartsAt() != null) {
+                body.put("eventStartsAt", event.eventStartsAt().toString());
+            }
             http.post()
                     .uri(endpoint)
                     .contentType(MediaType.APPLICATION_JSON)

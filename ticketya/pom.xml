@@ -19,6 +19,7 @@
         <module>services/queue-service</module>
         <module>services/audit-service</module>
         <module>services/preferences-service</module>
+        <module>services/notification-service</module>
     </modules>
 
     <properties>

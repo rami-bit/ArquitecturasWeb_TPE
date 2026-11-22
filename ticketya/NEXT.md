@@ -1,5 +1,22 @@
 # Progreso del proyecto
 
+## PDF-F11 - Notificaciones al cliente (2026-11-20)
+
+**Estado:** cerrada. El cambio OpenSpec quedó archivado como `openspec/changes/archive/2026-11-20-add-customer-notifications/`; capacidad nueva `customer-notifications` y agregado en `api-gateway`, sincronizados en `openspec/specs/`.
+
+- [x] `services/notification-service` (puerto 8088, `notification-db` PostgreSQL): ingesta interna idempotente, inbox/outbox con `FOR UPDATE SKIP LOCKED`, reintentos exponenciales, estado `FAILED`, pasarela de email/push simulada y bandeja `GET /api/notifications/me` (sólo `CLIENT`).
+- [x] Purchase: datos del evento en `ORDER_CONFIRMED`, avisos también al reconciliar o compensar, y `GET /internal/events/{eventId}/buyers`.
+- [x] Catalog: `EventNotificationPublisher` con envío `afterCommit` al publicar, suspender, reanudar y cancelar.
+- [x] Preferences: `GET /internal/preferences/matches` (MongoDB, comparación literal sin distinguir mayúsculas).
+- [x] Gateway: `/api/notifications/**` sólo `CLIENT`. OpenAPI: 54 paths, 61 operaciones, 90 esquemas. Postman: `F11-01`…`F11-12` (106 items).
+- [x] `mvn clean verify`: **466 pruebas, 0 fallos, 0 errores, 0 omitidos** (base 436; +30).
+- [x] Compose aislado `ticketya_f11_verification`: **19/19 contenedores healthy**.
+- [x] Newman por el Gateway: **117 requests, 196 aserciones, 0 fallos**.
+- [x] `postman/concurrent-purchases.py`: PASS, también con `notification-service` detenido (Purchase y Catalog registran el fallback local).
+- [x] `openspec validate --all --strict`: **24/24**; el cambio, válido en modo estricto antes de archivarse.
+
+**Límites conocidos:** la pasarela es simulada (log `ticketya.delivery`). Si Notification Service está caído cuando Purchase o Catalog publican, el hecho queda sólo en el log local del productor (la misma garantía que la bitácora). Un outbox en los productores sería la evolución.
+
 ## Fase 0 - Reparación de integración post-merge (2026-11-20)
 
 **Estado:** cerrada y verificada sobre `main` (`6f1ed0b` + cambios locales). Detalle de la deuda y del plan en `ROADMAP-Orquestador-F10.md`.

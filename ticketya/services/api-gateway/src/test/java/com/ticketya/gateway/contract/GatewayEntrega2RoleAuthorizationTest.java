@@ -31,7 +31,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Seguridad y enrutamiento de las rutas de Entrega 2 incorporadas por
- * E2-02 (bitácora), E2-03 (control de acceso QR) y E2-04 (reportes):
+ * E2-02 (bitácora), E2-03 (control de acceso QR), E2-04 (reportes) y PDF-F11
+ * (bandeja de notificaciones del cliente):
  *
  * <ul>
  *   <li>cada ruta llega al servicio correcto con la identidad derivada;</li>
@@ -56,6 +57,7 @@ class GatewayEntrega2RoleAuthorizationTest {
     private static final HttpServer PURCHASE = stub("purchase");
     private static final HttpServer AUDIT = stub("audit");
     private static final HttpServer CATALOG = stub("catalog");
+    private static final HttpServer NOTIFICATION = stub("notification");
 
     private record Route(HttpMethod method, String path, String upstream, Set<String> allowedRoles) {
     }
@@ -69,7 +71,8 @@ class GatewayEntrega2RoleAuthorizationTest {
             new Route(HttpMethod.GET, "/api/reports/events/" + EVENT_ID, "purchase",
                     Set.of("ORGANIZER", "ADMIN")),
             new Route(HttpMethod.GET, "/api/audit/events", "audit", Set.of("ADMIN")),
-            new Route(HttpMethod.GET, "/api/audit/traces/trace-1", "audit", Set.of("ADMIN")));
+            new Route(HttpMethod.GET, "/api/audit/traces/trace-1", "audit", Set.of("ADMIN")),
+            new Route(HttpMethod.GET, "/api/notifications/me", "notification", Set.of("CLIENT")));
 
     @LocalServerPort
     private int port;
@@ -85,6 +88,7 @@ class GatewayEntrega2RoleAuthorizationTest {
         registry.add("PURCHASE_SERVICE_URL", () -> url(PURCHASE));
         registry.add("AUDIT_SERVICE_URL", () -> url(AUDIT));
         registry.add("CATALOG_SERVICE_URL", () -> url(CATALOG));
+        registry.add("NOTIFICATION_SERVICE_URL", () -> url(NOTIFICATION));
         registry.add("INVENTORY_SERVICE_URL", () -> url(CATALOG));
     }
 
@@ -100,6 +104,7 @@ class GatewayEntrega2RoleAuthorizationTest {
         PURCHASE.stop(0);
         AUDIT.stop(0);
         CATALOG.stop(0);
+        NOTIFICATION.stop(0);
         JWKS.close();
     }
 

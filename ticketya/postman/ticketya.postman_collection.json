@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "TicketYa - E2E (Gateway)",
-    "description": "Flujo E2E por Gateway con JWT de un IdP externo: catalogo, disponibilidad, compra, devoluciones y cancelacion. Configure los tokens del IdP en las variables de la coleccion antes de ejecutar; cada corrida genera IDs de datos nuevos. Desde E2-02/E2-03/E2-04 (pasos 28-47) cubre ademas reportes del organizador, control de acceso QR (ingreso, reingreso, otro evento, revocada, adulterada) y la bitacora centralizada por X-Correlation-Id. Incluye la fila virtual (PDF-F6): evento de alta demanda, entrada idempotente, espera de tanda, token de admision de un solo uso, compra sin token, con token ajeno, con token valido, replay idempotente, reutilizacion rechazada y abandono/reingreso.\nLos pasos F10-01 a F10-09 cubren preferencias y recomendaciones (PDF-F10).",
+    "description": "Flujo E2E por Gateway con JWT de un IdP externo: catalogo, disponibilidad, compra, devoluciones y cancelacion. Configure los tokens del IdP en las variables de la coleccion antes de ejecutar; cada corrida genera IDs de datos nuevos. Desde E2-02/E2-03/E2-04 (pasos 28-47) cubre ademas reportes del organizador, control de acceso QR (ingreso, reingreso, otro evento, revocada, adulterada) y la bitacora centralizada por X-Correlation-Id. Incluye la fila virtual (PDF-F6): evento de alta demanda, entrada idempotente, espera de tanda, token de admision de un solo uso, compra sin token, con token ajeno, con token valido, replay idempotente, reutilizacion rechazada y abandono/reingreso.\nLos pasos F10-01 a F10-09 cubren preferencias y recomendaciones (PDF-F10). Los pasos F11-01 a F11-12 cubren las notificaciones (PDF-F11): compra confirmada, suspensión, reanudación y cancelación del evento, y aviso al fan cuando su artista favorito publica en su ciudad.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -185,6 +185,10 @@
     },
     {
       "key": "staleAdmissionToken",
+      "value": ""
+    },
+    {
+      "key": "f11EventId",
       "value": ""
     }
   ],
@@ -4780,6 +4784,726 @@
             "exec": [
               "pm.test('Identidad en el cuerpo responde 400', () => pm.response.to.have.status(400));",
               "pm.test('Problema con correlationId', () => pm.expect(pm.response.json().correlationId).to.be.a('string'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F11-01 - Cliente recibe la confirmación de su compra",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/notifications/me?type=ORDER_CONFIRMED&size=50",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "notifications",
+            "me"
+          ],
+          "query": [
+            {
+              "key": "type",
+              "value": "ORDER_CONFIRMED"
+            },
+            {
+              "key": "size",
+              "value": "50"
+            }
+          ]
+        },
+        "description": "PDF-F11: la compra confirmada genera un email y un push para el comprador."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Bandeja 200', () => pm.response.to.have.status(200));",
+              "const matches = (items) => items.filter(n => n.orderId === pm.collectionVariables.get('purchaseOrderId'));",
+              "const check = (items) => {",
+              "  pm.test('Email y push de la compra confirmada enviados', () => {",
+              "    const found = matches(items);",
+              "    pm.expect(found.map(n => n.channel)).to.include.members(['EMAIL', 'PUSH']);",
+              "    found.forEach(n => pm.expect(n.status).to.eql('SENT'));",
+              "  });",
+              "};",
+              "const ready = (items) => { const found = matches(items); return found.length >= 2 && found.every(n => n.status === 'SENT'); };",
+              "const first = pm.response.json().items;",
+              "if (ready(first)) {",
+              "  check(first);",
+              "} else {",
+              "  let attempts = 0;",
+              "  const again = () => {",
+              "    pm.sendRequest({",
+              "      url: pm.variables.get('baseUrl') + '/api/notifications/me?type=ORDER_CONFIRMED&size=50',",
+              "      method: 'GET',",
+              "      header: [{ key: 'Authorization', value: 'Bearer ' + pm.variables.get('clientToken') }]",
+              "    }, (err, res) => {",
+              "      const items = !err && res.code === 200 ? res.json().items : [];",
+              "      if (ready(items) || attempts >= 20) {",
+              "        check(items);",
+              "      } else {",
+              "        attempts += 1;",
+              "        setTimeout(again, 2000);",
+              "      }",
+              "    });",
+              "  };",
+              "  again();",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F11-02 - Compradores avisados de la suspensión",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/notifications/me?type=EVENT_SUSPENDED&size=50",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "notifications",
+            "me"
+          ],
+          "query": [
+            {
+              "key": "type",
+              "value": "EVENT_SUSPENDED"
+            },
+            {
+              "key": "size",
+              "value": "50"
+            }
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Bandeja 200', () => pm.response.to.have.status(200));",
+              "const matches = (items) => items.filter(n => n.eventId === pm.variables.get('eventId'));",
+              "const check = (items) => {",
+              "  pm.test('Aviso de suspensión enviado al comprador', () => {",
+              "    const found = matches(items);",
+              "    pm.expect(found.map(n => n.channel)).to.include.members(['EMAIL', 'PUSH']);",
+              "    found.forEach(n => pm.expect(n.status).to.eql('SENT'));",
+              "  });",
+              "};",
+              "const ready = (items) => { const found = matches(items); return found.length >= 2 && found.every(n => n.status === 'SENT'); };",
+              "const first = pm.response.json().items;",
+              "if (ready(first)) {",
+              "  check(first);",
+              "} else {",
+              "  let attempts = 0;",
+              "  const again = () => {",
+              "    pm.sendRequest({",
+              "      url: pm.variables.get('baseUrl') + '/api/notifications/me?type=EVENT_SUSPENDED&size=50',",
+              "      method: 'GET',",
+              "      header: [{ key: 'Authorization', value: 'Bearer ' + pm.variables.get('clientToken') }]",
+              "    }, (err, res) => {",
+              "      const items = !err && res.code === 200 ? res.json().items : [];",
+              "      if (ready(items) || attempts >= 20) {",
+              "        check(items);",
+              "      } else {",
+              "        attempts += 1;",
+              "        setTimeout(again, 2000);",
+              "      }",
+              "    });",
+              "  };",
+              "  again();",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F11-03 - Compradores avisados de la reanudación",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/notifications/me?type=EVENT_RESUMED&size=50",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "notifications",
+            "me"
+          ],
+          "query": [
+            {
+              "key": "type",
+              "value": "EVENT_RESUMED"
+            },
+            {
+              "key": "size",
+              "value": "50"
+            }
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Bandeja 200', () => pm.response.to.have.status(200));",
+              "const matches = (items) => items.filter(n => n.eventId === pm.variables.get('eventId'));",
+              "const check = (items) => {",
+              "  pm.test('Aviso de reanudación enviado al comprador', () => {",
+              "    const found = matches(items);",
+              "    pm.expect(found.map(n => n.channel)).to.include.members(['EMAIL', 'PUSH']);",
+              "    found.forEach(n => pm.expect(n.status).to.eql('SENT'));",
+              "  });",
+              "};",
+              "const ready = (items) => { const found = matches(items); return found.length >= 2 && found.every(n => n.status === 'SENT'); };",
+              "const first = pm.response.json().items;",
+              "if (ready(first)) {",
+              "  check(first);",
+              "} else {",
+              "  let attempts = 0;",
+              "  const again = () => {",
+              "    pm.sendRequest({",
+              "      url: pm.variables.get('baseUrl') + '/api/notifications/me?type=EVENT_RESUMED&size=50',",
+              "      method: 'GET',",
+              "      header: [{ key: 'Authorization', value: 'Bearer ' + pm.variables.get('clientToken') }]",
+              "    }, (err, res) => {",
+              "      const items = !err && res.code === 200 ? res.json().items : [];",
+              "      if (ready(items) || attempts >= 20) {",
+              "        check(items);",
+              "      } else {",
+              "        attempts += 1;",
+              "        setTimeout(again, 2000);",
+              "      }",
+              "    });",
+              "  };",
+              "  again();",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F11-04 - Compradores avisados de la cancelación",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/notifications/me?type=EVENT_CANCELLED&size=50",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "notifications",
+            "me"
+          ],
+          "query": [
+            {
+              "key": "type",
+              "value": "EVENT_CANCELLED"
+            },
+            {
+              "key": "size",
+              "value": "50"
+            }
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Bandeja 200', () => pm.response.to.have.status(200));",
+              "const matches = (items) => items.filter(n => n.eventId === pm.variables.get('eventId'));",
+              "const check = (items) => {",
+              "  pm.test('Aviso de cancelación enviado al comprador', () => {",
+              "    const found = matches(items);",
+              "    pm.expect(found.map(n => n.channel)).to.include.members(['EMAIL', 'PUSH']);",
+              "    found.forEach(n => pm.expect(n.status).to.eql('SENT'));",
+              "  });",
+              "};",
+              "const ready = (items) => { const found = matches(items); return found.length >= 2 && found.every(n => n.status === 'SENT'); };",
+              "const first = pm.response.json().items;",
+              "if (ready(first)) {",
+              "  check(first);",
+              "} else {",
+              "  let attempts = 0;",
+              "  const again = () => {",
+              "    pm.sendRequest({",
+              "      url: pm.variables.get('baseUrl') + '/api/notifications/me?type=EVENT_CANCELLED&size=50',",
+              "      method: 'GET',",
+              "      header: [{ key: 'Authorization', value: 'Bearer ' + pm.variables.get('clientToken') }]",
+              "    }, (err, res) => {",
+              "      const items = !err && res.code === 200 ? res.json().items : [];",
+              "      if (ready(items) || attempts >= 20) {",
+              "        check(items);",
+              "      } else {",
+              "        attempts += 1;",
+              "        setTimeout(again, 2000);",
+              "      }",
+              "    });",
+              "  };",
+              "  again();",
+              "}",
+              "pm.test('El aviso nombra al evento', () => { const n = pm.response.json().items.find(i => i.eventId === pm.variables.get('eventId')); if (n) pm.expect(n.subject).to.include('Evento cancelado'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F11-05 - Comprador del asiento numerado también es avisado",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{numberedBuyerToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/notifications/me?type=EVENT_CANCELLED&size=50",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "notifications",
+            "me"
+          ],
+          "query": [
+            {
+              "key": "type",
+              "value": "EVENT_CANCELLED"
+            },
+            {
+              "key": "size",
+              "value": "50"
+            }
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Bandeja 200', () => pm.response.to.have.status(200));",
+              "const matches = (items) => items.filter(n => n.eventId === pm.variables.get('eventId'));",
+              "const check = (items) => {",
+              "  pm.test('Aviso de cancelación al segundo comprador', () => {",
+              "    const found = matches(items);",
+              "    pm.expect(found.map(n => n.channel)).to.include.members(['EMAIL', 'PUSH']);",
+              "    found.forEach(n => pm.expect(n.status).to.eql('SENT'));",
+              "  });",
+              "};",
+              "const ready = (items) => { const found = matches(items); return found.length >= 2 && found.every(n => n.status === 'SENT'); };",
+              "const first = pm.response.json().items;",
+              "if (ready(first)) {",
+              "  check(first);",
+              "} else {",
+              "  let attempts = 0;",
+              "  const again = () => {",
+              "    pm.sendRequest({",
+              "      url: pm.variables.get('baseUrl') + '/api/notifications/me?type=EVENT_CANCELLED&size=50',",
+              "      method: 'GET',",
+              "      header: [{ key: 'Authorization', value: 'Bearer ' + pm.variables.get('numberedBuyerToken') }]",
+              "    }, (err, res) => {",
+              "      const items = !err && res.code === 200 ? res.json().items : [];",
+              "      if (ready(items) || attempts >= 20) {",
+              "        check(items);",
+              "      } else {",
+              "        attempts += 1;",
+              "        setTimeout(again, 2000);",
+              "      }",
+              "    });",
+              "  };",
+              "  again();",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F11-06 - Cliente registra un artista favorito en su ciudad",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{numberedBuyerToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/customers/me/preferences",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "customers",
+            "me",
+            "preferences"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"city\": \"Buenos Aires\",\n  \"eventTypes\": [\n    \"MUSIC\"\n  ],\n  \"favoriteArtists\": [\n    \"Solista F11 {{runId}}\"\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Preferencias 200', () => pm.response.to.have.status(200));",
+              "pm.test('Artista favorito registrado', () => pm.expect(pm.response.json().favoriteArtists).to.include('Solista F11 ' + pm.variables.get('runId')));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F11-07 - Organizador crea un evento del artista (ORGANIZER)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{organizerToken}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/management/events",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "management",
+            "events"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Gira F11 {{runId}}\",\n  \"description\": \"Evento para notificar a fans\",\n  \"eventType\": \"MUSIC\",\n  \"startsAt\": \"2030-08-01T21:00:00-03:00\",\n  \"venueId\": \"{{venueId}}\",\n  \"participants\": [\n    \"Solista F11 {{runId}}\"\n  ],\n  \"offerings\": [\n    {\n      \"sectorId\": \"{{sectorGeneralId}}\",\n      \"price\": \"60.00\"\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Borrador creado', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('f11EventId', pm.response.json().id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F11-08 - Publicar el evento del artista (ORGANIZER)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{organizerToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/management/events/{{f11EventId}}/publish",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "management",
+            "events",
+            "{{f11EventId}}",
+            "publish"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Evento publicado', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().status).to.eql('PUBLISHED'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F11-09 - Fan recibe el aviso del artista favorito en su ciudad",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{numberedBuyerToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/notifications/me?type=EVENT_PUBLISHED&size=50",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "notifications",
+            "me"
+          ],
+          "query": [
+            {
+              "key": "type",
+              "value": "EVENT_PUBLISHED"
+            },
+            {
+              "key": "size",
+              "value": "50"
+            }
+          ]
+        },
+        "description": "PDF-F11: un artista favorito publica un evento en la ciudad del cliente."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Bandeja 200', () => pm.response.to.have.status(200));",
+              "const matches = (items) => items.filter(n => n.eventId === pm.collectionVariables.get('f11EventId'));",
+              "const check = (items) => {",
+              "  pm.test('Aviso del artista favorito enviado por email y push', () => {",
+              "    const found = matches(items);",
+              "    pm.expect(found.map(n => n.channel)).to.include.members(['EMAIL', 'PUSH']);",
+              "    found.forEach(n => pm.expect(n.status).to.eql('SENT'));",
+              "  });",
+              "};",
+              "const ready = (items) => { const found = matches(items); return found.length >= 2 && found.every(n => n.status === 'SENT'); };",
+              "const first = pm.response.json().items;",
+              "if (ready(first)) {",
+              "  check(first);",
+              "} else {",
+              "  let attempts = 0;",
+              "  const again = () => {",
+              "    pm.sendRequest({",
+              "      url: pm.variables.get('baseUrl') + '/api/notifications/me?type=EVENT_PUBLISHED&size=50',",
+              "      method: 'GET',",
+              "      header: [{ key: 'Authorization', value: 'Bearer ' + pm.variables.get('numberedBuyerToken') }]",
+              "    }, (err, res) => {",
+              "      const items = !err && res.code === 200 ? res.json().items : [];",
+              "      if (ready(items) || attempts >= 20) {",
+              "        check(items);",
+              "      } else {",
+              "        attempts += 1;",
+              "        setTimeout(again, 2000);",
+              "      }",
+              "    });",
+              "  };",
+              "  again();",
+              "}",
+              "pm.test('El aviso indica la ciudad', () => { const n = pm.response.json().items.find(i => i.eventId === pm.collectionVariables.get('f11EventId')); if (n) pm.expect(n.subject).to.include('Buenos Aires'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F11-10 - Cliente sin ese artista favorito no recibe el aviso",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{clientToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/notifications/me?type=EVENT_PUBLISHED&size=50",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "notifications",
+            "me"
+          ],
+          "query": [
+            {
+              "key": "type",
+              "value": "EVENT_PUBLISHED"
+            },
+            {
+              "key": "size",
+              "value": "50"
+            }
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Bandeja 200', () => pm.response.to.have.status(200));",
+              "pm.test('Sin aviso del evento ajeno a sus preferencias', () => pm.expect(pm.response.json().items.filter(n => n.eventId === pm.collectionVariables.get('f11EventId'))).to.have.length(0));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F11-11 - ORGANIZER no puede leer notificaciones",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{organizerToken}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/notifications/me",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "notifications",
+            "me"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('ORGANIZER recibe 403 del Gateway', () => pm.response.to.have.status(403));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "F11-12 - Notificaciones sin token son rechazadas",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/notifications/me",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "notifications",
+            "me"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Sin token responde 401', () => pm.response.to.have.status(401));"
             ]
           }
         }
