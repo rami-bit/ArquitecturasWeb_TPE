@@ -35,7 +35,11 @@ public class Event {
         if(names==null) throw new IllegalArgumentException("Participants are required");
         var cleaned=names.stream().map(n->required(n,"Participant name")).toList();
         if(new HashSet<>(cleaned).size()!=cleaned.size()) throw new IllegalArgumentException("Participant names must be unique");
-        participants.clear(); cleaned.forEach(n->participants.add(new EventParticipant(this,n)));
+        Set<String> desired=new LinkedHashSet<>(cleaned);
+        participants.removeIf(participant->!desired.contains(participant.getName()));
+        Set<String> existing=new HashSet<>();
+        participants.forEach(participant->existing.add(participant.getName()));
+        cleaned.forEach(name->{if(existing.add(name))participants.add(new EventParticipant(this,name));});
     }
     public void replaceOfferings(Map<UUID,java.math.BigDecimal> prices){
         if(prices==null) throw new IllegalArgumentException("Offerings are required");
