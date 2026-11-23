@@ -2,10 +2,10 @@
 
 ## Ampliación PDF-F11 — email SMTP y postergación (2026-11-22)
 
-**Estado:** caminos F11 modificados comprobados; cambio OpenSpec activo `complete-f11-notifications-and-event-postponement` con 8/11 tareas completas. Los módulos Notification, Catalog, Gateway y Purchase pasaron 19, 78, 66 y 97 pruebas recientes respectivamente, sin fallos ni omisiones. El reactor limpio se interrumpió a pedido del usuario. El Compose dirigido quedó 15/15 saludable; Postman por Gateway pasó 29 requests y 45 aserciones; Mailpit capturó cuatro correos de compra/postergación y dos tras recuperar SMTP. Ver `docs/verification.md`.
+**Estado:** caminos F11 modificados comprobados; cambio OpenSpec archivado como `openspec/changes/archive/2026-11-22-complete-f11-notifications-and-event-postponement/` con 11/11 tareas completas. Los módulos Notification, Catalog, Gateway y Purchase pasaron 19, 78, 66 y 97 pruebas recientes respectivamente, sin fallos ni omisiones. El reactor limpio se interrumpió a pedido del usuario. El Compose dirigido quedó 15/15 saludable; Postman por Gateway pasó 29 requests y 45 aserciones; Mailpit capturó cuatro correos de compra/postergación y dos tras recuperar SMTP. Ver `docs/verification.md`.
 
 - Implementados: contacto `PUT/GET /api/notifications/me/email`, SMTP para `EMAIL`, `SKIPPED_NO_CONTACT`, Mailpit en Compose, postergación autorizada e idempotente con revisión/historial, fecha vigente en descubrimiento y `EVENT_POSTPONED` para compradores.
-- Pendiente para cerrar el cambio completo: `mvn clean verify` del reactor y sus XML; Postman de publicación relevante para fans; validación estricta final de OpenSpec y `git diff --check`. No se ejecutó regresión de servicios no tocados por indicación del usuario.
+- Validación dirigida acordada: módulos afectados, Compose, Postman por Gateway, Mailpit y recuperación SMTP comprobados. La regresión del reactor y la publicación para fans por Postman quedaron fuera de alcance por indicación del usuario; no se les atribuye un resultado nuevo. OpenSpec estricto pasó; las seis specs principales quedaron sincronizadas y validadas (24/24), y `git diff --check` pasó.
 - Riesgo vigente: el publicador de Purchase/Catalog no tiene outbox durable; si Notification Service sigue caído tras los reintentos, el hecho queda sólo en el log local. Mailpit captura correo local y no prueba entrega externa.
 
 ## PDF-F11 - Notificaciones al cliente (2026-11-20)

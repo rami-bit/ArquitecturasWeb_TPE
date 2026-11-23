@@ -1,11 +1,11 @@
 # Checklist — Entrega 1: Core del sistema
 
-## Ampliación PDF-F11 activa (2026-11-22)
+## Ampliación PDF-F11 cerrada (2026-11-22)
 
-- [ ] [x] Registrar email propio de `CLIENT` y validar acceso por Gateway con PostgreSQL real; el cambio OpenSpec sigue activo.
-- [ ] [x] Entregar `EMAIL` por SMTP: módulo, flujo por Gateway, Mailpit y caída/recuperación comprobados; OpenSpec sigue activo.
-- [ ] [x] Postergar eventos publicados y avisar a compradores: módulo y flujo completo de compra/postergación por Gateway comprobados; OpenSpec sigue activo.
-- [ ] [ ] Cerrar verificación integral: reactor limpio interrumpido a pedido del usuario; faltan publicación relevante para fans por Postman y controles finales de OpenSpec. Detalle en `openspec/changes/complete-f11-notifications-and-event-postponement/tasks.md` y `docs/verification.md`.
+- [x] [x] Registrar email propio de `CLIENT` y validar acceso por Gateway con PostgreSQL real; el cambio OpenSpec quedó archivado.
+- [x] [x] Entregar `EMAIL` por SMTP: módulo, flujo por Gateway, Mailpit y caída/recuperación comprobados; OpenSpec quedó archivado.
+- [x] [x] Postergar eventos publicados y avisar a compradores: módulo y flujo completo de compra/postergación por Gateway comprobados; OpenSpec quedó archivado.
+- [x] [x] Cerrar la verificación dirigida de F11: módulos afectados, 15 servicios Compose, 29 requests/45 aserciones por Gateway, Mailpit y recuperación SMTP comprobados. OpenSpec estricto y 24/24 specs principales pasaron; seis specs sincronizadas y cambio archivado. No se atribuye una regresión del reactor ni de la publicación para fans. Detalle en `openspec/changes/archive/2026-11-22-complete-f11-notifications-and-event-postponement/tasks.md` y `docs/verification.md`.
 
 > **Doble checklist:** el primer casillero indica cobertura por una especificacion OpenSpec completada; el segundo indica implementacion completada en el codigo.
 > - [x] [ ]: especificado, implementacion pendiente.

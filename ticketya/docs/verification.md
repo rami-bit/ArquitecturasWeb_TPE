@@ -2,7 +2,7 @@
 
 ## Ampliación F11: email SMTP y postergación (2026-11-22)
 
-El cambio activo `complete-f11-notifications-and-event-postponement` implementa contacto de email propio, entrega SMTP, Mailpit en Compose, postergación de eventos publicados, fecha vigente en Catalog y aviso `EVENT_POSTPONED`. Por indicación del usuario, la verificación se limitó a los caminos F11 modificados y se detuvo después de comprobarlos.
+El cambio archivado `2026-11-22-complete-f11-notifications-and-event-postponement` implementa contacto de email propio, entrega SMTP, Mailpit en Compose, postergación de eventos publicados, fecha vigente en Catalog y aviso `EVENT_POSTPONED`. Por indicación del usuario, la verificación se limitó a los caminos F11 modificados y se detuvo después de comprobarlos.
 
 | Verificación | Resultado |
 |---|---|
@@ -15,8 +15,10 @@ El cambio activo `complete-f11-notifications-and-event-postponement` implementa 
 | Postman por Gateway | Colección dirigida de 26 pasos: 29 requests (incluye sondeos), 45 aserciones, 0 fallos. Compra de dos clientes, postergación, replay, conflictos, permisos, fecha vigente, aviso y devolución. Primera corrida detectó tres aserciones nuevas que leían `collectionVariables.eventId` en vez de `pm.variables.eventId`; se corrigieron y la corrida con datos nuevos pasó. |
 | API de Mailpit | Cuatro correos de la corrida nueva: confirmación y postergación para cada comprador. Se comprobaron destinatarios, asuntos y texto con fechas anterior/nueva. |
 | SMTP caído y recuperado | Con Mailpit detenido, una segunda postergación devolvió `200`, el detalle mostró la nueva fecha, Gateway siguió saludable, `PUSH` quedó `SENT` y `EMAIL` quedó `PENDING`. Al recuperar Mailpit, `EMAIL` pasó a `SENT` y se capturaron los dos correos de postergación pendientes. |
+| OpenSpec estricto | `openspec validate complete-f11-notifications-and-event-postponement --strict`: cambio válido antes del archivo; 11/11 tareas completas. |
+| Sincronización y archivo | Diez bloques de requisitos de seis deltas coinciden con las specs principales; `openspec validate --specs`: 24/24 válidas. Cambio archivado en `openspec/changes/archive/2026-11-22-complete-f11-notifications-and-event-postponement/`; `git diff --check` limpio. |
 
-`SENT` en el canal `EMAIL` significa aceptación SMTP, no recepción en una casilla externa. Si Notification Service está caído cuando Purchase o Catalog publican, el productor conserva sólo el log local después de sus reintentos acotados; no hay recuperación durable del hecho. La verificación integral del reactor, la publicación relevante para fans por Postman y los controles finales de OpenSpec permanecen abiertos por el alcance de pruebas solicitado.
+`SENT` en el canal `EMAIL` significa aceptación SMTP, no recepción en una casilla externa. Si Notification Service está caído cuando Purchase o Catalog publican, el productor conserva sólo el log local después de sus reintentos acotados; no hay recuperación durable del hecho. La regresión del reactor y la publicación para fans por Postman quedaron fuera de la validación dirigida acordada; no se les atribuye un resultado nuevo.
 
 ## Verificación de PDF-F11 — notificaciones (2026-11-20)
 

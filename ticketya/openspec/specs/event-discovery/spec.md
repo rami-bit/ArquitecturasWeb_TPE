@@ -115,13 +115,13 @@ El sistema SHALL permitir ordenar por relevancia textual considerando nombre, de
 
 ### Requirement: Consultar detalle público
 
-El sistema SHALL permitir consultar sin autenticación el snapshot de un evento `PUBLISHED`, incluyendo participantes, fecha, lugar, sectores y precios.
+El sistema SHALL permitir consultar sin autenticación el detalle de un evento `PUBLISHED`, incluyendo participantes, fecha vigente, lugar, sectores y precios. La configuración publicada SHALL provenir del snapshot original y la postergación SHALL cambiar sólo la fecha presentada.
 
 #### Scenario: Consultar evento publicado
 
 - **GIVEN** existe un evento en estado `PUBLISHED`
 - **WHEN** un cliente solicita su detalle público
-- **THEN** el sistema devuelve la información inmutable de su snapshot sin afirmar disponibilidad de entradas
+- **THEN** el sistema devuelve la configuración inmutable de su snapshot y la fecha vigente, sin afirmar disponibilidad de entradas
 
 #### Scenario: Consultar evento no visible
 
@@ -171,3 +171,17 @@ Las consultas públicas del catálogo SHALL informar si el evento está marcado 
 - **GIVEN** un evento publicado sin marca de alta demanda
 - **WHEN** un cliente consulta su detalle público
 - **THEN** la respuesta informa que el evento no está marcado como de alta demanda y sigue sin afirmar disponibilidad de entradas
+
+### Requirement: Usar la fecha vigente en descubrimiento y recomendaciones
+
+Las búsquedas públicas y los candidatos internos de recomendación SHALL filtrar, ordenar y mostrar la fecha vigente después de una postergación. SHALL conservar filtros, paginación y desempates existentes. Trazabilidad: PDF-F9, PDF-F10 y PDF-F11.
+
+#### Scenario: Búsqueda por rango
+
+- **WHEN** un evento se posterga fuera del rango de fechas consultado
+- **THEN** deja de aparecer en ese rango y aparece en el rango de la fecha nueva
+
+#### Scenario: Orden y recomendaciones
+
+- **WHEN** se posterga un evento publicado
+- **THEN** búsqueda y candidatos de recomendaciones lo ordenan y consideran futuro según la fecha nueva
