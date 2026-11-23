@@ -55,4 +55,4 @@ La interfaz ofrece email y postergación con los contratos F11 ya implementados.
 
 ## Migration Plan
 
-Agregar el frontend sin migrar datos ni cambiar servicios. Implementar también las pantallas F11 contra las rutas vigentes y verificar sus contratos por Gateway. La reversión consiste en dejar de servir el frontend; el backend y sus datos no cambian.
+Agregar el frontend sin migrar datos ni cambiar contratos públicos. Corregir en Catalog la inicialización de sectores y asientos de sedes antes de cerrar la transacción de `GET/PUT /api/venues`; el recorrido de borradores depende de esa lectura. Implementar también las pantallas F11 contra las rutas vigentes y verificar sus contratos por Gateway. La reversión del frontend consiste en dejar de servirlo; la corrección de Catalog es independiente y conserva los datos y contratos existentes.

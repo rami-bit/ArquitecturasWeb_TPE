@@ -1,5 +1,11 @@
 # Checklist — Entrega 1: Core del sistema
 
+## Interfaz web de escritorio (2026-11-23)
+
+- [x] [x] Aplicación React/Vite de escritorio con JWT locales de prueba, búsqueda, fila, compra, órdenes, devoluciones, preferencias, gestión de eventos/sedes, reportes, auditoría y pantallas F11; cambio `add-desktop-web-interface` aplicado.
+- [x] [x] Corregir `GET/PUT /api/venues` de Catalog para el listado y edición de sedes fuera de una transacción HTTP; comprobado con PostgreSQL real y por Gateway.
+- [x] [x] Verificación dirigida acordada: 28 pruebas frontend, build, smoke Chrome, 1 integración Catalog sin omisiones, Compose 20/20 healthy, Postman seleccionado 20 requests/47 aserciones y fila 11 pasos/20 requests/22 aserciones, más comandos administrativos puntuales. Sin regresión Maven del reactor ni Postman completo. Ver `docs/verification.md`.
+
 ## Ampliación PDF-F11 cerrada (2026-11-22)
 
 - [x] [x] Registrar email propio de `CLIENT` y validar acceso por Gateway con PostgreSQL real; el cambio OpenSpec quedó archivado.

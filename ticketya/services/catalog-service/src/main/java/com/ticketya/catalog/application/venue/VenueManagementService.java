@@ -38,7 +38,12 @@ public class VenueManagementService {
         if (page < 0 || size < 1 || size > 100) {
             throw new ApiProblemException(HttpStatus.BAD_REQUEST, "Invalid pagination", "Page must be non-negative and size must be between 1 and 100");
         }
-        return repository.findAll(PageRequest.of(page, size, Sort.by("name").ascending().and(Sort.by("id").ascending())));
+        Page<Venue> venues = repository.findAll(PageRequest.of(page, size,
+                Sort.by("name").ascending().and(Sort.by("id").ascending())));
+        // The controller maps the response after this transaction has closed.
+        // Initialize both lazy collections while the persistence context is active.
+        venues.forEach(VenueManagementService::initializeForResponse);
+        return venues;
     }
 
     public Venue update(String role, UUID id, String name, String address, String city, BigDecimal latitude,
@@ -48,7 +53,12 @@ public class VenueManagementService {
                 new ApiProblemException(HttpStatus.NOT_FOUND, "Venue not found", "No venue exists with id " + id));
         venue.updateDetails(name, address, city, latitude, longitude);
         if (sectors != null) venue.replaceSectors(sectors);
+        initializeForResponse(venue);
         return venue;
+    }
+
+    private static void initializeForResponse(Venue venue) {
+        venue.getSectors().forEach(sector -> sector.getSeats().size());
     }
 
     private void requireAdmin(String role) {

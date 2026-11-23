@@ -1,5 +1,13 @@
 # Progreso del proyecto
 
+## Interfaz web de escritorio (2026-11-23)
+
+**Estado:** implementación de `add-desktop-web-interface` completa con validación dirigida. `frontend/` agrega React/Vite, selector local de JWT, cliente HTTP, flujos de cliente, organizador y administrador y pantallas F11. La corrección autorizada de Catalog inicializa sectores/asientos para `GET/PUT /api/venues` dentro de la transacción; ambos endpoints devolvían 500 en el recorrido HTTP.
+
+- Evidencia: `npm test` 28/28, `npm run build`, Vite GET `/` 200 y smoke en Chrome con los tres perfiles y Salir. `VenueListPostgresIntegrationTest` 1/1 en Java 21/PostgreSQL real sin omisiones; imagen Catalog reconstruida y `ticketya_ui_target` 20/20 healthy.
+- Por Gateway: selección Postman principal 20 requests/47 aserciones y fila 11 pasos/20 requests/22 aserciones, sin fallos; se comprobaron además roles, estados de pago, cancelación/reintegros, devoluciones, reporte, auditoría, límites F11 y Mailpit (8 correos). Detalle en `docs/verification.md`.
+- La regresión Maven del reactor y la colección Postman completa no se ejecutaron por indicación del usuario; no se les atribuye un resultado nuevo.
+
 ## Ampliación PDF-F11 — email SMTP y postergación (2026-11-22)
 
 **Estado:** caminos F11 modificados comprobados; cambio OpenSpec archivado como `openspec/changes/archive/2026-11-22-complete-f11-notifications-and-event-postponement/` con 11/11 tareas completas. Los módulos Notification, Catalog, Gateway y Purchase pasaron 19, 78, 66 y 97 pruebas recientes respectivamente, sin fallos ni omisiones. El reactor limpio se interrumpió a pedido del usuario. El Compose dirigido quedó 15/15 saludable; Postman por Gateway pasó 29 requests y 45 aserciones; Mailpit capturó cuatro correos de compra/postergación y dos tras recuperar SMTP. Ver `docs/verification.md`.

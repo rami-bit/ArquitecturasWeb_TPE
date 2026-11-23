@@ -1,5 +1,24 @@
 # Verificación de Entrega 1 y Entrega 2
 
+## Interfaz web de escritorio `add-desktop-web-interface` (2026-11-23)
+
+Verificación dirigida tras implementar React/Vite y corregir `GET/PUT /api/venues` de Catalog. Por indicación del usuario, no se ejecutaron la regresión Maven del reactor ni la colección Postman completa; los resultados de esta sección corresponden solo al código y recorridos seleccionados. Entorno: Windows, Node 24.13.0, npm 11.6.2, Vite 7.3.8, Postman CLI 1.73.0, Docker Desktop 29.7.2, Maven 3.9.9/Java 21 en contenedor y PostgreSQL 16.4.
+
+| Verificación | Resultado |
+|---|---|
+| `npm test` en `frontend/` | 6 archivos, **28 pruebas**, 0 fallos; sesión/JWT/cliente HTTP, búsqueda, cola, compras, órdenes, devoluciones, preferencias, email y operaciones. |
+| `npm run build` y arranque Vite | Build de producción correcto (43 módulos); Vite en `127.0.0.1:5173`, GET `/` 200. El proxy `/api` apunta al Gateway `127.0.0.1:8080`. |
+| `npm run smoke:browser` | Chrome local sin descarga: navegación Cliente, Organizador, Administrador y Salir correcta. |
+| JWT locales | `npm run tokens:refresh` emitió JWT vigentes para los tres UUID/roles de Postman; `tokens.local.ts` y `.local/idp-key.pem` ignorados por Git. Gateway: búsqueda pública 200, email CLIENT 200/ORGANIZER 403, eventos gestionables ORGANIZER/ADMIN 200 y CLIENT 403, token inválido 401. |
+| Catalog, Java 21 + PostgreSQL Testcontainers | `VenueListPostgresIntegrationTest`: **1 prueba**, 0 fallos/errores/omisiones en XML Surefire reciente. Reproduce el recorrido HTTP sin transacción de test: crear sede con sectores general/numerado, listarla y editarla. La prueba detectó antes el 500 de `PUT`; pasó tras inicializar sectores/asientos dentro de la transacción. |
+| Imagen y Compose aislado | Se reconstruyó solo Catalog tras la corrección y quedó `healthy`; `ticketya_ui_target` terminó con **20/20** contenedores `healthy`. Se reutilizaron imágenes backend existentes y se construyeron Queue, Preferences y Audit para completar el recorrido. |
+| Postman seleccionado por Gateway | Flujo principal con datos nuevos: **20 requests, 47 aserciones, 0 fallos** (venue, borrador/edición/ofertas/publicación, búsqueda, disponibilidad, compras general/numerada, postergación/replay/conflictos, devolución y preferencias). Fila de alta demanda: **11 pasos, 20 requests incluidos sondeos, 22 aserciones, 0 fallos**; espera, admisión, rechazo sin token, compra y replay idempotente. La primera selección incluyó una aserción de reporte que presuponía cancelar el evento; se retiró y la corrida seleccionada se repitió con datos nuevos. |
+| Comprobaciones adicionales por Gateway | Reporte de evento con 2 vendidas/2 devueltas tras cancelación; suspensión/reanudación y transición inválida 409; cancelación `COMPLETED` con 0 reintegros pendientes; devolución aprobada y rechazada por ID, 404 por ID desconocido; auditoría 10 entradas y traza de 3; búsqueda inválida 400 y vacía 200; ownership de evento/reporte 403; compra rechazada 402 `REJECTED`, pendiente 202 `PAYMENT_PENDING` y asiento vendido 409; devolución fuera de ventana 409; postergación adelantada y en el umbral de 72 horas 409. |
+| F11 y sedes | Email propio: GET sin contacto, PUT y GET posterior 200; ORGANIZER 403. Mailpit capturó 8 correos. Catalog GET de sedes y PUT de una sede publicada correctos; el detalle público conservó el nombre del snapshot. ORGANIZER no puede crear sedes (403). |
+| OpenSpec y formato | `openspec validate add-desktop-web-interface --strict` válido; `git diff --check` limpio. |
+
+El smoke de navegador comprueba navegación real; los estados de cada pantalla se verificaron con pruebas React dirigidas y los contratos críticos con llamadas al Gateway. No se atribuye un resultado nuevo al reactor Maven completo ni a la colección Postman íntegra.
+
 ## Ampliación F11: email SMTP y postergación (2026-11-22)
 
 El cambio archivado `2026-11-22-complete-f11-notifications-and-event-postponement` implementa contacto de email propio, entrega SMTP, Mailpit en Compose, postergación de eventos publicados, fecha vigente en Catalog y aviso `EVENT_POSTPONED`. Por indicación del usuario, la verificación se limitó a los caminos F11 modificados y se detuvo después de comprobarlos.
