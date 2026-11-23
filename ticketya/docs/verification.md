@@ -19,6 +19,8 @@ Verificación dirigida tras implementar React/Vite y corregir `GET/PUT /api/venu
 
 El smoke de navegador comprueba navegación real; los estados de cada pantalla se verificaron con pruebas React dirigidas y los contratos críticos con llamadas al Gateway. No se atribuye un resultado nuevo al reactor Maven completo ni a la colección Postman íntegra.
 
+**Incidencia del arranque local:** con el stack `ticketya` saludable pero el IdP de prueba detenido, `GET /api/management/events`, `GET /api/venues` y `POST /api/venues` devolvían 500 desde el Gateway. Sus logs mostraron que intentaba resolver el JWKS predeterminado `identity.example.invalid`; la búsqueda pública sí devolvía 200. Se inició el IdP local con la clave persistente, se ajustaron solo `JWT_ISSUER_URI`/`JWT_JWK_SET_URI` del `.env` del repositorio, se recreó solo `api-gateway` y se renovaron los JWT locales. Con el backend y Vite activos, las dos consultas protegidas devolvieron 200 para ORGANIZER y ADMIN tanto en `:8080` como mediante el proxy `:5173`; un POST administrativo de sede inválida devolvió el 400 esperado, ya sin error de autenticación. Se amplió `npm run smoke:browser` para exigir esos cuatro 200 en Chrome real; pasó con Cliente, Organizador, Administrador y Salir. El IdP de prueba debe permanecer activo durante la demostración.
+
 ## Ampliación F11: email SMTP y postergación (2026-11-22)
 
 El cambio archivado `2026-11-22-complete-f11-notifications-and-event-postponement` implementa contacto de email propio, entrega SMTP, Mailpit en Compose, postergación de eventos publicados, fecha vigente en Catalog y aviso `EVENT_POSTPONED`. Por indicación del usuario, la verificación se limitó a los caminos F11 modificados y se detuvo después de comprobarlos.

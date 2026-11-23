@@ -82,20 +82,45 @@ try {
   const expectText = (text) => eventually(async () => {
     if (!await evaluate(`document.body.innerText.includes(${JSON.stringify(text)})`)) throw new Error(`Falta ${text}`)
   })
+  await evaluate(`(() => {
+    const original = window.fetch.bind(window)
+    window.__ticketyaResponses = []
+    window.fetch = async (...args) => {
+      const response = await original(...args)
+      const path = String(args[0])
+      if (path.startsWith('/api/management/events') || path.startsWith('/api/venues')) {
+        window.__ticketyaResponses.push({ path, status: response.status })
+      }
+      return response
+    }
+    return true
+  })()`)
+  const expectManagementApi = () => eventually(async () => {
+    const responses = await evaluate('window.__ticketyaResponses')
+    if (!responses.some(item => item.path === '/api/management/events') ||
+        !responses.some(item => item.path.startsWith('/api/venues?'))) {
+      throw new Error('Faltan respuestas de gestión o sedes')
+    }
+    const failed = responses.find(item => item.status !== 200)
+    if (failed) throw new Error(`${failed.path} devolvió HTTP ${failed.status}`)
+  })
   await expectText('Buscar eventos')
   await select('CLIENT')
   await expectText('Email de contacto')
   await select('ORGANIZER')
   await expectText('Gestión de eventos')
+  await expectManagementApi()
+  await evaluate('window.__ticketyaResponses = []')
   await select('ADMIN')
   await expectText('Sedes')
+  await expectManagementApi()
   await evaluate("document.querySelector('.button-quiet').click()")
   await eventually(async () => {
     if (await evaluate("Boolean(document.querySelector('.button-quiet'))")) throw new Error('Salir no limpió sesión')
   })
   await expectText('Buscar eventos')
   ws.close()
-  console.log('Browser smoke: CLIENT, ORGANIZER, ADMIN y Salir OK')
+  console.log('Browser smoke: CLIENT, ORGANIZER, ADMIN, APIs de gestión 200 y Salir OK')
 } finally {
   chrome.kill()
   if (resolve(profile).startsWith(resolve(tmpdir()))) await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })

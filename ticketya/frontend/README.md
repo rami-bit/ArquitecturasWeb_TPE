@@ -29,9 +29,11 @@ npm run dev
 
 Abrí la URL local que muestra Vite. Para comprobar la compilación, ejecutá `npm run build`. El proxy de desarrollo apunta a `http://127.0.0.1:8080`; el backend no se consulta desde el frontend mediante puertos internos de servicios. La versión empaquetada requiere servir `/api` por el mismo origen mediante un proxy equivalente.
 
-Para las comprobaciones dirigidas del frontend, usá `npm test`. Con Vite iniciado, `npm run smoke:browser` recorre Cliente, Organizador, Administrador y Salir en Chrome local; `CHROME_PATH` permite indicar otro ejecutable instalado y `FRONTEND_URL` otra URL de Vite. El script no descarga un navegador.
+Para las comprobaciones dirigidas del frontend, usá `npm test`. Con el IdP, el Gateway y Vite iniciados y los JWT renovados, `npm run smoke:browser` recorre Cliente, Organizador, Administrador y Salir en Chrome local; también exige HTTP 200 en las consultas de gestión y sedes de ambos perfiles. `CHROME_PATH` permite indicar otro ejecutable instalado y `FRONTEND_URL` otra URL de Vite. El script no descarga un navegador.
 
 `tokens:refresh` escribe `src/demo/tokens.local.ts` con JWT para los UUID de cliente, organizador y administrador usados en Postman. El archivo y la clave `.local/idp-key.pem` son locales y están excluidos de Git. Los tokens duran aproximadamente una hora: volvé a ejecutar el comando y recargá la página antes de otra demostración. La selección de perfil y Salir son simulados; el Gateway valida firma, vencimiento y roles. Un `401` cierra la sesión simulada y un `403` informa falta de permiso. No uses estos JWT ni esta interfaz en un entorno público.
+
+Si todas las operaciones protegidas devuelven **500** mientras la búsqueda pública funciona, comprobá que el IdP de prueba siga activo en `:19998` y que `JWT_ISSUER_URI` y `JWT_JWK_SET_URI` del Gateway apunten a `http://host.docker.internal:19998` y su `/.well-known/jwks.json`. El valor de ejemplo `identity.example.invalid` no sirve para el demo. Tras corregir esas variables, recreá el Gateway, ejecutá `npm run tokens:refresh` y recargá Vite. Con una clave distinta a la usada antes, también hay que recrear el Gateway para renovar el JWKS en caché.
 
 ## Cliente
 
