@@ -17,6 +17,10 @@ export function setActiveToken(token: string | null): void {
   activeToken = token
 }
 
+export function renewActiveToken(token: string): void {
+  activeToken = token
+}
+
 export function setUnauthorizedHandler(handler: (() => void) | null): void {
   unauthorizedHandler = handler
 }

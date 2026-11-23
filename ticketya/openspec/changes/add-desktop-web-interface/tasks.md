@@ -4,7 +4,7 @@
 
 - [x] 1.1 Crear `frontend/` con React, TypeScript, Vite y estructura de pantallas de escritorio; verificar instalación, arranque local y build de producción sin rutas API directas a servicios internos.
 - [x] 1.2 Configurar proxy local `/api` hacia el Gateway y un cliente HTTP que maneje JWT activo, `application/problem+json`, errores de red y estados `401`/`403`; verificar con pruebas del cliente HTTP y una petición pública/protegida por Gateway.
-- [x] 1.3 Agregar plantilla de `tokens.local.ts`, exclusión de Git y generación/renovación local de JWT de prueba para los UUID de Postman; verificar que los tres perfiles reciben tokens vigentes, el Gateway los acepta y `git status` no muestra JWT ni claves.
+- [x] 1.3 Definir identidades fijas para los UUID de Postman y emisión de JWT de prueba; verificar que los tres perfiles reciben tokens vigentes, el Gateway los acepta y `git status` no muestra JWT ni claves.
 - [x] 1.4 Implementar selector de cliente/organizador/administrador, Salir y limpieza de estado al cambiar perfil; verificar en prueba de interfaz que el JWT enviado corresponde al perfil activo y que no se envía tras Salir.
 - [x] 1.5 Manejar `exp` local y rechazo `401` sin reintento de comandos de escritura; verificar token vencido y token de rol incorrecto por Gateway, y documentar arranque, proxy y renovación de tokens en `frontend/README.md`.
 
@@ -54,3 +54,9 @@
 
 - [x] 8.1 Ejecutar pruebas y build del frontend tras la última edición, smoke automatizado de navegador por cliente, organizador y administrador y recorridos dirigidos por Gateway con un stack Compose aislado; registrar cantidad, fallos/omisiones y versiones en `docs/verification.md`.
 - [x] 8.2 Por indicación del usuario, cerrar con validación dirigida del código alterado: `npm test`, `npm run build`, smoke de navegador, integración PostgreSQL de `GET/PUT /api/venues`, Compose aislado y selección de flujos Postman por Gateway; ejecutar `openspec validate add-desktop-web-interface --strict` y `git diff --check`, comprobar XML Testcontainers y salud del stack, y registrar resultados reales en `docs/verification.md`, `NEXT.md` y `TODO.md`. No ejecutar regresión Maven del reactor ni colección Postman completa.
+
+## 9. IdP local y renovación de JWT
+
+- [x] 9.1 Iniciar el IdP de prueba con Compose, persistir su clave y hacer que el Gateway consulte su JWKS por la red interna; verificar imagen y salud.
+- [x] 9.2 Obtener JWT por perfil en tiempo de uso y renovarlo antes de vencer; verificar cambio de perfil, Salir, expiración y ausencia de reintento de escrituras.
+- [x] 9.3 Actualizar instrucciones de arranque y verificar el flujo protegido por Vite y Gateway con el IdP de Compose.

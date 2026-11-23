@@ -21,8 +21,8 @@ import java.util.concurrent.Executors;
 /**
  * IdP de prueba local para la verificacion de {@code add-jwt-and-role-security}.
  *
- * <p>No forma parte del producto ni forma parte del Compose de TicketYa: es
- * herramental de verificacion. Levanta un servidor HTTP que publica el JWKS
+ * <p>No forma parte del producto: es herramental de demostracion y verificacion,
+ * disponible tambien como servicio local de Compose. Publica el JWKS
  * (clave publica RSA) del issuer, tal como lo haria el proveedor de identidad
  * externo configurado en {@code JWT_ISSUER_URI} / {@code JWT_JWK_SET_URI}, y
  * emite JWT RS256 con los claims acordados: {@code sub} UUID, {@code roles}

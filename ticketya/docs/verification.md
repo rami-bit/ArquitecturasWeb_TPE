@@ -497,3 +497,9 @@ Todas las verificaciones del cambio `establish-inventory-and-reservations` pasan
 - ✅ DoD de §21 del blueprint cubierto y sin desviaciones
 
 El cambio queda listo para archivado tras la revisión del equipo.
+
+# IdP de prueba en Compose y renovación de JWT (2026-11-23)
+
+Se incorporó `test-idp` a Compose con volumen persistente para su clave y acceso JWKS interno desde el Gateway. `docker compose build test-idp` terminó sin errores; `docker compose up -d --wait test-idp api-gateway` dejó **21/21 servicios healthy**. Se recreó sólo `test-idp` con `--force-recreate --no-deps --wait` y su JWKS permaneció idéntico. Un JWT `ORGANIZER` emitido por el IdP de Compose obtuvo HTTP **200** en `GET /api/management/events` y `GET /api/venues` por el Gateway.
+
+El frontend obtiene JWT al seleccionar perfiles fijos y los renueva antes del vencimiento. Las pruebas dirigidas `npm test -- --run src/App.test.tsx src/demo/tokens.test.ts src/api/client.test.ts` pasaron **9/9** sin fallos; `npm run build` pasó. Con Vite y Compose activos, `npm run smoke:browser` pasó para CLIENT, ORGANIZER, ADMIN y Salir, incluidas las consultas de gestión y sedes con HTTP 200. `openspec validate add-desktop-web-interface --strict`, `docker compose config --quiet`, `python -m py_compile postman/integration-harness.py` y `git diff --check` pasaron. No se ejecutó el reactor Maven ni la colección Postman completa: este cambio afecta al IdP de demostración, Compose y el frontend, y se verificaron sus rutas protegidas principales.

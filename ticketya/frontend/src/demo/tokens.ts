@@ -1,11 +1,20 @@
 export type DemoRole = 'CLIENT' | 'ORGANIZER' | 'ADMIN'
-export type DemoTokens = Record<DemoRole, string>
+const profileIds: Record<DemoRole, string> = {
+  CLIENT: 'e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b',
+  ORGANIZER: 'e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b',
+  ADMIN: 'a1b2c3d4-1111-2222-3333-444455556666',
+}
 
-const localModules = import.meta.glob<{ default: DemoTokens }>('./tokens.local.ts', { eager: true })
-export const demoTokens: DemoTokens = localModules['./tokens.local.ts']?.default ?? {
-  CLIENT: '',
-  ORGANIZER: '',
-  ADMIN: '',
+export async function requestDemoToken(role: DemoRole): Promise<string> {
+  const query = new URLSearchParams({ sub: profileIds[role], role })
+  const response = await fetch(`/demo-idp/token?${query}`, { cache: 'no-store' })
+  if (!response.ok) throw new Error(`El IdP de prueba respondió HTTP ${response.status}.`)
+  const body: unknown = await response.json()
+  const token = body && typeof body === 'object' && 'access_token' in body ? body.access_token : null
+  if (typeof token !== 'string' || !tokenValidForRole(token, role) || decodeJwt(token)?.sub !== profileIds[role]) {
+    throw new Error('El IdP de prueba devolvió un JWT inválido para este perfil.')
+  }
+  return token
 }
 
 export function decodeJwt(token: string): { sub: string; exp: number; roles: string[] } | null {

@@ -44,8 +44,6 @@ GATEWAY = os.environ.get("BASE_URL", "http://localhost:8080").rstrip("/")
 IDP = os.environ.get("IDP_TOKEN_URL", "http://localhost:19998/token")
 COMPOSE_PROJECT = "ticketya_e2e_harness"
 COLLECTION = ROOT / "postman" / "ticketya.postman_collection.json"
-IDP_JAVA = ROOT / "tools" / "local-test-idp" / "LocalTestIdp.java"
-IDP_KEY = ROOT / ".local" / "idp-key.pem"
 
 
 def run(command, check=True, capture=False):
@@ -64,12 +62,8 @@ def healthy(url, timeout=2):
 
 
 def compose(project, *args, check=True, capture=False):
-    env = dict(os.environ)
-    if args and args[0] == "up":
-        env["JWT_ISSUER_URI"] = "http://host.docker.internal:19998"
-        env["JWT_JWK_SET_URI"] = "http://host.docker.internal:19998/.well-known/jwks.json"
     command = ["docker", "compose", "-p", project, *args]
-    result = subprocess.run(command, cwd=ROOT, env=env, text=True,
+    result = subprocess.run(command, cwd=ROOT, text=True,
                             capture_output=capture)
     if check and result.returncode != 0:
         raise RuntimeError(f"Compose falló ({result.returncode}): {' '.join(command)}\n"
@@ -96,25 +90,6 @@ def wait_for_stack(project, timeout_seconds=180):
             return lines
         time.sleep(3)
     raise RuntimeError(f"El stack {project} no quedó healthy en {timeout_seconds}s:\n{output}")
-
-
-def ensure_idp():
-    jwks = "http://localhost:19998/.well-known/jwks.json"
-    if healthy(jwks):
-        return None
-    IDP_KEY.parent.mkdir(parents=True, exist_ok=True)
-    log = open(ROOT / ".local" / "idp-harness.log", "w", encoding="utf-8")
-    process = subprocess.Popen([
-        "java", str(IDP_JAVA), "--port", "19998",
-        "--issuer", "http://host.docker.internal:19998",
-        "--key-file", str(IDP_KEY),
-    ], cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
-    for _ in range(30):
-        if healthy(jwks):
-            return process
-        time.sleep(1)
-    process.terminate()
-    raise RuntimeError("El IdP de prueba no inició; revisa .local/idp-harness.log")
 
 
 def mint(role):
@@ -158,7 +133,6 @@ def metrics(output):
 def main():
     started_by_us = False
     project = COMPOSE_PROJECT
-    idp_process = None
     try:
         if healthy(f"{GATEWAY}/actuator/health"):
             project = detect_running_project()
@@ -166,7 +140,6 @@ def main():
                   + (f" (proyecto {project})" if project else ""))
         else:
             print(f"Levantando stack aislado {project}")
-            idp_process = ensure_idp()
             compose(project, "up", "--build", "-d", "--wait")
             started_by_us = True
 
@@ -187,8 +160,6 @@ def main():
         print(f"SUMMARY: RESULT=FAIL motivo={error}")
         return 1
     finally:
-        if idp_process is not None:
-            idp_process.terminate()
         if started_by_us and "--down" in sys.argv:
             compose(project, "down", check=False)
             print(f"Stack {project} detenido (volúmenes conservados)")

@@ -1,39 +1,29 @@
 # Interfaz web de escritorio de TicketYa
 
-La interfaz es una demostración local para navegador de escritorio. Todas sus llamadas de negocio usan `/api` a través del Gateway en `localhost:8080`; Vite redirige ese prefijo durante el desarrollo. No necesita un proveedor de login propio: el selector de perfiles usa JWT de prueba generados antes de abrir la página.
+La interfaz es una demostración local para navegador de escritorio. Todas sus llamadas de negocio usan `/api` a través del Gateway en `localhost:8080`; Vite redirige ese prefijo durante el desarrollo. El selector de perfiles usa identidades fijas y solicita JWT al IdP de prueba incluido en Compose.
 
 ## Inicio local
 
-Requisitos: Node.js y npm, JDK para el IdP de prueba, Docker para el stack. Desde la raíz del repositorio, en una terminal PowerShell, iniciá el IdP con una clave persistente:
+Requisitos: Node.js y npm, Docker para el stack. Desde la raíz del repositorio, iniciá Compose:
 
 ```powershell
-New-Item -ItemType Directory -Force .local | Out-Null
-java tools/local-test-idp/LocalTestIdp.java --port 19998 --issuer http://host.docker.internal:19998 --key-file .local/idp-key.pem
-```
-
-En otra terminal, iniciá el backend con el mismo emisor y JWKS:
-
-```powershell
-$env:JWT_ISSUER_URI = 'http://host.docker.internal:19998'
-$env:JWT_JWK_SET_URI = 'http://host.docker.internal:19998/.well-known/jwks.json'
 docker compose up --build -d --wait
 ```
 
-En una tercera terminal, desde `frontend/`:
+En otra terminal, desde `frontend/`:
 
 ```powershell
 npm install
-npm run tokens:refresh
 npm run dev
 ```
 
-Abrí la URL local que muestra Vite. Para comprobar la compilación, ejecutá `npm run build`. El proxy de desarrollo apunta a `http://127.0.0.1:8080`; el backend no se consulta desde el frontend mediante puertos internos de servicios. La versión empaquetada requiere servir `/api` por el mismo origen mediante un proxy equivalente.
+Abrí la URL local que muestra Vite. Para comprobar la compilación, ejecutá `npm run build`. El proxy de desarrollo apunta `/api` a `http://127.0.0.1:8080` y `/demo-idp` a `http://127.0.0.1:19998`. La versión empaquetada requiere servir ambos prefijos por el mismo origen mediante un proxy equivalente.
 
-Para las comprobaciones dirigidas del frontend, usá `npm test`. Con el IdP, el Gateway y Vite iniciados y los JWT renovados, `npm run smoke:browser` recorre Cliente, Organizador, Administrador y Salir en Chrome local; también exige HTTP 200 en las consultas de gestión y sedes de ambos perfiles. `CHROME_PATH` permite indicar otro ejecutable instalado y `FRONTEND_URL` otra URL de Vite. El script no descarga un navegador.
+Para las comprobaciones dirigidas del frontend, usá `npm test`. Con Compose y Vite iniciados, `npm run smoke:browser` recorre Cliente, Organizador, Administrador y Salir en Chrome local; también exige HTTP 200 en las consultas de gestión y sedes de ambos perfiles. `CHROME_PATH` permite indicar otro ejecutable instalado y `FRONTEND_URL` otra URL de Vite. El script no descarga un navegador.
 
-`tokens:refresh` escribe `src/demo/tokens.local.ts` con JWT para los UUID de cliente, organizador y administrador usados en Postman. El archivo y la clave `.local/idp-key.pem` son locales y están excluidos de Git. Los tokens duran aproximadamente una hora: volvé a ejecutar el comando y recargá la página antes de otra demostración. La selección de perfil y Salir son simulados; el Gateway valida firma, vencimiento y roles. Un `401` cierra la sesión simulada y un `403` informa falta de permiso. No uses estos JWT ni esta interfaz en un entorno público.
+El IdP publica su JWKS en la red interna de Compose y `/token` en `127.0.0.1:19998`; la clave de firma persiste en el volumen `test-idp-key`. Vite redirige `/demo-idp` a ese puerto local. La interfaz solicita un JWT al seleccionar perfil y otro cinco minutos antes de su vencimiento, sin guardar JWT en disco ni reintentar operaciones de escritura. La selección y Salir son simulados; el Gateway valida firma, vencimiento y roles. Un `401` cierra la sesión simulada y un `403` informa falta de permiso. Este IdP de prueba permite emitir roles libremente: no expongas su puerto ni esta interfaz a una red pública.
 
-Si todas las operaciones protegidas devuelven **500** mientras la búsqueda pública funciona, comprobá que el IdP de prueba siga activo en `:19998` y que `JWT_ISSUER_URI` y `JWT_JWK_SET_URI` del Gateway apunten a `http://host.docker.internal:19998` y su `/.well-known/jwks.json`. El valor de ejemplo `identity.example.invalid` no sirve para el demo. Tras corregir esas variables, recreá el Gateway, ejecutá `npm run tokens:refresh` y recargá Vite. Con una clave distinta a la usada antes, también hay que recrear el Gateway para renovar el JWKS en caché.
+Si las operaciones protegidas devuelven **500** mientras la búsqueda pública funciona, comprobá que `test-idp` esté healthy y que `JWT_JWK_SET_URI` del Gateway apunte a `http://test-idp:19998/.well-known/jwks.json`. El emisor de `.env` debe coincidir con `http://host.docker.internal:19998`. Después de corregir la configuración, recreá el Gateway. Si hubo una rotación accidental de clave, recreá el Gateway para renovar su JWKS en caché.
 
 ## Cliente
 

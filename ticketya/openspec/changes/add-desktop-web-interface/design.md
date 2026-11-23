@@ -22,11 +22,11 @@ Ver `proposal.md` para la motivación y `specs/` para el comportamiento. No exis
 
 ### Proyecto y ejecución local
 
-Crear `frontend/` como aplicación React + TypeScript de renderizado cliente, con Vite para desarrollo y empaquetado estático. Es una interfaz de formularios, tablas y estados interactivos que no necesita renderizado de servidor; esta opción reduce piezas operativas frente a un frontend con servidor propio. El servidor local escuchará sólo en loopback y redirigirá `/api/**` a `http://localhost:8080`, de modo que el navegador use un único origen y no dependa de agregar CORS al Gateway. El frontend no hablará directamente con servicios internos, Payment Mock, Mailpit ni el IdP. Alternativa considerada: páginas servidas por Spring/Thymeleaf; añadirían acoplamiento de despliegue al backend y gestión de sesión en servidor para un demo que ya usa API pública.
+Crear `frontend/` como aplicación React + TypeScript de renderizado cliente, con Vite para desarrollo y empaquetado estático. Es una interfaz de formularios, tablas y estados interactivos que no necesita renderizado de servidor; esta opción reduce piezas operativas frente a un frontend con servidor propio. El servidor local escuchará sólo en loopback y redirigirá `/api/**` a `http://localhost:8080`, de modo que el navegador use un único origen y no dependa de agregar CORS al Gateway. El frontend no hablará directamente con servicios internos, Payment Mock ni Mailpit; `/demo-idp` se redirige al IdP de prueba local. Alternativa considerada: páginas servidas por Spring/Thymeleaf; añadirían acoplamiento de despliegue al backend y gestión de sesión en servidor para un demo que ya usa API pública.
 
-### Tokens hardcodeados para el demo
+### Tokens emitidos por el IdP local para el demo
 
-Un archivo local `frontend/src/demo/tokens.local.ts`, excluido de Git y con plantilla sin valores reales, contendrá constantes JWT para los perfiles de cliente, organizador y administrador y sus etiquetas. Un script opcional podrá obtener tokens nuevos del `/token` del IdP de prueba para los UUID ya usados por Postman y escribir ese archivo antes de una demo; luego la aplicación sólo lee las constantes, sin pedir tokens durante el login simulado. Se documentará iniciar el IdP con `--key-file`, configurar `JWT_ISSUER_URI`/`JWT_JWK_SET_URI` del Gateway y renovar las constantes tras una hora. No se versionarán JWT ni se imprimirán en logs de aplicación. Alternativa considerada: solicitar tokens al IdP desde cada selección de perfil; sería un login funcional, distinto de la decisión de usar tokens estáticos en la interfaz.
+El IdP de prueba existente se inicia con Compose y persiste su clave de firma en un volumen. El Gateway consulta el JWKS por la red interna de Compose y conserva el emisor `http://host.docker.internal:19998`. Vite redirige `/demo-idp` al puerto de loopback del IdP. La interfaz solicita un JWT al elegir una de las identidades fijas de Postman y lo renueva antes de vencer; mantiene el token sólo en memoria. No se versionan JWT ni se imprimen en logs. Este servicio es exclusivo de demostración local y no incorpora cuentas ni credenciales de producto.
 
 La selección vive en memoria; Salir o cambiar de perfil limpia estado de pantalla, peticiones en curso y token activo. Se decodifica `exp` sólo para avisar y bloquear una operación obviamente vencida; el Gateway sigue validando firma, emisor y permisos. Una respuesta `401` invalida la sesión simulada; `403` muestra falta de permisos. Nunca se envían `X-User-Id` ni `X-User-Role` desde el navegador.
 
@@ -46,8 +46,8 @@ La interfaz ofrece email y postergación con los contratos F11 ya implementados.
 
 ## Risks / Trade-offs
 
-- **JWT estático expira en una hora** → mostrar expiración, bloquear envío con token vencido y documentar regeneración local antes de la demo.
-- **JWT embebido en el bundle es visible al navegador** → limitar la ejecución a loopback/datos de prueba, excluir el archivo de Git y no reutilizar claves ni tokens fuera del demo.
+- **JWT de prueba expira en una hora** → mostrar expiración, renovar antes de vencer y bloquear el envío si el IdP no puede renovarlo a tiempo.
+- **IdP de prueba emite roles libremente** → publicar su puerto sólo en loopback y no usar este stack como despliegue público.
 - **Cupo cambia entre consulta y compra** → refrescar disponibilidad tras `409`; no simular una reserva en la UI.
 - **Respuestas de compra inciertas** → conservar intención y clave de idempotencia para evitar compras duplicadas.
 - **No hay listado administrativo de devoluciones** → decisión por ID conocido y documentación de esa limitación; no inventar datos en una bandeja.

@@ -196,8 +196,8 @@ Docker Compose carga automáticamente el archivo `.env` de esta carpeta. Mantenl
 | `POSTGRES_USER` | `ticketya` | Usuario de todas las bases PostgreSQL |
 | `POSTGRES_PASSWORD` | `ticketya` | Contraseña de todas las bases PostgreSQL |
 | `GATEWAY_PORT` | `8080` | Puerto publicado del API Gateway en el host |
-| `JWT_ISSUER_URI` | `https://identity.example.invalid/issuer` | Emisor externo esperado por el Gateway |
-| `JWT_JWK_SET_URI` | `https://identity.example.invalid/.well-known/jwks.json` | JWKS público del proveedor de identidad |
+| `JWT_ISSUER_URI` | `http://host.docker.internal:19998` | Emisor del IdP de prueba local |
+| `JWT_JWK_SET_URI` | `http://test-idp:19998/.well-known/jwks.json` | JWKS del IdP en la red de Compose |
 | `PURCHASE_TICKET_LIMIT` | `6` | Máximo de entradas por cliente y evento |
 | `QUEUE_BATCH_SIZE` | `10` | Turnos admitidos por tanda de la fila virtual |
 | `QUEUE_BATCH_INTERVAL_SECONDS` | `15` | Duración de cada tanda de la fila virtual |
@@ -229,31 +229,22 @@ Para ejecutar la colección Postman, configura `organizerToken`, `clientToken`, 
 
 #### IdP de prueba local (herramienta de verificación)
 
-Para verificar el stack sin depender de un proveedor externo, el repositorio incluye un IdP de prueba mínimo en `tools/local-test-idp/LocalTestIdp.java`. No forma parte del producto ni del Compose: sólo publica el JWKS y emite tokens de prueba.
+Para verificar el stack sin depender de un proveedor externo, Compose inicia el IdP de prueba de `tools/local-test-idp/LocalTestIdp.java`. No forma parte del producto: publica el JWKS y emite tokens de prueba. Su clave persiste en el volumen `test-idp-key` y su puerto sólo se publica en `127.0.0.1:19998`.
 
 ```bash
-# Terminal 1: IdP de prueba (sin dependencias, sólo el JDK)
-java tools/local-test-idp/LocalTestIdp.java --port 19998 \
-  --issuer http://host.docker.internal:19998 \
-  --key-file .local/idp-key.pem \
-  --token organizer:e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b:ORGANIZER \
-  --token client:e88d7b2d-9019-4c3c-8bc4-e0ecc43c955b:CLIENT \
-  --token numberedBuyer:9f44c33f-35eb-4764-becd-02f6e2414701:CLIENT \
-  --token admin:a1b2c3d4-1111-2222-3333-444455556666:ADMIN \
-  --token accessStaff:d160e54c-5f88-49a1-9e9a-2c901ac70a01:ACCESS_STAFF
-```
-
-El IdP publica el JWKS en `/.well-known/jwks.json` y expone un endpoint de token en `/token?sub=<uuid>&role=<ROL>` que devuelve `{"access_token": "<jwt>", ...}`. `--key-file` persiste el par de claves: el Gateway cachea el JWKS que ya leyó, así que reiniciar el IdP sin esa clave haría que los tokens nuevos dejaran de validar.
-
-Levanta el Compose apuntando al IdP de prueba (el `issuer` debe coincidir exactamente con el claim `iss`):
-
-```bash
-JWT_ISSUER_URI=http://host.docker.internal:19998 \
-JWT_JWK_SET_URI=http://host.docker.internal:19998/.well-known/jwks.json \
 docker compose up --build -d --wait
 ```
 
-El issuer usa `host.docker.internal` porque el Gateway corre dentro de Docker y el IdP en el host. En Docker Engine para Linux el nombre se resuelve gracias a `extra_hosts: host.docker.internal:host-gateway` del servicio `api-gateway`.
+El IdP publica el JWKS en `/.well-known/jwks.json` y expone un endpoint de token en `/token?sub=<uuid>&role=<ROL>` que devuelve `{"access_token": "<jwt>", ...}`. El Gateway consulta el JWKS por `http://test-idp:19998`; la clave persistente evita invalidar tokens al recrear el contenedor.
+
+El emisor configurado en `.env` debe coincidir exactamente con el claim `iss`:
+
+```bash
+JWT_ISSUER_URI=http://host.docker.internal:19998
+JWT_JWK_SET_URI=http://test-idp:19998/.well-known/jwks.json
+```
+
+`host.docker.internal` es sólo el valor del claim `iss`; el Gateway alcanza el JWKS por la red interna de Compose. La interfaz de escritorio obtiene y renueva sus JWT mediante el proxy `/demo-idp` de Vite.
 
 Los servicios internos reciben su configuración a través de variables de Compose (no necesitas definirlas a menos que quieras sobreescribirlas):
 
@@ -319,8 +310,8 @@ Los servicios internos reciben su configuración a través de variables de Compo
 | api-gateway | `QUEUE_SERVICE_URL` | `http://queue-service:8086` |
 | api-gateway | `TICKET_SERVICE_URL` | `http://ticket-service:8083` (control de acceso, E2-03) |
 | api-gateway | `AUDIT_SERVICE_URL` | `http://audit-service:8086` (bitácora, E2-02) |
-| api-gateway | `JWT_ISSUER_URI` | `https://identity.example.invalid/issuer` |
-| api-gateway | `JWT_JWK_SET_URI` | `https://identity.example.invalid/.well-known/jwks.json` |
+| api-gateway | `JWT_ISSUER_URI` | `http://host.docker.internal:19998` |
+| api-gateway | `JWT_JWK_SET_URI` | `http://test-idp:19998/.well-known/jwks.json` |
 
 Ninguna variable contiene rutas personales ni secretos de producción.
 

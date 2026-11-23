@@ -8,10 +8,10 @@ Permite alternar identidades de prueba en la aplicación web de escritorio y eje
 
 ### Requirement: Seleccionar un perfil de demostración
 
-La interfaz SHALL ofrecer perfiles locales `CLIENT`, `ORGANIZER` y `ADMIN` con JWT de prueba configurados para la demostración. La selección SHALL mostrar el perfil activo y habilitar sólo su navegación correspondiente. Trazabilidad: PDF-NF-SECURITY y PDF-INTERFAZ-GRAFICA.
+La interfaz SHALL ofrecer perfiles locales `CLIENT`, `ORGANIZER` y `ADMIN` con identidades fijas de demostración. Al seleccionar un perfil SHALL obtener un JWT vigente del IdP de prueba local, mostrar el perfil activo y habilitar sólo su navegación correspondiente. Trazabilidad: PDF-NF-SECURITY y PDF-INTERFAZ-GRAFICA.
 
 #### Scenario: Elegir cliente
-- **WHEN** el usuario selecciona el perfil de cliente con token vigente
+- **WHEN** el usuario selecciona el perfil de cliente y el IdP de prueba responde con un token vigente
 - **THEN** la interfaz muestra el área de compra y envía ese JWT en las operaciones protegidas del cliente
 
 #### Scenario: Cambiar de identidad
@@ -29,15 +29,20 @@ La interfaz SHALL permitir cerrar el perfil activo y volver al estado anónimo s
 
 ### Requirement: Manejar tokens vencidos o inválidos
 
-La interfaz SHALL identificar el vencimiento del JWT de prueba y SHALL tratar una respuesta `401` como sesión no válida, sin repetir automáticamente comandos de escritura con otro token.
+La interfaz SHALL renovar el JWT del perfil activo antes de su vencimiento, identificar tokens vencidos y tratar una respuesta `401` como sesión no válida, sin repetir automáticamente comandos de escritura con otro token.
+
+#### Scenario: Renovación mientras la página sigue abierta
+- **GIVEN** hay un perfil activo y el JWT se acerca a su vencimiento
+- **WHEN** el IdP de prueba entrega un nuevo JWT para la misma identidad y rol
+- **THEN** la interfaz usa el nuevo JWT en solicitudes posteriores sin cambiar de perfil ni reintentar escrituras en curso
 
 #### Scenario: Token vencido antes de una operación
 - **WHEN** el usuario intenta una operación protegida con un JWT cuya expiración ya pasó
-- **THEN** la interfaz bloquea la operación e indica que debe renovar los tokens de prueba
+- **THEN** la interfaz bloquea la operación e indica que debe seleccionar nuevamente el perfil
 
 #### Scenario: Gateway rechaza el token
 - **WHEN** el Gateway responde `401` a una operación protegida
-- **THEN** la interfaz informa que la sesión de prueba dejó de ser válida y permite seleccionar otro perfil tras actualizar los tokens
+- **THEN** la interfaz informa que la sesión de prueba dejó de ser válida y permite seleccionar otro perfil
 
 ### Requirement: Respetar la autorización del Gateway
 

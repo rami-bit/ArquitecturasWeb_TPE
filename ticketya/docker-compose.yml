@@ -401,6 +401,23 @@ services:
     networks:
       - ticketya
 
+  test-idp:
+    build:
+      context: ./tools/local-test-idp
+    restart: unless-stopped
+    volumes:
+      - test-idp-key:/data
+    ports:
+      - "127.0.0.1:19998:19998"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:19998/.well-known/jwks.json"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - ticketya
+
   api-gateway:
     build:
       context: ./services/api-gateway
@@ -433,10 +450,8 @@ services:
         condition: service_healthy
       notification-service:
         condition: service_healthy
-    # Permite que el Gateway alcance un IdP de prueba en el host (tools/local-test-idp)
-    # también en Docker Engine para Linux; Docker Desktop ya resuelve este nombre.
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      test-idp:
+        condition: service_healthy
     ports:
       - "${GATEWAY_PORT}:${GATEWAY_SERVER_PORT}"
     healthcheck:
@@ -452,6 +467,7 @@ networks:
   ticketya:
 
 volumes:
+  test-idp-key:
   catalog-postgres-data:
   inventory-postgres-data:
   ticket-postgres-data:

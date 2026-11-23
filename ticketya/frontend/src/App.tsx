@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
-import { apiRequest, setActiveToken, setUnauthorizedHandler } from './api/client'
+import { useEffect, useRef, useState } from 'react'
+import { apiRequest, renewActiveToken, setActiveToken, setUnauthorizedHandler } from './api/client'
 import { CustomerApp } from './customer/CustomerApp'
-import { demoTokens, decodeJwt, tokenValidForRole, type DemoRole } from './demo/tokens'
+import { decodeJwt, requestDemoToken, type DemoRole } from './demo/tokens'
 import { NotificationsArea } from './notifications/NotificationsArea'
 import OperationsArea from './operations/OperationsArea'
 
@@ -18,30 +18,79 @@ export default function App() {
   const [page, setPage] = useState<Page>('events')
   const [message, setMessage] = useState('')
   const [sessionVersion, setSessionVersion] = useState(0)
-  const claims = role ? decodeJwt(demoTokens[role]) : null
+  const [token, setToken] = useState<string | null>(null)
+  const [selecting, setSelecting] = useState(false)
+  const selection = useRef(0)
+  const claims = token ? decodeJwt(token) : null
 
   useEffect(() => {
     setUnauthorizedHandler(() => {
+      selection.current += 1
+      setToken(null)
       setRole(null)
       setPage('events')
       setSessionVersion((version) => version + 1)
-      setMessage('La sesión de prueba venció o fue rechazada. Renová los JWT de prueba.')
+      setMessage('La sesión de prueba venció o fue rechazada. Seleccioná un perfil para continuar.')
     })
     return () => setUnauthorizedHandler(null)
   }, [])
 
-  function chooseRole(nextRole: DemoRole | null) {
-    const nextToken = nextRole ? demoTokens[nextRole] : null
-    if (nextRole && !tokenValidForRole(nextToken ?? '', nextRole)) {
-      setMessage(`No hay un JWT vigente para ${roleLabels[nextRole]}. Ejecutá npm run tokens:refresh y recargá la página.`)
+  async function chooseRole(nextRole: DemoRole | null) {
+    const currentSelection = ++selection.current
+    setActiveToken(null)
+    setToken(null)
+    setRole(null)
+    setSelecting(!!nextRole)
+    setPage('events')
+    setSessionVersion((version) => version + 1)
+    if (!nextRole) { setMessage(''); return }
+    try {
+      const nextToken = await requestDemoToken(nextRole)
+      if (selection.current !== currentSelection) return
+      setActiveToken(nextToken)
+      setToken(nextToken)
+      setMessage('')
+    } catch (error) {
+      if (selection.current !== currentSelection) return
+      setMessage(error instanceof Error ? error.message : 'No se pudo obtener un JWT de prueba.')
       return
+    } finally {
+      if (selection.current === currentSelection) setSelecting(false)
     }
-    setActiveToken(nextToken)
     setRole(nextRole)
     setPage(nextRole === 'ADMIN' || nextRole === 'ORGANIZER' ? 'operations' : 'events')
-    setSessionVersion((version) => version + 1)
-    setMessage('')
   }
+
+  useEffect(() => {
+    if (!role || !claims) return
+    const currentSelection = selection.current
+    let cancelled = false
+    let retryTimer: number | undefined
+    const renew = async () => {
+      try {
+        const nextToken = await requestDemoToken(role)
+        if (cancelled || selection.current !== currentSelection) return
+        renewActiveToken(nextToken)
+        setToken(nextToken)
+        setMessage('')
+      } catch {
+        if (cancelled || selection.current !== currentSelection) return
+        if (claims.exp * 1000 <= Date.now()) {
+          setActiveToken(null)
+          setRole(null)
+          setToken(null)
+          setPage('events')
+          setMessage('La sesión de prueba venció y no se pudo renovar. Seleccioná el perfil nuevamente.')
+        } else {
+          setMessage('No se pudo renovar el JWT de prueba. Se reintentará antes del vencimiento.')
+          retryTimer = window.setTimeout(renew, 30_000)
+        }
+      }
+    }
+    const delay = Math.max(0, claims.exp * 1000 - Date.now() - 300_000)
+    const timer = window.setTimeout(renew, delay)
+    return () => { cancelled = true; window.clearTimeout(timer); window.clearTimeout(retryTimer) }
+  }, [role, token])
 
   const identityKey = `${role ?? 'anonymous'}:${claims?.sub ?? ''}:${sessionVersion}`
 
@@ -63,13 +112,13 @@ export default function App() {
           <div className="session-controls">
             {role && <span className="session-indicator">{roleLabels[role]} · {claims?.sub.slice(0, 8)}…</span>}
             <label htmlFor="demo-profile">Perfil</label>
-            <select id="demo-profile" value={role ?? ''} onChange={(event) => chooseRole(event.target.value as DemoRole || null)}>
+            <select id="demo-profile" value={role ?? ''} disabled={selecting} onChange={(event) => void chooseRole(event.target.value as DemoRole || null)}>
               <option value="">Sin sesión</option>
               <option value="CLIENT">Cliente</option>
               <option value="ORGANIZER">Organizador</option>
               <option value="ADMIN">Administrador</option>
             </select>
-            {role && <button type="button" className="button-quiet" onClick={() => chooseRole(null)}>Salir</button>}
+            {role && <button type="button" className="button-quiet" onClick={() => void chooseRole(null)}>Salir</button>}
           </div>
         </header>
         <main>
