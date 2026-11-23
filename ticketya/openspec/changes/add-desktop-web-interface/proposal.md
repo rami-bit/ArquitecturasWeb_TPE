@@ -10,7 +10,7 @@ TicketYa ya expone por el Gateway los flujos principales de compra y gestión, p
 - Incorporar un área de gestión para `ORGANIZER` y `ADMIN`: borradores, publicación, reportes y, para `ADMIN`, sedes, suspensión, reanudación, cancelación, decisiones de devolución y auditoría.
 - Incorporar un selector local de perfiles de demostración con login/logout simulado. Los JWT de prueba se hardcodean en una configuración **local no versionada** de la interfaz; no se implementa proveedor de identidad ni se modifican las reglas de autorización del Gateway.
 - Mostrar vencimiento de sesión y permitir sustituir los JWT de una hora emitidos por el IdP de prueba antes de cada demostración.
-- Una vez implementado el cambio `complete-f11-notifications-and-event-postponement`, agregar registro de email propio y postergación de eventos publicados según sus contratos. Hasta entonces esas acciones no estarán disponibles en la interfaz.
+- Incorporar desde el inicio el registro de email propio y la postergación de eventos publicados mediante los contratos F11 ya implementados. En «Mis entradas», consultar la fecha vigente en el detalle público de Catalog por `eventId`, manteniendo la fecha histórica de la orden y advirtiendo cuando la vigente no pueda consultarse.
 - Documentar arranque local, datos de prueba, renovación de tokens y recorridos de demostración. No se exige diseño adaptable a móvil.
 
 ## Capabilities
@@ -23,8 +23,8 @@ TicketYa ya expone por el Gateway los flujos principales de compra y gestión, p
 
 ### Modified Capabilities
 
-Ninguna. La interfaz consume los contratos públicos existentes y los que agregará F11 sin alterar sus requisitos.
+Ninguna. La interfaz consume los contratos públicos existentes, incluidos los de F11, sin alterar sus requisitos.
 
 ## Impact
 
-Nuevo proyecto frontend, configuración local de tokens, proxy local hacia `api-gateway`, documentación de ejecución y pruebas de interfaz/integración por Gateway. No se agregan tablas, endpoints ni servicios de dominio. La sección F11 de la interfaz depende de que el cambio OpenSpec activo entregue y documente sus rutas; el resto puede implementarse contra el backend actual. Trazabilidad: PDF-INTERFAZ-GRAFICA, PDF-F1-F4, PDF-F6-F7, PDF-F9-F12 y PDF-NF-SECURITY.
+Nuevo proyecto frontend, configuración local de tokens, proxy local hacia `api-gateway`, documentación de ejecución y pruebas de interfaz/integración por Gateway. No se agregan tablas, endpoints ni servicios de dominio. Los contratos F11 ya están disponibles; la fecha vigente se obtiene de Catalog y no de un campo nuevo en la respuesta de Purchase. Trazabilidad: PDF-INTERFAZ-GRAFICA, PDF-F1-F4, PDF-F6-F7, PDF-F9-F12 y PDF-NF-SECURITY.

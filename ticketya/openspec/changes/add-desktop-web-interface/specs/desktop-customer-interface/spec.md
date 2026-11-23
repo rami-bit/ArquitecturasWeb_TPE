@@ -106,14 +106,18 @@ La interfaz SHALL permitir al cliente editar sus preferencias y consultar recome
 - **WHEN** el cliente selecciona un evento recomendado
 - **THEN** la interfaz abre su detalle público y consulta disponibilidad actual antes de ofrecer compra
 
-### Requirement: Integrar las funciones F11 cuando estén disponibles
+### Requirement: Registrar email y mostrar la fecha vigente del evento
 
-Tras implementarse el cambio F11, la interfaz SHALL permitir registrar/consultar el email propio y mostrar la fecha vigente del evento en las entradas compradas, diferenciándola de la fecha histórica de la orden. Trazabilidad: PDF-F11.
+La interfaz SHALL permitir al `CLIENT` registrar y consultar su email propio por las rutas F11. En «Mis entradas», SHALL conservar `eventStartsAt` de la orden como fecha histórica y consultar `GET /api/events/{id}` por `eventId` para mostrar el `startsAt` vigente cuando el detalle público esté disponible. SHALL advertir cuando no pueda obtener la fecha vigente, sin inferirla de la orden. Trazabilidad: PDF-F11.
 
-#### Scenario: F11 aún no implementado
-- **WHEN** el backend desplegado no ofrece los contratos públicos de F11
-- **THEN** la interfaz no muestra acciones de email ni presenta una fecha histórica como si fuera la vigente
+#### Scenario: Registrar y consultar email propio
+- **WHEN** el cliente guarda y vuelve a consultar su dirección de contacto
+- **THEN** la interfaz muestra el email confirmado por `PUT` y `GET /api/notifications/me/email`
 
-#### Scenario: Evento postergado con F11 implementado
-- **WHEN** la orden informa una `currentEventStartsAt` distinta de `eventStartsAt`
-- **THEN** la interfaz destaca la fecha vigente y conserva visible la fecha histórica como dato de compra
+#### Scenario: Evento postergado con detalle público disponible
+- **WHEN** la orden contiene un `eventStartsAt` histórico y el detalle público del mismo `eventId` devuelve un `startsAt` posterior
+- **THEN** la interfaz destaca la fecha vigente de Catalog y conserva visible la fecha histórica como dato de compra
+
+#### Scenario: Fecha vigente no disponible
+- **WHEN** Catalog devuelve `404` para un evento no visible públicamente o falla la consulta del detalle
+- **THEN** la interfaz indica que no pudo obtener la fecha vigente y muestra `eventStartsAt` sólo como fecha histórica

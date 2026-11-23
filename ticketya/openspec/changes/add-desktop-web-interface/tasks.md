@@ -43,12 +43,12 @@
 - [ ] 6.4 Implementar búsqueda de auditoría y detalle por correlación; verificar filtros y que no se muestren JWT, secretos ni credenciales.
 - [ ] 6.5 Documentar operaciones administrativas y límite de consulta de devoluciones en `frontend/README.md`; verificar que los pasos corresponden a rutas públicas existentes.
 
-## 7. Integración condicionada de F11
+## 7. Funciones F11
 
-- [ ] 7.1 Tras implementarse `complete-f11-notifications-and-event-postponement`, agregar bandera local y formulario de email propio; verificar ocultamiento con bandera desactivada y lectura/guardado por Gateway con bandera activada.
-- [ ] 7.2 Mostrar `currentEventStartsAt` y distinguirlo de `eventStartsAt` en entradas compradas; verificar postergación y advertencia cuando la fecha vigente no esté disponible.
+- [ ] 7.1 Implementar el formulario de email propio para `CLIENT` con `GET/PUT /api/notifications/me/email`; verificar lectura, guardado, ausencia de contacto y rechazo de acceso ajeno por Gateway.
+- [ ] 7.2 En «Mis entradas», conservar `eventStartsAt` histórico de la orden y consultar `GET /api/events/{id}` por `eventId` para mostrar la fecha vigente; verificar postergación, varias órdenes del mismo evento y advertencia ante `404` o fallo de Catalog sin presentar la fecha histórica como vigente.
 - [ ] 7.3 Implementar postergación para dueño/ADMIN con revisión, clave idempotente y validación previa de fecha; verificar éxito, adelanto, igualdad a 72 horas, `409` por revisión y rol ajeno por Gateway.
-- [ ] 7.4 Documentar dependencia de F11, activación de pantallas y verificación de correos en Mailpit en `frontend/README.md`; verificar recorrido completo con el stack F11 ya saludable.
+- [ ] 7.4 Documentar las pantallas F11, la diferencia entre fecha histórica y vigente y la verificación de correos en Mailpit en `frontend/README.md`; verificar el recorrido completo por Gateway con el stack saludable.
 
 ## 8. Integración final
 

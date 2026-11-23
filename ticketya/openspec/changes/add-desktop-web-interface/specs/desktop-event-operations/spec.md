@@ -94,13 +94,9 @@ La interfaz SHALL permitir a `ADMIN` consultar la bitácora pública por sus fil
 - **WHEN** el administrador aplica filtros de auditoría admitidos
 - **THEN** la interfaz muestra las entradas devueltas y permite seguir una operación por su identificador de correlación
 
-### Requirement: Postergar eventos cuando F11 esté implementado
+### Requirement: Postergar eventos publicados
 
-Tras implementarse F11, la interfaz SHALL ofrecer a dueño `ORGANIZER` o `ADMIN` postergar un evento `PUBLISHED` sólo hacia una fecha posterior a la vigente y al momento de gestión más 72 horas. SHALL enviar la revisión y clave idempotente que exige Catalog, y mostrar el resultado confirmado. Trazabilidad: PDF-F11.
-
-#### Scenario: F11 aún no implementado
-- **WHEN** el backend desplegado no ofrece el contrato de postergación de F11
-- **THEN** la interfaz no muestra la acción de postergar
+La interfaz SHALL ofrecer a dueño `ORGANIZER` o `ADMIN` postergar un evento `PUBLISHED` sólo hacia una fecha posterior a la vigente y al momento de gestión más 72 horas. SHALL enviar la revisión y clave idempotente que exige Catalog, y mostrar el resultado confirmado. Trazabilidad: PDF-F11.
 
 #### Scenario: Postergación confirmada
 - **WHEN** el usuario autorizado confirma una nueva fecha válida para un evento publicado
