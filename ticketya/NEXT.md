@@ -2,10 +2,10 @@
 
 ## Ampliación PDF-F11 — email SMTP y postergación (2026-11-22)
 
-**Estado:** implementación en curso; cambio OpenSpec activo `complete-f11-notifications-and-event-postponement` con 5/11 tareas comprobadas. Los módulos Notification, Catalog, Gateway y Purchase pasaron 19, 78, 66 y 97 pruebas recientes respectivamente, sin fallos ni omisiones. El reactor limpio se interrumpió a pedido del usuario tras validar los caminos críticos; Compose, Postman y Mailpit no se ejecutaron en esta etapa. Ver `docs/verification.md`.
+**Estado:** caminos F11 modificados comprobados; cambio OpenSpec activo `complete-f11-notifications-and-event-postponement` con 8/11 tareas completas. Los módulos Notification, Catalog, Gateway y Purchase pasaron 19, 78, 66 y 97 pruebas recientes respectivamente, sin fallos ni omisiones. El reactor limpio se interrumpió a pedido del usuario. El Compose dirigido quedó 15/15 saludable; Postman por Gateway pasó 29 requests y 45 aserciones; Mailpit capturó cuatro correos de compra/postergación y dos tras recuperar SMTP. Ver `docs/verification.md`.
 
 - Implementados: contacto `PUT/GET /api/notifications/me/email`, SMTP para `EMAIL`, `SKIPPED_NO_CONTACT`, Mailpit en Compose, postergación autorizada e idempotente con revisión/historial, fecha vigente en descubrimiento y `EVENT_POSTPONED` para compradores.
-- Pendiente para cerrar: `mvn clean verify` completo y XML recientes; stack aislado `healthy`; Postman por Gateway; correo real capturado y comprobado por API de Mailpit; caída/recuperación SMTP real; validación estricta final de OpenSpec y `git diff --check`.
+- Pendiente para cerrar el cambio completo: `mvn clean verify` del reactor y sus XML; Postman de publicación relevante para fans; validación estricta final de OpenSpec y `git diff --check`. No se ejecutó regresión de servicios no tocados por indicación del usuario.
 - Riesgo vigente: el publicador de Purchase/Catalog no tiene outbox durable; si Notification Service sigue caído tras los reintentos, el hecho queda sólo en el log local. Mailpit captura correo local y no prueba entrega externa.
 
 ## PDF-F11 - Notificaciones al cliente (2026-11-20)

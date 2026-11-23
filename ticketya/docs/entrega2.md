@@ -1,6 +1,6 @@
 # Entrega 2 — Sistema completo
 
-> **Estado de la ampliación F11 (22/11/2026):** el código para email SMTP y postergación está implementado y los cuatro módulos afectados pasaron sus pruebas. A pedido del usuario se interrumpió el reactor y quedaron pendientes Compose, Postman y la comprobación de correo en Mailpit. No se atribuye a esta ampliación la evidencia histórica de 20/11. Ver [`verification.md`](verification.md) y el cambio activo `complete-f11-notifications-and-event-postponement`.
+> **Estado de la ampliación F11 (22/11/2026):** email SMTP y postergación están implementados. Pasaron las pruebas de los cuatro módulos afectados, el flujo dirigido por Gateway y la comprobación de seis correos en Mailpit, incluida la recuperación de SMTP. A pedido del usuario se interrumpió el reactor y se omitió la regresión de capacidades no modificadas. El cambio OpenSpec sigue activo; ver [`verification.md`](verification.md).
 
 > **Actualización 20/11/2026 — PDF-F11 implementada.** `notification-service` (puerto 8088, base `ticketya_notification`) envía email y push simulados al confirmar o cancelar una compra, al suspender, reanudar o cancelar un evento, y cuando un artista favorito publica un evento en la ciudad del cliente. Verificación: ver la primera sección de [`verification.md`](verification.md).
 
@@ -17,7 +17,7 @@ Este documento es la carátula del entregable 2 del enunciado (`TPE-ArqWeb-Ticke
 | F6 — Fila virtual de alta demanda | Implementado | `queue-service` + PostgreSQL; Postman `F6-01`…`F6-17` |
 | F8 — Control de acceso con QR | Implementado | `/api/access/**`; Postman 32 y 37–42 |
 | F10 — Preferencias y recomendaciones | Implementado | `preferences-service` + MongoDB 7; Postman `F10-01`…`F10-09` |
-| F11 — Notificaciones | Ampliación implementada; cierre pendiente | Base F11 archivada y verificada el 20/11; email SMTP y postergación implementados el 22/11, pendientes de E2E con Mailpit |
+| F11 — Notificaciones | Ampliación comprobada en caminos modificados; cierre pendiente | Base F11 archivada y verificada el 20/11; email SMTP y postergación comprobados por Gateway y Mailpit el 22/11 |
 | F12 — Reportes para organizadores | Implementado | `/api/reports/**`; Postman 28–31 y 43 |
 | Base NoSQL justificada | Implementado | MongoDB 7 en `preferences-db`; decisión D2 del cambio archivado |
 | JWT con roles y aislamiento | Implementado | E2-01 + validación por rol en Gateway y servicios |
@@ -59,4 +59,4 @@ Detalle en [`verification.md`](verification.md).
 
 ## Pendiente verificable
 
-La ampliación F11 de email SMTP y postergación está implementada en código, pero su cierre verificable sigue pendiente: reactor completo, Compose aislado, Postman por Gateway, correo capturado en Mailpit y prueba de caída/recuperación SMTP. Mailpit es un receptor local; la entrega a una casilla externa sigue fuera del alcance didáctico. Ver el estado medido en [`verification.md`](verification.md).
+La ampliación F11 de email SMTP y postergación pasó el recorrido dirigido por Gateway, Mailpit y la prueba de caída/recuperación SMTP. El cambio completo sigue abierto por el reactor, la prueba Postman de publicación relevante para fans y los controles finales de OpenSpec. Mailpit es un receptor local; la entrega a una casilla externa sigue fuera del alcance didáctico. Ver el estado medido en [`verification.md`](verification.md).

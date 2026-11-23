@@ -1163,7 +1163,7 @@
       "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
         "pm.test('Postergación 200', () => pm.response.to.have.status(200));",
         "const p = pm.response.json();",
-        "pm.test('Revisión y fechas del cambio', () => { pm.expect(p.eventId).to.eql(pm.collectionVariables.get('eventId')); pm.expect(p.scheduleRevision).to.eql(1); pm.expect(new Date(p.startsAt).getTime()).to.be.above(new Date(p.previousStartsAt).getTime()); pm.expect(p.changeId).to.be.a('string'); });",
+        "pm.test('Revisión y fechas del cambio', () => { pm.expect(p.eventId).to.eql(pm.variables.get('eventId')); pm.expect(p.scheduleRevision).to.eql(1); pm.expect(new Date(p.startsAt).getTime()).to.be.above(new Date(p.previousStartsAt).getTime()); pm.expect(p.changeId).to.be.a('string'); });",
         "pm.collectionVariables.set('postponeChangeId', p.changeId);"
       ] } }]
     },
@@ -1254,7 +1254,7 @@
       },
       "response": [],
       "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-        "pm.test('Evento aparece en rango nuevo', () => { pm.response.to.have.status(200); const hit = pm.response.json().items.find(e => e.id === pm.collectionVariables.get('eventId')); pm.expect(hit).to.not.be.undefined; pm.expect(new Date(hit.startsAt).toISOString()).to.eql(new Date('2030-07-01T20:00:00-03:00').toISOString()); });"
+        "pm.test('Evento aparece en rango nuevo', () => { pm.response.to.have.status(200); const hit = pm.response.json().items.find(e => e.id === pm.variables.get('eventId')); pm.expect(hit).to.not.be.undefined; pm.expect(new Date(hit.startsAt).toISOString()).to.eql(new Date('2030-07-01T20:00:00-03:00').toISOString()); });"
       ] } }]
     },
     {
@@ -1265,7 +1265,7 @@
       },
       "response": [],
       "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-        "pm.test('Evento no aparece en rango original', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().items.some(e => e.id === pm.collectionVariables.get('eventId'))).to.be.false; });"
+        "pm.test('Evento no aparece en rango original', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().items.some(e => e.id === pm.variables.get('eventId'))).to.be.false; });"
       ] } }]
     },
     {
@@ -1278,9 +1278,9 @@
       "response": [],
       "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
         "pm.test('Bandeja disponible', () => pm.response.to.have.status(200));",
-        "const check = items => { const found = items.filter(n => n.eventId === pm.collectionVariables.get('eventId')); pm.test('Un aviso por canal con ambas fechas', () => { pm.expect(found).to.have.length(2); pm.expect(found.map(n => n.channel)).to.include.members(['EMAIL','PUSH']); found.forEach(n => { pm.expect(n.body).to.include('2030-06-01'); pm.expect(n.body).to.include('2030-07-01'); }); }); };",
+        "const check = items => { const found = items.filter(n => n.eventId === pm.variables.get('eventId')); pm.test('Un aviso por canal con ambas fechas', () => { pm.expect(found).to.have.length(2); pm.expect(found.map(n => n.channel)).to.include.members(['EMAIL','PUSH']); found.forEach(n => { pm.expect(n.body).to.include('2030-06-01'); pm.expect(n.body).to.include('2030-07-01'); }); }); };",
         "const first = pm.response.json().items;",
-        "if (first.filter(n => n.eventId === pm.collectionVariables.get('eventId')).length >= 2) { check(first); } else { let attempts = 0; const again = () => pm.sendRequest({ url: pm.variables.get('baseUrl') + '/api/notifications/me?type=EVENT_POSTPONED&size=50', method: 'GET', header: [{ key: 'Authorization', value: 'Bearer ' + pm.variables.get('clientToken') }] }, (err, res) => { const items = !err && res.code === 200 ? res.json().items : []; if (items.filter(n => n.eventId === pm.collectionVariables.get('eventId')).length >= 2 || attempts >= 20) { check(items); } else { attempts += 1; setTimeout(again, 2000); } }); again(); }"
+        "if (first.filter(n => n.eventId === pm.variables.get('eventId')).length >= 2) { check(first); } else { let attempts = 0; const again = () => pm.sendRequest({ url: pm.variables.get('baseUrl') + '/api/notifications/me?type=EVENT_POSTPONED&size=50', method: 'GET', header: [{ key: 'Authorization', value: 'Bearer ' + pm.variables.get('clientToken') }] }, (err, res) => { const items = !err && res.code === 200 ? res.json().items : []; if (items.filter(n => n.eventId === pm.variables.get('eventId')).length >= 2 || attempts >= 20) { check(items); } else { attempts += 1; setTimeout(again, 2000); } }); again(); }"
       ] } }]
     },
     {
