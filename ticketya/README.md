@@ -580,6 +580,16 @@ Authorization: Bearer <JWT con roles=["CLIENT"]>
 
 Antes de recibir un email, el cliente registra su dirección propia con `PUT /api/notifications/me/email` y `{"email":"cliente@example.com"}`. `GET` en esa misma ruta devuelve `{"email":null}` cuando aún no tiene contacto. La identidad sale del JWT; no se admite `customerId` en el cuerpo. Si no hay contacto al procesar un aviso, el canal EMAIL queda `SKIPPED_NO_CONTACT` y no se reenvía retroactivamente al registrar uno.
 
+### Verificar un correo en Mailpit
+
+1. Iniciá el stack desde la raíz con `docker compose up -d --wait` y abrí `http://127.0.0.1:8025` en el navegador. Si la página no carga, comprobá `docker compose ps mailpit`.
+2. En la interfaz de TicketYa, seleccioná **Cliente** y guardá una dirección en **Email de contacto** antes de generar el aviso.
+3. Hacé una compra aprobada con `tok_approved`. También podés comprar una entrada y luego postergar ese evento como organizador o administrador. La entrega es asíncrona: esperá unos segundos y actualizá Mailpit.
+4. En Mailpit, buscá la dirección registrada, abrí el mensaje y comprobá destinatario, asunto y cuerpo. La compra genera `ORDER_CONFIRMED`; la postergación genera `EVENT_POSTPONED` con las fechas anterior y nueva.
+5. Para contrastar el resultado, consultá `GET /api/notifications/me?type=ORDER_CONFIRMED&page=0&size=20` por el Gateway con el JWT del cliente (o usá `EVENT_POSTPONED` como tipo). La entrada con `channel: "EMAIL"` y `status: "SENT"` confirma que Mailpit aceptó el mensaje por SMTP. `PENDING` indica que aún no se entregó y `SKIPPED_NO_CONTACT` que no había email al procesar el aviso.
+
+Mailpit captura correos localmente; no verifica entrega a una casilla externa. Registrar el email después de la compra no reenvía avisos anteriores.
+
 El organizador dueño o ADMIN posterga un evento publicado aún no iniciado con `PATCH /api/management/events/{id}/schedule`, encabezado `Idempotency-Key` y cuerpo `{"startsAt":"2030-02-01T20:00:00-03:00","expectedScheduleRevision":0}`. La nueva fecha debe ser posterior a la vigente y al instante de gestión más 72 horas. Un replay idéntico devuelve el mismo `changeId`; una revisión obsoleta o clave reutilizada con otro cuerpo devuelve `409`. Búsqueda, detalle y recomendaciones muestran la fecha vigente; el snapshot, entradas y QR conservan la fecha histórica. La regla de devolución de Purchase usa la nueva fecha pública.
 
 Cada notificación informa `channel` (`EMAIL`/`PUSH`) y `status` (`PENDING`, `SENT`, `FAILED`, `SKIPPED_NO_CONTACT`). Para EMAIL, `SENT` significa que Mailpit aceptó el mensaje por SMTP; no demuestra recepción en una casilla externa. La entrega es asíncrona: Purchase y Catalog responden sin esperar, y el servicio procesa cada segundo. Los reenvíos del mismo hecho no duplican avisos lógicos. Si Purchase, Preferences o SMTP fallan, Notification reintenta con espera exponencial. El publicador de Purchase y Catalog conserva un límite: tras fallos acotados del envío a Notification deja sólo un log local, sin recuperación durable automática. Para ver las entregas simuladas de PUSH:
